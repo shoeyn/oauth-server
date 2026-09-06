@@ -146,9 +146,16 @@
         <td style="padding: 0.5rem 0; color: var(--text-muted);">Token Protection</td>
         <td style="padding: 0.5rem 0;"><code>DPoP</code> (RFC 9449 - Sender-Constrained)</td>
       </tr>
-      <tr>
+      <tr style="border-bottom: 1px solid var(--border);">
         <td style="padding: 0.5rem 0; color: var(--text-muted);">Requested Scopes</td>
         <td style="padding: 0.5rem 0;"><em>None (Strictly Server-Determined & Pre-Assigned)</em></td>
+      </tr>
+      <tr>
+        <td style="padding: 0.5rem 0; color: var(--text-muted);">Client Config Storage</td>
+        <td style="padding: 0.5rem 0;">
+          LocalStack S3 (<code>s3://oauth2-clients/clients/demo-client.json</code>) &middot;
+          <a href="http://localhost:3001" target="_blank" style="color: var(--primary); text-decoration: underline;">Open Next.js Client Manager &rarr;</a>
+        </td>
       </tr>
     </tbody>
   </table>

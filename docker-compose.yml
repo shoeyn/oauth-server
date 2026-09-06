@@ -24,6 +24,42 @@ services:
       redis:
         condition: service_healthy
 
+  localstack:
+    image: localstack/localstack:3.8
+    container_name: poc-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - AWS_DEFAULT_REGION=us-east-1
+    volumes:
+      - ./localstack/init:/etc/localstack/init/ready.d
+    healthcheck:
+      test: ["CMD", "curl", "-s", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  client-manager:
+    build:
+      context: ./client-manager
+    container_name: poc-client-manager
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - S3_ENDPOINT=http://localstack:4566
+      - S3_BUCKET=oauth2-clients
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_started
+
   spring-auth-server:
     build:
       context: ./spring-auth-server
@@ -35,10 +71,17 @@ services:
       - REDIS_PORT=6379
       - RAILS_LOGIN_URL=http://localhost:3000/login
       - AUTH_SERVER_ISSUER=http://localhost:9000
+      - AWS_S3_ENDPOINT=http://localstack:4566
+      - AWS_S3_BUCKET=oauth2-clients
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
     depends_on:
       redis:
         condition: service_healthy
       rails-app:
+        condition: service_started
+      localstack:
         condition: service_started
 
   demo-client:

@@ -15,6 +15,14 @@ auth:
   server:
     issuer-url: ${AUTH_SERVER_ISSUER:http://localhost:9000}
 
+aws:
+  s3:
+    endpoint: ${AWS_S3_ENDPOINT:http://localhost:4566}
+    bucket: ${AWS_S3_BUCKET:oauth2-clients}
+  region: ${AWS_REGION:us-east-1}
+  access-key-id: ${AWS_ACCESS_KEY_ID:test}
+  secret-access-key: ${AWS_SECRET_ACCESS_KEY:test}
+
 logging:
   level:
     org.springframework.security: DEBUG

@@ -76,7 +76,7 @@ public class AuthorizationServerConfig {
     @Order(Ordered.HIGHEST_PRECEDENCE)
     public SecurityFilterChain authorizationServerSecurityFilterChain(
             HttpSecurity http,
-            RegisteredClientRepository registeredClientRepository,
+            com.example.authserver.client.S3RegisteredClientRepository registeredClientRepository,
             RSAPublicKey demoClientPublicKey,
             StringRedisTemplate redisTemplate,
             OidcBackChannelLogoutService oidcBackChannelLogoutService) throws Exception {
@@ -172,7 +172,7 @@ public class AuthorizationServerConfig {
                             converters.add(new StrictClientAssertionAuthenticationConverter());
                         });
                         clientAuthentication.authenticationProviders(
-                            configureClientAssertionAuthentication(demoClientPublicKey, redisTemplate)
+                            configureClientAssertionAuthentication(registeredClientRepository, demoClientPublicKey, redisTemplate)
                         );
                     })
             )
@@ -198,6 +198,7 @@ public class AuthorizationServerConfig {
     }
 
     private Consumer<List<AuthenticationProvider>> configureClientAssertionAuthentication(
+            com.example.authserver.client.S3RegisteredClientRepository s3RegisteredClientRepository,
             RSAPublicKey demoClientPublicKey,
             StringRedisTemplate redisTemplate) {
         return (authenticationProviders) -> {
@@ -209,7 +210,12 @@ public class AuthorizationServerConfig {
                 if (provider instanceof JwtClientAssertionAuthenticationProvider jwtClientAssertionProvider) {
                     jwtClientAssertionProvider.setJwtDecoderFactory((registeredClient) -> {
                         log.info("Configuring JwtDecoder for registered client: {}", registeredClient.getClientId());
-                        NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(demoClientPublicKey).build();
+                        RSAPublicKey clientKey = s3RegisteredClientRepository.getClientPublicKey(registeredClient.getClientId());
+                        if (clientKey == null) {
+                            log.warn("Public key not found in S3 repository for client '{}', falling back to default key", registeredClient.getClientId());
+                            clientKey = demoClientPublicKey;
+                        }
+                        NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(clientKey).build();
 
                         // Security Improvement: Clock skew tolerance limited to 60s to reject expired client assertion tokens
                         OAuth2TokenValidator<Jwt> timestampValidator = new JwtTimestampValidator(Duration.ofSeconds(60));
@@ -266,47 +272,6 @@ public class AuthorizationServerConfig {
                 }
             }
         };
-    }
-
-    @Bean
-    public RegisteredClientRepository registeredClientRepository() {
-        RegisteredClient demoClient = RegisteredClient.withId(UUID.randomUUID().toString())
-                .clientId("demo-client")
-                // Supports private_key_jwt client authentication
-                .clientAuthenticationMethod(ClientAuthenticationMethod.PRIVATE_KEY_JWT)
-                // Supports standard OAuth 2.1 grant types
-                .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-                .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
-                .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
-                // Redirect URIs
-                .redirectUri("http://127.0.0.1:8080/callback")
-                .redirectUri("http://localhost:8080/callback")
-                .redirectUri("http://demo-client:8080/callback")
-                .postLogoutRedirectUri("http://127.0.0.1:8080/")
-                .postLogoutRedirectUri("http://localhost:8080/")
-                .postLogoutRedirectUri("http://demo-client:8080/")
-                // Scopes
-                .scope(OidcScopes.OPENID)
-                .scope(OidcScopes.PROFILE)
-                .scope(OidcScopes.EMAIL)
-                .scope("user.read")
-                // Auto-assigned scope unlocking the privileged UserInfo claim
-                .scope("demo.secret_access")
-                // OAuth 2.1 settings: enforce PKCE
-                .clientSettings(ClientSettings.builder()
-                        .requireProofKey(true) // PKCE strictly required to protect authorization code exchange against interception
-                        .requireAuthorizationConsent(false)
-                        .build())
-                .tokenSettings(TokenSettings.builder()
-                        .accessTokenFormat(OAuth2TokenFormat.SELF_CONTAINED)
-                        .accessTokenTimeToLive(Duration.ofMinutes(15)) // 15-minute access token lifespan
-                        .reuseRefreshTokens(false) // Refresh Token Rotation (RFC 6749 Section 10.4 & OAuth 2.1)
-                        .refreshTokenTimeToLive(Duration.ofDays(30)) // 30-day refresh token lifespan
-                        .idTokenSignatureAlgorithm(SignatureAlgorithm.RS256)
-                        .build())
-                .build();
-
-        return new InMemoryRegisteredClientRepository(demoClient);
     }
 
     // Architecture & Security: Pre-determined client scopes assigned strictly from registered client.

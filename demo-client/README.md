@@ -26,16 +26,19 @@ A modern, production-grade OAuth 2.1 and OpenID Connect (OIDC) client applicatio
    - Validates that the callback contains `iss` matching the configured Authorization Server URL to mitigate Mix-Up attacks.
 
 6. **Server-Determined Scopes**:
-   - The client requests NO scopes (`scope` parameter omitted). Authorized scopes are pre-determined by the Authorization Server.
+   - The client requests NO scopes (`scope` parameter omitted). Authorized scopes are pre-determined by the Authorization Server and configured in S3 via the Next.js Client Manager.
 
 7. **RFC 7009 & RFC 7662: Token Revocation & Introspection**:
    - Interactive revocation button on `/profile` revokes tokens and flushes the Redis session.
 
-8. **OIDC Back-Channel Logout 1.0**:
+8. **OpenID Connect Back-Channel Logout 1.0**:
    - Receives signed `logout_token` JWS at `POST /oidc/backchannel_logout` and evicts active sessions from Redis.
 
 9. **Persistent Redis Token Store (DB 1)**:
    - Tokens and DPoP keys are stored securely in Redis DB 1, surviving server restarts.
+
+10. **Dynamic S3 Client Management Integration**:
+    - Registered client configuration, public key, redirect URIs, and scopes are stored in S3 (`oauth2-clients/clients/demo-client.json`) and manageable live via the Next.js Client Manager (`http://localhost:3001`).
 
 ---
 
@@ -47,9 +50,20 @@ cd demo-client
 mise exec -- bundle install
 mise exec -- bundle exec puma -b tcp://0.0.0.0:8080
 ```
-Visit: `http://localhost:8080`
+Visit: **`http://localhost:8080`**
 
-### Running the Functional Test Suite
+### With Docker Compose
+```bash
+docker compose up -d demo-client
+```
+
+---
+
+## Running the Automated Functional Test Suite
+
 ```bash
 bash functional_tests/run_functional_tests.sh
 ```
+Runs both:
+- `test_oauth_security_features.rb` (PAR, DPoP, PKCE, Issuer ID, Revocation, Introspection, Back-Channel Logout)
+- `test_s3_dynamic_client_reload.rb` (S3 CRUD, Redis hot-reload, dynamic client token exchange, and revocation)

@@ -7,52 +7,56 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 ## High-Level Architecture & Standards Compliance
 
 ```
-                                  Browser / User-Agent
-                 ┌──────────────────────────────────────────────────────┐
-                 │  - Visits Demo Client (http://localhost:8080)         │
-                 │  - Redirected via PAR request_uri to /oauth2/authorize│
-                 │  - Authenticates at Rails IdP (http://localhost:3000) │
-                 │  - Returns with code & iss to Demo Client callback    │
-                 └──────────────────────────┬───────────────────────────┘
-                                            │
-               Direct Browser Redirects     │     Direct Browser Redirects
-                                            ▼
-┌───────────────────────────────┐               ┌─────────────────────────────────┐
-│     Ruby Demo Client          │               │       Rails Identity Provider   │
-│   (http://localhost:8080)     │               │     (http://localhost:3000)     │
-├───────────────────────────────┤               ├─────────────────────────────────┤
-│ • Zero Client Scopes          │               │ • User Authentication UI        │
-│ • Ephemeral DPoP Key Pair     │               │ • Sets SHARED_SESSION_ID cookie │
-│ • Local Redis Session (DB 1)  │               │ • Writes user details to Redis  │
-│ • Back-Channel Logout Receiver│               └───────────────┬─────────────────┘
-└───────────────┬───────────────┘                               │
-                │                                               │
-   Backchannel  │ Backchannel PAR, Code Exchange,               │ Shared Session
-   Logout Push  │ Introspection & Revocation                    │ Context
-   (/oidc/...)  │ (DPoP + private_key_jwt)                      │ (session:<id>)
-                ▼                                               ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    Spring Authorization Server (http://localhost:9000)           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│ • RFC 9126: Native Pushed Authorization Requests (PAR)                           │
-│ • RFC 7523: Strict private_key_jwt Authentication (weak methods rejected)        │
-│ • RFC 9449: Strictly Enforced DPoP Tokens (Sender-Constrained cnf.jkt binding)   │
-│ • RFC 7636: Proof Key for Code Exchange (PKCE S256) strictly enforced            │
-│ • RFC 9207: Authorization Server Issuer Identification (Mix-Up Attack defense)  │
-│ • Server-Determined Authorization Scopes (zero client scope tampering)           │
-│ • RFC 7009: Token Revocation & RFC 7662: Token Introspection                     │
-│ • OpenID Connect Back-Channel Logout 1.0 (asynchronous signed logout_token)     │
-│ • SharedRedisSessionFilter: SSO bridge with Rails IdP via Redis                  │
-└──────────────────────────────────────┬──────────────────────────────────────────┘
-                                       │
-                                       ▼
-                        ┌──────────────────────────────┐
-                        │         Redis Server         │
-                        │    (localhost:6379)          │
-                        ├──────────────────────────────┤
-                        │ DB 0: Rails SSO & Spring JTI │
-                        │ DB 1: Demo Client Sessions   │
-                        └──────────────────────────────┘
+                                  Browser / User-Agent / Administrator
+                 ┌──────────────────────────────────────────────────────────────────┐
+                 │  - Visits Demo Client (http://localhost:8080)                    │
+                 │  - Redirected via PAR request_uri to /oauth2/authorize           │
+                 │  - Authenticates at Rails IdP (http://localhost:3000)            │
+                 │  - Returns with code & iss to Demo Client callback               │
+                 │  - Configures clients via Next.js Manager (http://localhost:3001)│
+                 └──────────────┬───────────────────┬───────────────────┬───────────┘
+                                │                   │                   │
+             Direct Browser     │    Direct Browser │    Client Admin   │
+             Redirects          ▼    Redirects      ▼    UI & WebCrypto ▼
+┌───────────────────────────────┐ ┌─────────────────────────┐ ┌─────────────────────────────────┐
+│     Ruby Demo Client          │ │ Rails Identity Provider │ │   Next.js Client Manager        │
+│   (http://localhost:8080)     │ │ (http://localhost:3000) │ │   (http://localhost:3001)       │
+├───────────────────────────────┤ ├─────────────────────────┤ ├─────────────────────────────────┤
+│ • Zero Client Scopes          │ │ • User Login UI         │ │ • In-Browser RSA Key Generator  │
+│ • Ephemeral DPoP Key Pair     │ │ • SHARED_SESSION_ID     │ │ • Server-Determined Scopes Config│
+│ • Local Redis Session (DB 1)  │ │ • Writes user to Redis  │ │ • REST API (/api/clients)       │
+│ • Back-Channel Logout Receiver│ └────────────┬────────────┘ └────────┬───────────────┬─────────┘
+└───────────────┬───────────────┘              │                       │ S3 JSON Put   │
+                │                              │                       ▼               │
+   Backchannel  │ Backchannel PAR & Token      │ Shared Session  ┌─────────────┐       │ Redis Pub/Sub
+   Logout Push  │ (DPoP + private_key_jwt)     │ Context         │ LocalStack  │       │ (Channel:
+   (/oidc/...)  │                              │ (session:<id>)  │ S3 (4566)   │       │ oauth2:clients:reload)
+                ▼                              ▼                 └──────┬──────┘       │
+┌───────────────────────────────────────────────────────────────────────┼──────────────┼─────────┐
+│                    Spring Authorization Server (http://localhost:9000)│              │         │
+├───────────────────────────────────────────────────────────────────────┼──────────────┼─────────┤
+│ • RFC 9126: Native Pushed Authorization Requests (PAR)                │ S3Client     │         │
+│ • RFC 7523: Strict private_key_jwt Authentication (weak methods off)  │ GetObject    │         │
+│ • RFC 9449: Strictly Enforced DPoP Tokens (Sender-Constrained cnf.jkt)│              │         │
+│ • RFC 7636: Proof Key for Code Exchange (PKCE S256) strictly enforced │              │         │
+│ • RFC 9207: Authorization Server Issuer Identification (Mix-Up defense)              │         │
+│ • Server-Determined Authorization Scopes (zero client scope tampering)               │         │
+│ • RFC 7009: Token Revocation & RFC 7662: Token Introspection                         │         │
+│ • OpenID Connect Back-Channel Logout 1.0 (asynchronous signed logout_token)         │         │
+│ • S3RegisteredClientRepository: Dynamic S3 client loader & in-memory cache <─────────┘         │
+│ • ClientReloadRedisSubscriber: Real-time hot-reloading on Redis signal <───────────────────────┘
+│ • SharedRedisSessionFilter: SSO bridge with Rails IdP via Redis DB 0                           │
+└──────────────────────────────────────────────┬─────────────────────────────────────────────────┘
+                                               │
+                                               ▼
+                                ┌──────────────────────────────┐
+                                │         Redis Server         │
+                                │    (localhost:6379)          │
+                                ├──────────────────────────────┤
+                                │ DB 0: Rails SSO & Spring JTI │
+                                │ DB 1: Demo Client Sessions   │
+                                │ Pub/Sub: Hot-Reload Channel  │
+                                └──────────────────────────────┘
 ```
 
 ---
@@ -70,6 +74,7 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 | **RFC 7009** | **Token Revocation** | Clients revoke tokens via `/oauth2/revoke` authenticated with `private_key_jwt`. Revocation invalidates the authorization and immediately flushes local and distributed sessions. |
 | **RFC 7662** | **Token Introspection** | Resource servers and clients check token validity in real time at `/oauth2/introspect` using `private_key_jwt`. Useful for immediate fraud checks prior to executing sensitive actions. |
 | **OIDC BCL 1.0** | **Back-Channel Logout 1.0** | Spring Authorization Server dispatches a signed JWT `logout_token` asynchronously to the client's backchannel endpoint (`/oidc/backchannel_logout`), terminating the user's session without relying on user-agent redirection. |
+| **Config Mgmt** | **S3 Client Store & Hot-Reload** | Next.js admin app writes client configs directly to LocalStack S3 (`oauth2-clients/clients/*.json`) and broadcasts real-time re-registration signals to Spring via Redis Pub/Sub (`oauth2:clients:reload`). |
 
 ---
 
@@ -77,10 +82,12 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 
 | Service | Port | Description | Technology Stack |
 |---|---|---|---|
+| **`client-manager`**| `3001` | OAuth 2.1 Client Config Manager UI | Next.js 15, React 19, Tailwind CSS, S3, Redis |
 | **`demo-client`** | `8080` | Interactive OAuth 2.1 client & UI | Ruby 4.0, Puma, Rack, Redis DB 1 |
 | **`rails-app`** | `3000` | External Identity Provider (IdP) | Ruby on Rails 7, Redis DB 0 |
 | **`spring-auth-server`**| `9000` | OAuth 2.1 & OIDC Authorization Server | Spring Boot 4.0.8, Spring Security 7.0.7, Java 25 |
-| **`poc-redis`** | `6379` | Shared Redis session & token cache | Redis 7 Alpine |
+| **`localstack`** | `4566` | Local AWS S3 service emulation | LocalStack 3.8 (S3: `oauth2-clients`) |
+| **`poc-redis`** | `6379` | Shared Redis session, cache & pub/sub | Redis 7 Alpine |
 
 ---
 
@@ -88,20 +95,22 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 
 ### Prerequisites
 - **mise** (or Java 25 + Ruby 4.0.6 installed locally), or **Docker & Docker Compose**.
-- Running Redis instance on `localhost:6379`.
+- Running Redis instance on `localhost:6379` and LocalStack on `localhost:4566`.
 
 ### Option A: Running with Docker Compose
 To run the full stack in Docker containers:
 ```bash
-docker compose up --build -d redis rails-app spring-auth-server demo-client
+docker compose up --build -d redis localstack rails-app spring-auth-server client-manager demo-client
 ```
-Access the Demo Client at: **`http://localhost:8080`**
+- Access the **Client Config Manager** at: **`http://localhost:3001`**
+- Access the **Demo Client** at: **`http://localhost:8080`**
 
 ### Option B: Running Locally with Mise / Native CLI
 
-1. **Start Redis**:
+1. **Start Redis & LocalStack**:
    ```bash
-   docker run -d --name poc-redis -p 6379:6379 redis:alpine
+   docker compose up -d redis localstack
+   bash localstack/seed-demo-client.sh
    ```
 
 2. **Start Rails Login App (Port 3000)**:
@@ -123,20 +132,46 @@ Access the Demo Client at: **`http://localhost:8080`**
    mise exec -- bundle exec puma -b tcp://0.0.0.0:8080
    ```
 
+5. **Start Client Config Manager (Port 3001)**:
+   ```bash
+   cd client-manager
+   pnpm install
+   pnpm start -p 3001
+   ```
+
 ---
 
-## Running the Automated Functional Test Suite
+## Running the Automated Functional Test Suites
 
-A complete, multi-step functional test suite verifying all OAuth 2.1 security features, bypass prevention, DPoP binding, issuer identification, revocation, introspection, and back-channel logout is provided in both projects:
+A comprehensive, multi-step automated test harness is provided across all subprojects, verifying both core OAuth 2.1 security features and real-time S3 dynamic configuration:
 
-### Run from `spring-auth-server`:
+1. **Suite 1: OAuth 2.1 & OIDC Advanced Security Features (`test_oauth_security_features.rb`)**
+   - Zero-scope client authorization & server-determined scope assignment
+   - RFC 9126 Pushed Authorization Requests (PAR)
+   - RFC 9207 Authorization Server Issuer Identification (Mix-Up attack defense)
+   - Rejection of weak client authentication (`client_secret_basic`, `client_secret_post`)
+   - Mandatory RFC 9449 DPoP proof enforcement & `cnf.jkt` sender-constraint verification
+   - RFC 7009 token revocation & RFC 7662 token introspection
+   - OpenID Connect Back-Channel Logout 1.0 (signed `logout_token` JWS delivery & session eviction)
+
+2. **Suite 2: Dynamic S3 Client Config & Redis Hot-Reload (`test_s3_dynamic_client_reload.rb`)**
+   - Next.js REST API & LocalStack S3 bucket connectivity
+   - On-the-fly 2048-bit RSA key pair generation & client creation via `POST /api/clients`
+   - Real-time Redis Pub/Sub notification (`oauth2:clients:reload`) & Spring dynamic reload
+   - Dynamic client authentication (PAR + PKCE + `private_key_jwt` + DPoP token exchange)
+   - Dynamic client deletion via `DELETE /api/clients/:id` & immediate HTTP 401 revocation
+
+### Run from any component directory:
+
 ```bash
+# From Spring Authorization Server:
 bash spring-auth-server/functional_tests/run_functional_tests.sh
-```
 
-### Run from `demo-client`:
-```bash
+# From Demo Client:
 bash demo-client/functional_tests/run_functional_tests.sh
+
+# From Client Manager:
+bash client-manager/functional_tests/run_functional_tests.sh
 ```
 
 ---
@@ -145,31 +180,51 @@ bash demo-client/functional_tests/run_functional_tests.sh
 
 ```
 .
-├── docker-compose.yml              # Multi-container orchestration
-├── README.md                       # Complete platform documentation
+├── docker-compose.yml              # Multi-container orchestration (LocalStack, Redis, Spring, Rails, Demo, Manager)
+├── README.md                       # Comprehensive platform documentation
+├── localstack/                     # LocalStack S3 initialization & seeding
+│   ├── init/01-init-s3.sh          # Auto-creates oauth2-clients bucket and seeds demo-client.json
+│   └── seed-demo-client.sh         # Standalone S3 seeder script
+├── client-manager/                 # Next.js 15 OAuth 2.1 Client Configuration Manager
+│   ├── app/                        # Dashboard UI, client modals, raw JSON viewer
+│   ├── app/api/clients/            # S3 client CRUD endpoints & Redis reload notifier
+│   ├── functional_tests/           # Client manager copy of functional test suite
+│   │   ├── run_functional_tests.sh
+│   │   ├── test_oauth_security_features.rb
+│   │   └── test_s3_dynamic_client_reload.rb
+│   └── lib/s3.ts                   # AWS SDK v2 client, S3 bucket operations, Redis Pub/Sub
 ├── spring-auth-server/             # Spring Boot 4 / Spring Security 7 Authorization Server
 │   ├── functional_tests/           # Automated security test suite & shell runner
 │   │   ├── run_functional_tests.sh
-│   │   └── test_oauth_security_features.rb
+│   │   ├── test_oauth_security_features.rb
+│   │   └── test_s3_dynamic_client_reload.rb
 │   ├── pom.xml
 │   └── src/main/java/com/example/authserver/
+│       ├── client/
+│       │   ├── S3RegisteredClientRepository.java    # S3 client loader & in-memory cache
+│       │   ├── ClientReloadRedisSubscriber.java    # Listens to oauth2:clients:reload
+│       │   └── ClientConfigDto.java                 # Jackson DTO mapping S3 JSON schema
 │       ├── config/
-│       │   ├── AuthorizationServerConfig.java   # Strict converters, PAR, DPoP, revocation
-│       │   ├── KeyConfig.java                   # RSA signing keys & JWK Source
-│       │   ├── TokenCustomizerConfig.java       # DPoP cnf.jkt binding & custom claims
-│       │   └── ExternalLoginAuthenticationEntryPoint.java # SSO redirect to Rails
+│       │   ├── AuthorizationServerConfig.java       # Strict converters, PAR, DPoP, revocation
+│       │   ├── S3ClientConfig.java                  # AWS SDK v2 S3Client bean with LocalStack endpoint
+│       │   ├── KeyConfig.java                       # RSA signing keys & JWK Source
+│       │   ├── TokenCustomizerConfig.java           # DPoP cnf.jkt binding & custom claims
+│       │   └── ExternalLoginAuthenticationEntryPoint.java # SSO redirect to Rails IdP
 │       └── security/
-│           ├── OidcBackChannelLogoutService.java# Dispatches signed logout_token JWS
-│           └── SharedRedisSessionFilter.java    # Bridges Rails shared session to Spring context
+│           ├── OidcBackChannelLogoutService.java    # Dispatches signed logout_token JWS
+│           └── SharedRedisSessionFilter.java        # Bridges Rails shared session to Spring context
 ├── rails-app/                      # Ruby on Rails 7 Identity Provider
-│   ├── app/controllers/sessions_controller.rb  # Writes session:<uuid> to Redis
-│   └── app/views/sessions/new.html.erb         # User login form
+│   ├── app/controllers/sessions_controller.rb      # Writes session:<uuid> to Redis
+│   ├── app/views/sessions/new.html.erb             # User login form
+│   └── README.md                                   # Rails IdP architecture & security documentation
 └── demo-client/                    # Modern Ruby OAuth 2.1 Demo Client (Puma + Redis)
     ├── app/
-    │   ├── controllers/auth_controller.rb       # PAR, DPoP, token exchange, refresh, logout
-    │   ├── services/par_oauth2_client.rb        # DPoP proofs, private_key_jwt assertions
-    │   └── views/auth/                          # Index UI with feature checklist, Profile UI
-    └── functional_tests/           # Client copy of functional test suite
-        ├── run_functional_tests.sh
-        └── test_oauth_security_features.rb
+    │   ├── controllers/auth_controller.rb           # PAR, DPoP, token exchange, refresh, logout
+    │   ├── services/par_oauth2_client.rb            # DPoP proofs, private_key_jwt assertions
+    │   └── views/auth/                              # Index UI with feature checklist, Profile UI
+    ├── functional_tests/                            # Client copy of functional test suite
+    │   ├── run_functional_tests.sh
+    │   ├── test_oauth_security_features.rb
+    │   └── test_s3_dynamic_client_reload.rb
+    └── README.md                                   # Demo client architecture & security features
 ```
