@@ -1,0 +1,155 @@
+<div class="card">
+  <h1>Welcome to the OAuth 2.1 Demo Client</h1>
+  <p>
+    This Ruby on Rails application demonstrates a secure, production-grade OAuth 2.1 and OpenID Connect (OIDC) client implementation authenticating against Spring Authorization Server.
+  </p>
+
+  <% if @authenticated %>
+    <div class="alert alert-notice" style="margin-top: 1rem;">
+      <strong>You are currently authenticated!</strong> Sub: <code><%= session[:user]["sub"] %></code>
+      <div style="margin-top: 0.75rem;">
+        <a href="/profile" class="btn btn-secondary">View Profile & Token Details &rarr;</a>
+      </div>
+    </div>
+  <% else %>
+    <div style="margin-top: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+      <div>
+        <h3>Initiate Authentication Flow</h3>
+        <p>Click below to kick off the hardened OAuth 2.1 authorization code flow with backchannel PAR, sender-constrained DPoP, and PKCE:</p>
+      </div>
+
+      <div class="btn-group" style="margin-top: 0.5rem; display: flex; gap: 1rem; flex-wrap: wrap;">
+        <%= button_to auth_start_path(flow: "par"), method: :post, class: "btn" do %>
+          🚀 Start Secure Login (PAR + DPoP + PKCE)
+        <% end %>
+
+        <%= button_to auth_start_path(flow: "direct"), method: :post, class: "btn btn-secondary" do %>
+          🌐 Start Direct Authorize (Standard Flow + DPoP + PKCE)
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+</div>
+
+<div class="card">
+  <h2>Security Architecture & Features</h2>
+  <p>
+    This client adheres strictly to modern OAuth 2.1 and OpenID Connect specifications, enforcing zero-trust sender constraints and cryptographic authentication:
+  </p>
+
+  <ul class="checklist">
+    <li>
+      <span class="check-icon">✓</span>
+      <div>
+        <strong>RFC 9126: Pushed Authorization Requests (PAR):</strong>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">
+          All authorization parameters (PKCE challenge, state, nonce) are pushed directly via an authenticated backchannel POST to <code>/oauth2/par</code>. Only an opaque, short-lived <code>request_uri</code> is passed through the browser, stopping URL query leakage, browser history snooping, and parameter tampering.
+        </div>
+      </div>
+    </li>
+    <li>
+      <span class="check-icon">✓</span>
+      <div>
+        <strong>RFC 7523: Private Key JWT Client Authentication:</strong>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">
+          No static client secrets are used. The client authenticates using a 2048-bit RSA key pair (RS256) signing a short-lived client assertion JWT with unique <code>jti</code> replay protection and strict audience binding. Shared secret methods (<code>client_secret_basic</code>, <code>client_secret_post</code>) are strictly rejected.
+        </div>
+      </div>
+    </li>
+    <li>
+      <span class="check-icon">✓</span>
+      <div>
+        <strong>RFC 9449: Demonstrating Proof-of-Possession (DPoP):</strong>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">
+          Tokens are sender-constrained at the application layer. Ephemeral asymmetric keys generate signed DPoP proofs for token requests and resource server calls. Even if an access token is intercepted, it is cryptographically unusable without the client's private DPoP key.
+        </div>
+      </div>
+    </li>
+    <li>
+      <span class="check-icon">✓</span>
+      <div>
+        <strong>RFC 7636: Proof Key for Code Exchange (PKCE S256):</strong>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">
+          Enforces cryptographic code challenge on all authorization requests, mitigating code interception and injection attacks on public or shared network paths.
+        </div>
+      </div>
+    </li>
+    <li>
+      <span class="check-icon">✓</span>
+      <div>
+        <strong>RFC 9207: Authorization Server Issuer Identification:</strong>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">
+          The authorization callback strictly validates that the returned <code>iss</code> parameter matches the expected authorization server URL, preventing OAuth 2.0 mix-up attacks.
+        </div>
+      </div>
+    </li>
+    <li>
+      <span class="check-icon">✓</span>
+      <div>
+        <strong>Server-Determined Authorization Scopes:</strong>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">
+          The client sends no scope parameter. The Authorization Server pre-determines and binds authorized scopes strictly based on the registered client identity, mitigating privilege escalation and scope tampering.
+        </div>
+      </div>
+    </li>
+    <li>
+      <span class="check-icon">✓</span>
+      <div>
+        <strong>RFC 7009 & RFC 7662: Token Revocation & Introspection:</strong>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">
+          Allows immediate revocation of access/refresh tokens upon user sign-out, and enables real-time token introspection to detect fraudulent or deactivated sessions before executing high-risk operations.
+        </div>
+      </div>
+    </li>
+    <li>
+      <span class="check-icon">✓</span>
+      <div>
+        <strong>OpenID Connect Back-Channel Logout 1.0:</strong>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">
+          The Authorization Server sends signed <code>logout_token</code> JWS requests directly to the client's backchannel endpoint (<code>/oidc/backchannel_logout</code>), instantly evicting active user sessions from Redis.
+        </div>
+      </div>
+    </li>
+    <li>
+      <span class="check-icon">✓</span>
+      <div>
+        <strong>Redis Session Storage & Rotating Refresh Tokens:</strong>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">
+          Client sessions persist across reboots in Redis (DB 1). Short-lived access tokens (15m) are transparently refreshed using single-use refresh tokens with automatic token rotation.
+        </div>
+      </div>
+    </li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>Configuration Details</h2>
+  <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem; text-align: left;">
+    <tbody>
+      <tr style="border-bottom: 1px solid var(--border);">
+        <td style="padding: 0.5rem 0; color: var(--text-muted); width: 220px;">Authorization Server</td>
+        <td style="padding: 0.5rem 0;"><code><%= @auth_server_url %></code></td>
+      </tr>
+      <tr style="border-bottom: 1px solid var(--border);">
+        <td style="padding: 0.5rem 0; color: var(--text-muted);">Client ID</td>
+        <td style="padding: 0.5rem 0;"><code><%= @client_id %></code></td>
+      </tr>
+      <tr style="border-bottom: 1px solid var(--border);">
+        <td style="padding: 0.5rem 0; color: var(--text-muted);">Redirect URI</td>
+        <td style="padding: 0.5rem 0;"><code><%= @redirect_uri %></code></td>
+      </tr>
+      <tr style="border-bottom: 1px solid var(--border);">
+        <td style="padding: 0.5rem 0; color: var(--text-muted);">Authentication Method</td>
+        <td style="padding: 0.5rem 0;"><code>private_key_jwt</code> (RFC 7523 - RS256, strictly enforced)</td>
+      </tr>
+      <tr style="border-bottom: 1px solid var(--border);">
+        <td style="padding: 0.5rem 0; color: var(--text-muted);">Token Protection</td>
+        <td style="padding: 0.5rem 0;"><code>DPoP</code> (RFC 9449 - Sender-Constrained)</td>
+      </tr>
+      <tr>
+        <td style="padding: 0.5rem 0; color: var(--text-muted);">Requested Scopes</td>
+        <td style="padding: 0.5rem 0;"><em>None (Strictly Server-Determined & Pre-Assigned)</em></td>
+      </tr>
+    </tbody>
+  </table>
+</div>

@@ -1,0 +1,140 @@
+<div class="card">
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <h1>Authenticated User Profile</h1>
+      <p style="margin-bottom: 0;">Successfully authenticated via <strong>OAuth 2.1 (<%= @auth_flow.to_s.upcase %>)</strong>.</p>
+    </div>
+    <div style="display: flex; gap: 0.5rem;">
+      <a href="/" class="btn btn-outline" style="font-size: 0.875rem; padding: 0.5rem 1rem;">Home</a>
+      <%= button_to "Log Out (Single Sign-Out)", logout_path, method: :post, class: "btn", style: "font-size: 0.875rem; padding: 0.5rem 1rem; background: #dc2626;" %>
+    </div>
+  </div>
+
+  <div style="margin-top: 1.5rem; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.95rem;">
+      <tbody>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 0.5rem 0; color: var(--text-muted); width: 180px;">User Subject (sub):</td>
+          <td style="padding: 0.5rem 0;"><strong style="color: #38bdf8;"><%= @user["sub"] || "Unknown" %></strong></td>
+        </tr>
+        <% if @user["email"].present? %>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.5rem 0; color: var(--text-muted);">Email:</td>
+            <td style="padding: 0.5rem 0;"><%= @user["email"] %></td>
+          </tr>
+        <% end %>
+        <% if @user["preferred_username"].present? %>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.5rem 0; color: var(--text-muted);">Username:</td>
+            <td style="padding: 0.5rem 0;"><%= @user["preferred_username"] %></td>
+          </tr>
+        <% end %>
+        <% if @token_scopes.present? %>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.5rem 0; color: var(--text-muted);">Assigned Scopes (/token):</td>
+            <td style="padding: 0.5rem 0;"><code style="color: #a5b4fc;"><%= @token_scopes %></code></td>
+          </tr>
+        <% end %>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 0.5rem 0; color: var(--text-muted);">Issuer (iss):</td>
+          <td style="padding: 0.5rem 0;"><code><%= @user["iss"] %></code></td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 0.5rem 0; color: var(--text-muted);">Audience (aud):</td>
+          <td style="padding: 0.5rem 0;"><code><%= @user["aud"].is_a?(Array) ? @user["aud"].join(", ") : @user["aud"] %></code></td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 0.5rem 0; color: var(--text-muted);">Token Type:</td>
+          <td style="padding: 0.5rem 0;">
+            <span style="display: inline-block; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; font-size: 0.85rem; background: <%= @token_type == 'DPoP' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(56, 189, 248, 0.2)' %>; color: <%= @token_type == 'DPoP' ? '#34d399' : '#38bdf8' %>; border: 1px solid <%= @token_type == 'DPoP' ? '#10b981' : '#0284c7' %>;">
+              <%= @token_type %>
+            </span>
+            <% if @dpop_jkt.present? %>
+              <span style="font-size: 0.8rem; color: #a7f3d0; margin-left: 0.5rem;">
+                🔒 Sender-Constrained (cnf.jkt: <code><%= @dpop_jkt[0..15] %>...</code>)
+              </span>
+            <% end %>
+          </td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 0.5rem 0; color: var(--text-muted);">Access Token Expires At:</td>
+          <td style="padding: 0.5rem 0;">
+            <% if @expires_at.to_i > 0 %>
+              <%= Time.at(@expires_at.to_i).strftime("%Y-%m-%d %H:%M:%S UTC") %>
+              <span style="font-size: 0.8rem; color: #38bdf8; margin-left: 0.5rem;">(Auto-refreshes when expired)</span>
+            <% else %>
+              <%= Time.at(@user["exp"].to_i).strftime("%Y-%m-%d %H:%M:%S UTC") rescue @user["exp"] %>
+            <% end %>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>🔄 Token Lifecycle &amp; Security Controls (RFC 7662 / RFC 7009)</h2>
+  <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+    Test active session capabilities: Refresh Token rotation, RFC 7662 Token Introspection, RFC 7009 Token Revocation, and Early Fraud Termination.
+  </p>
+
+  <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+    <%= button_to "🔄 Refresh Access Token (Rotation)", auth_refresh_path, method: :post, class: "btn btn-secondary", style: "font-size: 0.9rem;" %>
+    <%= button_to "🛡️ Perform Sensitive Action (Introspection Guard)", auth_sensitive_action_path, method: :post, class: "btn", style: "font-size: 0.9rem; background: #059669;" %>
+    <%= button_to "🛑 Revoke Tokens (RFC 7009)", auth_revoke_path, method: :post, class: "btn", style: "font-size: 0.9rem; background: #dc2626;" %>
+    <%= button_to "⚠️ Simulate Fraud Revocation on Auth Server", auth_simulate_fraud_revocation_path, method: :post, class: "btn", style: "font-size: 0.9rem; background: #b45309;" %>
+  </div>
+  <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.75rem;">
+    &bull; <strong>Sensitive Action</strong> calls <code>POST /oauth2/introspect</code> on the Authorization Server first.<br>
+    &bull; <strong>Revoke Tokens</strong> directly revokes active tokens at the Authorization Server using standard RFC 7009 client authentication.
+  </div>
+</div>
+
+<div class="card">
+  <h2>UserInfo Endpoint Claims (GET /userinfo)</h2>
+  <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+    Fetched by the client using <code>Authorization: Bearer &lt;access_token&gt;</code>. Scopes were pre-determined by the authorization server strictly from the registered client configuration (ignoring any client scope requests).
+  </p>
+  <% if @userinfo_claims["secret_clearance"].present? %>
+    <div style="background: rgba(67, 56, 202, 0.25); border: 1px solid #6366f1; border-radius: 8px; padding: 0.85rem; margin-bottom: 1rem;">
+      <span style="color: #a5b4fc; font-weight: 600;">🔒 Scope-Locked Claim Verified:</span>
+      <span style="color: #f8fafc; margin-left: 0.5rem;">
+        <code>secret_clearance: "<%= @userinfo_claims["secret_clearance"] %>"</code>
+      </span>
+      <div style="font-size: 0.8rem; color: #c7d2fe; margin-top: 0.35rem;">
+        This claim is <strong>only accessible via GET /userinfo</strong> and is locked behind the auto-assigned <code>demo.secret_access</code> scope. It is <strong>NOT present</strong> in either the ID Token or Access Token.
+      </div>
+    </div>
+  <% end %>
+  <pre><code><%= JSON.pretty_generate(@userinfo_claims) rescue @userinfo_claims %></code></pre>
+</div>
+
+<div class="card">
+  <h2>Decoded ID Token Claims</h2>
+  <pre><code><%= JSON.pretty_generate(@id_token_claims) rescue @id_token_claims %></code></pre>
+</div>
+
+<div class="card">
+  <h2>Decoded Access Token Claims</h2>
+  <pre><code><%= JSON.pretty_generate(@access_token_claims) rescue @access_token_claims %></code></pre>
+</div>
+
+<div class="card">
+  <h2>Tokens (RFC 6749 / RFC 7662)</h2>
+  <details style="margin-bottom: 1rem;">
+    <summary style="cursor: pointer; color: #38bdf8; font-weight: 600;">Show Raw ID Token (JWS)</summary>
+    <pre style="word-break: break-all; white-space: pre-wrap; margin-top: 0.5rem;"><code><%= @raw_id_token %></code></pre>
+  </details>
+
+  <details style="margin-bottom: 1rem;">
+    <summary style="cursor: pointer; color: #38bdf8; font-weight: 600;">Show Raw Access Token (JWT)</summary>
+    <pre style="word-break: break-all; white-space: pre-wrap; margin-top: 0.5rem;"><code><%= @raw_access_token %></code></pre>
+  </details>
+
+  <% if @raw_refresh_token.present? %>
+    <details>
+      <summary style="cursor: pointer; color: #38bdf8; font-weight: 600;">Show Raw Refresh Token (Opaque)</summary>
+      <pre style="word-break: break-all; white-space: pre-wrap; margin-top: 0.5rem;"><code><%= @raw_refresh_token %></code></pre>
+    </details>
+  <% end %>
+</div>

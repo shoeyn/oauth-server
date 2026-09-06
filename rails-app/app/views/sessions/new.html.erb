@@ -1,0 +1,25 @@
+<div class="card">
+  <h2>Sign In (Ruby on Rails)</h2>
+  <div class="badge">Connected to Shared Redis & Spring Security</div>
+
+  <%= form_with url: "/login", method: :post, local: true do |f| %>
+    <%= f.hidden_field :return_to, value: @return_to %>
+
+    <div>
+      <%= f.label :username, "Username" %>
+      <%= f.text_field :username, value: "demo_user", required: true, autofocus: true %>
+    </div>
+
+    <div>
+      <%= f.label :password, "Password" %>
+      <%= f.password_field :password, value: "password", required: true %>
+    </div>
+
+    <%= f.submit "Authorize & Return to OAuth Server", class: "btn" %>
+  <% end %>
+
+  <div class="info-box">
+    <strong>Flow Info:</strong> Authenticating here writes user attributes into Redis key <code>session:&lt;uuid&gt;</code> and sets a shared cookie. You will be redirected back to the Spring OAuth 2.1 server at:<br>
+    <code><%= @return_to %></code>
+  </div>
+</div>

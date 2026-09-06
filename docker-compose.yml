@@ -1,0 +1,61 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: poc-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  rails-app:
+    build:
+      context: ./rails-app
+    container_name: poc-rails-app
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - RAILS_ENV=production
+      - SECRET_KEY_BASE=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  spring-auth-server:
+    build:
+      context: ./spring-auth-server
+    container_name: poc-spring-auth-server
+    ports:
+      - "9000:9000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RAILS_LOGIN_URL=http://localhost:3000/login
+      - AUTH_SERVER_ISSUER=http://localhost:9000
+    depends_on:
+      redis:
+        condition: service_healthy
+      rails-app:
+        condition: service_started
+
+  demo-client:
+    build:
+      context: ./demo-client
+    container_name: poc-demo-client
+    environment:
+      - REDIS_URL=redis://redis:6379/1
+      - AUTH_SERVER_URL=http://spring-auth-server:9000
+      - RAILS_URL=http://rails-app:3000
+      - CLIENT_PRIVATE_KEY_PATH=/app/keys/client_private_key.pem
+    depends_on:
+      redis:
+        condition: service_healthy
+      spring-auth-server:
+        condition: service_started
+      rails-app:
+        condition: service_started
+    profiles:
+      - demo
