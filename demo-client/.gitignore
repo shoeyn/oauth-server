@@ -1,0 +1,39 @@
+# Bundler
+/.bundle/
+/vendor/bundle
+
+# Rails / Rack temporary and log files
+/log/*
+!/log/.keep
+/tmp/*
+!/tmp/.keep
+/tmp/pids/*
+!/tmp/pids/.keep
+
+# Python virtual environment & bytecode (for demo.py runner)
+.venv/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environment variables
+.env
+.env*.local
+
+# IDE and Editor files
+.idea/
+.vscode/
+*.swp
+*~
+
+# macOS / OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
