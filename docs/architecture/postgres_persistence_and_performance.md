@@ -185,7 +185,7 @@ Because external services cannot connect to PostgreSQL, Spring Auth Server provi
 
 ---
 
-## 6. Flyway Database Migration Architecture
+## 6. Flyway Database Migration Architecture & Authorization Pruning
 
 Database evolution is managed via Flyway migrations located in `src/main/resources/db/migration/`:
 
@@ -194,8 +194,14 @@ Database evolution is managed via Flyway migrations located in `src/main/resourc
   - `oauth2_authorization`: Stores runtime authorization codes, access tokens, refresh tokens, and OIDC state.
   - `oauth2_authorization_consent`: Stores user consent decisions.
   - `oauth2_client_public_key`: Stores parsed RSA public keys in plain PEM format for auditing and fast lookup.
+- **`V2__create_authorization_expiry_indices.sql`:**
+  - Dedicated B-tree indices on `refresh_token_expires_at`, `access_token_expires_at`, and `authorization_code_expires_at`.
+  - Accelerates automated database pruning and expiration queries without scanning the entire table.
 - **Schema History Tracking:** `flyway_schema_history` table records execution timestamps, checksums, and success status.
 - **Lifecycle Ordering:** Spring's `@DependsOn("flyway")` and `FlywayConfig` bean guarantee that Flyway migrations finish before any client repository queries are executed.
+- **Automated Authorization Cleanup Task (`OAuth2AuthorizationCleanupService`):**
+  - Runs on a scheduled cron (`auth.cleanup.cron: 0 0 2 * * *`, default 2:00 AM daily) to prune expired authorization records older than 30 days (`auth.cleanup.retention-days: 30`).
+  - Uses the indexed expiry columns from `V2` to execute rapid atomic deletions during off-peak hours without table lock contention.
 
 ---
 

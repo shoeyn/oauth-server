@@ -74,6 +74,9 @@ Click the links below to inspect specific end-to-end communication flows:
 6. [**AWS KMS Key Management, Multi-Key JWKS Rotation & Algorithm Pinning**](kms_multi_key_rotation_flow.md)
    - Hardware Security Module (HSM) boundary, FIPS 140-2 Level 3 protection, zero-downtime multi-key JWKS rotation lifecycle, automated rotation tooling, and strict RFC 8725 algorithm pinning.
 
+7. [**Network Perimeter & Reverse Proxy Routing Architecture**](network_perimeter_and_proxy_routing.md)
+   - External reverse proxy / ALB path routing specification isolating internal administrative APIs (`/api/admin/**`) from public OAuth 2.1 traffic, with configuration templates for AWS ALB, Nginx, Kubernetes Ingress, and Cloudflare WAF.
+
 ---
 
 ## Port & Protocol Reference

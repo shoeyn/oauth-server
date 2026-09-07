@@ -53,8 +53,8 @@ sequenceDiagram
 
     Note over Spring: Spring Boot boots up (@PostConstruct init())
     Spring->>Flyway: flyway.migrate()
-    Flyway->>PG: Validate & Execute V1 schema migrations
-    PG-->>Flyway: Schema verified (tables guaranteed)
+    Flyway->>PG: Validate & Execute V1 & V2 schema migrations
+    PG-->>Flyway: Schema verified (tables & indices guaranteed)
 
     Spring->>PG: SELECT count(*) FROM oauth2_registered_client
     alt Database Empty (First Boot)

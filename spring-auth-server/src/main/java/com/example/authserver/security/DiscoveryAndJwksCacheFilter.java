@@ -89,6 +89,9 @@ public class DiscoveryAndJwksCacheFilter extends OncePerRequestFilter {
         response.setHeader("ETag", etag);
         response.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
         response.setDateHeader("Expires", System.currentTimeMillis() + 3600_000L);
+        response.setHeader("X-Content-Type-Options", "nosniff");
+        response.setHeader("X-Frame-Options", "DENY");
+        response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     }
 
     private String computeEtag(byte[] data) {

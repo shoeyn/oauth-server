@@ -29,7 +29,13 @@ public class DefaultSecurityConfig {
             StringRedisTemplate redisTemplate) throws Exception {
 
         http
-            .headers(Customizer.withDefaults())
+            .cors(Customizer.withDefaults())
+            .headers(headers -> headers
+                .contentTypeOptions(Customizer.withDefaults())
+                .frameOptions(frame -> frame.deny())
+                .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"))
+                .referrerPolicy(referrer -> referrer.policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+            )
             .csrf(csrf -> csrf.ignoringRequestMatchers("/api/admin/**", "/actuator/**"))
             .authorizeHttpRequests((authorize) -> authorize
                 .requestMatchers("/actuator/**", "/error", "/health", "/.well-known/**", "/api/admin/**").permitAll()

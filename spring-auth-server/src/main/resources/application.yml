@@ -1,5 +1,7 @@
 server:
   port: 9000
+  shutdown: graceful
+  forward-headers-strategy: framework
   http2:
     enabled: true
   tomcat:
@@ -13,6 +15,8 @@ server:
 spring:
   application:
     name: spring-auth-server
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/authserver}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
@@ -38,6 +42,12 @@ auth:
     login-url: ${RAILS_LOGIN_URL:http://localhost:3000/login}
   server:
     issuer-url: ${AUTH_SERVER_ISSUER:http://localhost:9000}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+  cleanup:
+    enabled: ${AUTH_CLEANUP_ENABLED:true}
+    retention-days: ${AUTH_CLEANUP_RETENTION_DAYS:30}
+    cron: ${AUTH_CLEANUP_CRON:0 0 2 * * *}
 aws:
   kms:
     enabled: ${AWS_KMS_ENABLED:true}

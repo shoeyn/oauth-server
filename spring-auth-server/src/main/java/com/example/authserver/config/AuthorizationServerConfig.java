@@ -186,7 +186,13 @@ public class AuthorizationServerConfig {
                 // and DPoPAuthenticationConfigurer (for DPoP proof validation and cnf sender constraint)
                 .jwt(Customizer.withDefaults())
             )
-            .headers(Customizer.withDefaults()) // Spring Security default security headers (deny framing, nosniff, cache-control)
+            .cors(Customizer.withDefaults())
+            .headers(headers -> headers
+                .contentTypeOptions(Customizer.withDefaults())
+                .frameOptions(frame -> frame.deny())
+                .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"))
+                .referrerPolicy(referrer -> referrer.policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+            )
             .authorizeHttpRequests((authorize) ->
                 authorize.anyRequest().authenticated()
             )
