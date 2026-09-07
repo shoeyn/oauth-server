@@ -11,11 +11,12 @@ A hardened, enterprise **OAuth 2.1 Authorization Server** built with **Spring Bo
    - Client assertions undergo signature verification, audience check (`aud`), issuer/subject matching (`iss == sub == client_id`), and Redis-backed JTI replay protection.
    - Public keys are dynamically resolved per client at request time via `JwtClientAssertionAuthenticationProvider.setJwtDecoderFactory(...)`.
 
-2. **Dynamic S3 Client Repository & Hot-Reloading via Redis**:
-   - [`S3RegisteredClientRepository`](src/main/java/com/example/authserver/client/S3RegisteredClientRepository.java) implements Spring Security's `RegisteredClientRepository`.
-   - Reads client definitions from `s3://oauth2-clients/clients/*.json` (hosted locally via LocalStack on port 4566) and parses RSA public keys with `RsaKeyConverters.x509()`.
-   - [`ClientReloadRedisSubscriber`](src/main/java/com/example/authserver/client/ClientReloadRedisSubscriber.java) listens to Redis channel `oauth2:clients:reload` and refreshes the in-memory cache dynamically in <20ms without restarting Spring Boot.
-   - Includes automatic seeder fallback for `demo-client`.
+2. **Multi-Tier Client Configuration & Hot-Reloading (L1-L3)**:
+   - **L1 In-Memory Cache**: `ConcurrentHashMap` instances in [`S3RegisteredClientRepository`](src/main/java/com/example/authserver/client/S3RegisteredClientRepository.java) satisfy authorization requests and assertion verification in nanoseconds without network overhead.
+   - **L2 Redis Cache (`oauth2:clients:configs`)**: Registered client configurations are cached in a Redis hash with a 30-day sliding TTL. On service restarts, Spring boots in **< 5ms directly from Redis without making any S3 network calls**.
+   - **L3 S3 Object Store**: Single source of truth in `s3://oauth2-clients/clients/*.json` (LocalStack). If Redis is cold, Spring falls back to S3 and synchronizes Redis.
+   - **Real-Time Hot-Reloading**: [`ClientReloadRedisSubscriber`](src/main/java/com/example/authserver/client/ClientReloadRedisSubscriber.java) listens to Redis channel `oauth2:clients:reload`. Updates from Next.js refresh in-memory maps and Redis cache in < 15ms without restarting Spring Boot.
+   - For complete sequence flows, see [Multi-Tier Client Configuration & Hot-Reload Flow](../../docs/architecture/client_config_and_caching_flow.md).
 
 3. **Mandatory DPoP Proofs at Token Endpoint (RFC 9449 Section 5)**:
    - `StrictDPoPTokenRequestAuthenticationConverter` strictly requires the `DPoP` HTTP header on `/oauth2/token` requests, returning HTTP 400 `invalid_dpop_proof` if missing.

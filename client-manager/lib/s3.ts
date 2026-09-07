@@ -103,24 +103,58 @@ export async function getClient(clientId: string): Promise<ClientConfig | null> 
 
 export async function saveClient(client: ClientConfig): Promise<void> {
   const key = `clients/${client.clientId}.json`;
+  const json = JSON.stringify(client, null, 2);
+
+  // 1. Persist to S3
   await s3.send(
     new PutObjectCommand({
       Bucket: S3_BUCKET,
       Key: key,
-      Body: JSON.stringify(client, null, 2),
+      Body: json,
       ContentType: "application/json",
     })
   );
+
+  // 2. Synchronize to Redis L2 cache with 30 days expiry
+  try {
+    const redis = getRedisClient();
+    if (redis.status !== "ready") {
+      await redis.connect();
+    }
+    await redis.hset("oauth2:clients:configs", client.clientId, json);
+    await redis.expire("oauth2:clients:configs", 30 * 86400);
+    console.log(`[Redis Cache] Cached client config in oauth2:clients:configs for: ${client.clientId}`);
+  } catch (err) {
+    console.error("[Redis Cache] Failed to update Redis cache:", err);
+  }
+
+  // 3. Notify Spring server via Redis Pub/Sub
   await notifySpringServer("save", client.clientId);
 }
 
 export async function deleteClient(clientId: string): Promise<void> {
   const key = `clients/${clientId}.json`;
+
+  // 1. Delete from S3
   await s3.send(
     new DeleteObjectCommand({
       Bucket: S3_BUCKET,
       Key: key,
     })
   );
+
+  // 2. Evict from Redis L2 cache
+  try {
+    const redis = getRedisClient();
+    if (redis.status !== "ready") {
+      await redis.connect();
+    }
+    await redis.hdel("oauth2:clients:configs", clientId);
+    console.log(`[Redis Cache] Evicted client from oauth2:clients:configs: ${clientId}`);
+  } catch (err) {
+    console.error("[Redis Cache] Failed to evict client from Redis:", err);
+  }
+
+  // 3. Notify Spring server via Redis Pub/Sub
   await notifySpringServer("delete", clientId);
 }

@@ -48,9 +48,10 @@ A modern, responsive administrative web application and REST API for managing dy
    - Toggle standard server-determined scopes (`openid`, `profile`, `email`, `user.read`, `demo.secret_access`) or define custom scopes.
    - Guarantees clients cannot self-assign privileged scopes.
 
-4. **Zero-Downtime Hot-Reloading via Redis Pub/Sub**:
-   - Saving or deleting a client via the UI or API publishes a `RELOAD:<client_id>` message to the Redis channel `oauth2:clients:reload`.
-   - Spring Authorization Server's `ClientReloadRedisSubscriber` receives the message and refreshes its in-memory repository without restarting.
+4. **Multi-Tier Redis L2 Caching & Hot-Reloading**:
+   - On `saveClient`: Simultaneously persists client JSON to S3, writes it to Redis Hash `oauth2:clients:configs` with a 30-day TTL (`EXPIRE 2592000`), and publishes `RELOAD:<client_id>` to Redis channel `oauth2:clients:reload`.
+   - On `deleteClient`: Deletes from S3, evicts from Redis Hash (`HDEL oauth2:clients:configs <id>`), and publishes the `RELOAD` event.
+   - For full sequence diagrams, see [Multi-Tier Client Configuration & Hot-Reload Flow](../../docs/architecture/client_config_and_caching_flow.md).
 
 5. **LocalStack Emulation (Zero AWS Costs)**:
    - Configured to communicate exclusively with LocalStack S3 (`http://localhost:4566` / `http://localstack:4566`), avoiding any external AWS calls or credentials.

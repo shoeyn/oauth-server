@@ -74,7 +74,18 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 | **RFC 7009** | **Token Revocation** | Clients revoke tokens via `/oauth2/revoke` authenticated with `private_key_jwt`. Revocation invalidates the authorization and immediately flushes local and distributed sessions. |
 | **RFC 7662** | **Token Introspection** | Resource servers and clients check token validity in real time at `/oauth2/introspect` using `private_key_jwt`. Useful for immediate fraud checks prior to executing sensitive actions. |
 | **OIDC BCL 1.0** | **Back-Channel Logout 1.0** | Spring Authorization Server dispatches a signed JWT `logout_token` asynchronously to the client's backchannel endpoint (`/oidc/backchannel_logout`), terminating the user's session without relying on user-agent redirection. |
-| **Config Mgmt** | **S3 Client Store & Hot-Reload** | Next.js admin app writes client configs directly to LocalStack S3 (`oauth2-clients/clients/*.json`) and broadcasts real-time re-registration signals to Spring via Redis Pub/Sub (`oauth2:clients:reload`). |
+| **Config Mgmt** | **Multi-Tier Client Cache (L1-L3)** | Next.js writes client JSON to S3 (`oauth2-clients/clients/*.json`) and synchronizes Redis Hash `oauth2:clients:configs` with 30-day TTL. Spring loads registered clients from Redis on boot in < 5ms (zero S3 calls on warm restarts), with real-time hot-reloading via Redis Pub/Sub (`oauth2:clients:reload`). |
+
+---
+
+## Architectural Diagrams & Communication Flows
+
+Comprehensive sequence diagrams, topology graphs, and communication flows are documented in [`docs/architecture/`](docs/architecture/README.md):
+
+- [**System Topology & Component Communication**](docs/architecture/README.md): Full component interaction graph, communication channels, and port allocations.
+- [**OAuth 2.1 Code Flow with PAR, DPoP & Rails SSO**](docs/architecture/oauth2_par_dpop_flow.md): Step-by-step sequence diagram from initial browser click to DPoP-protected UserInfo query.
+- [**Multi-Tier Client Configuration & Hot-Reload Flow**](docs/architecture/client_config_and_caching_flow.md): Sequence diagrams covering warm reboots (< 5ms zero-S3 boot), cold start fallback, dynamic client creation, and immediate deletion/revocation.
+- [**Token Lifecycle, Revocation & OIDC Back-Channel Logout**](docs/architecture/token_lifecycle_and_logout_flow.md): Sequence diagrams for RFC 7009 token revocation, RFC 7662 introspection, and OIDC Back-Channel Logout 1.0 push.
 
 ---
 
@@ -182,6 +193,12 @@ bash client-manager/functional_tests/run_functional_tests.sh
 .
 ├── docker-compose.yml              # Multi-container orchestration (LocalStack, Redis, Spring, Rails, Demo, Manager)
 ├── README.md                       # Comprehensive platform documentation
+├── docs/                           # Architecture diagrams and detailed sequence flows
+│   └── architecture/
+│       ├── README.md               # Topology, communication matrix, and architecture index
+│       ├── oauth2_par_dpop_flow.md # End-to-end PAR + DPoP + PKCE + Rails SSO sequence diagram
+│       ├── client_config_and_caching_flow.md # Multi-tier L1-L3 cache & hot-reload sequence diagrams
+│       └── token_lifecycle_and_logout_flow.md# Revocation, Introspection, and Backchannel Logout flows
 ├── localstack/                     # LocalStack S3 initialization & seeding
 │   ├── init/01-init-s3.sh          # Auto-creates oauth2-clients bucket and seeds demo-client.json
 │   └── seed-demo-client.sh         # Standalone S3 seeder script
