@@ -47,16 +47,18 @@ public class SessionInfoController {
         return Map.of("principal", principal != null ? principal.getName() : "anonymous");
     }
 
-    // Administrative / Fraud Protection: Terminate an authorization session early
-    // Revokes the token on the Authorization Server and evicts the shared Redis session
+    /**
+     * Administrative session revocation endpoint.
+     * Revokes active authorization tokens on the authorization server, evicts the shared Redis SSO session,
+     * and dispatches an OIDC back-channel logout notification to client applications.
+     */
     @PostMapping("/api/admin/revoke-session")
     public ResponseEntity<Map<String, Object>> revokeSession(
             @RequestHeader(value = "X-Admin-Api-Key", required = false) String apiKeyHeader,
             @RequestParam(required = false) String token,
             @RequestParam(required = false) String sessionId) {
 
-        // Security Improvement: Constant-Time Admin Key Verification (Mitigate Timing Attacks & Unauthorized Invocation)
-        // Stops unauthorized callers from invoking administrative revocation endpoints
+        // Validate administrative API key using constant-time byte comparison to mitigate timing attacks
         byte[] expectedKeyBytes = adminApiKey.getBytes(StandardCharsets.UTF_8);
         byte[] providedKeyBytes = apiKeyHeader != null ? apiKeyHeader.getBytes(StandardCharsets.UTF_8) : new byte[0];
         if (apiKeyHeader == null || !MessageDigest.isEqual(expectedKeyBytes, providedKeyBytes)) {
@@ -81,8 +83,7 @@ public class SessionInfoController {
             }
         }
 
-        // Security Improvement: Strict UUID Validation on sessionId parameter
-        // Prevents wildcard or injection attacks against the Redis key space
+        // Validate UUID syntax before executing Redis operations to protect against key injection
         boolean sessionEvicted = false;
         if (sessionId != null && !sessionId.isBlank()) {
             try {
@@ -99,8 +100,7 @@ public class SessionInfoController {
             }
         }
 
-        // Security Improvement (OIDC Back-Channel Logout 1.0):
-        // Notify client application via backchannel logout to purge client sessions immediately
+        // Dispatch OpenID Connect Back-Channel Logout 1.0 notification to connected clients
         oidcBackChannelLogoutService.dispatchLogout(null, "demo-client", null, sessionId);
 
         return ResponseEntity.ok(Map.of(

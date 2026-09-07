@@ -22,9 +22,9 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriUtils;
 
 /**
- * OpenID Connect Back-Channel Logout 1.0 Implementation (RFC Spec)
- * Security Improvement: Asynchronously sends cryptographically signed logout_token JWTs
- * to registered client back-channel endpoints so clients can terminate sessions server-to-server.
+ * OpenID Connect Back-Channel Logout 1.0 service.
+ * Asynchronously generates and delivers signed logout_token JWTs to registered client
+ * back-channel logout endpoints, enabling direct server-to-server session invalidation.
  */
 @Slf4j
 @Service
@@ -78,7 +78,7 @@ public class OidcBackChannelLogoutService {
             signedJWT.sign(jwsSigner);
             String logoutToken = signedJWT.serialize();
 
-            // Performance & Resilience: Asynchronous non-blocking dispatch with automated retries
+            // Asynchronous non-blocking dispatch with exponential backoff retries
             java.util.concurrent.CompletableFuture.runAsync(() -> {
                 int maxRetries = 3;
                 for (int attempt = 1; attempt <= maxRetries; attempt++) {

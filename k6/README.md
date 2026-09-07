@@ -72,31 +72,46 @@ k6 run --summary-export=k6/summary.json k6/oauth_load_test.js
 
 ## Measured Benchmark Results
 
-From the latest 30-second benchmark run (with HTTP/2 stream multiplexing and Puma clustered configuration):
+### 1. Hardware-Backed AWS KMS Signing Benchmark (Production Configuration)
+
+With **AWS KMS HSM asymmetric signing (RSA_2048)**, **graceful multi-key JWKS rotation**, and **strict RS256 algorithm pinning**:
 
 ```
   █ THRESHOLDS 
 
-    auth_session_success_rate .......: ✓ 'rate>0.95' rate=98.79%
-    auth_session_total_duration_ms ..: ✓ 'p(95)<1500' p(95)=146 ms
+    auth_session_success_rate .......: ✓ 'rate>0.95' rate=98.00%
+    auth_session_total_duration_ms ..: ✓ 'p(95)<1500' p(95)=425.4 ms
     discovery_etag_304_rate .........: ✓ 'rate>0.90' rate=100.00%
     jwks_etag_304_rate ..............: ✓ 'rate>0.90' rate=100.00%
-    http_req_failed .................: ✓ 'rate<0.05' rate=0.04%
+    http_req_failed .................: ✓ 'rate<0.05' rate=0.08%
 
   █ KEY PERFORMANCE INDICATORS 
 
-    • Total HTTP Requests:             4,875 requests in 30 seconds (162 req/sec sustained)
-    • Equivalent Hourly Throughput:    ~583,000 HTTP requests / hour
-    • Full OAuth Sessions Completed:   245 full sessions in 30s (~8.2 sessions/sec)
-    • Equivalent Auth Session Rate:    ~29,400 full auth sessions / hour (Target was a few thousand/hr)
-    • Auth Session Success Rate:       98.79% (+3.09% improvement)
-    • End-to-End Session Latency:      p(50) = 112 ms | p(90) = 138 ms | p(95) = 146 ms | max = 161 ms
+    • Total HTTP Requests:             4,496 requests in 30 seconds (147.3 req/sec sustained)
+    • Equivalent Hourly Throughput:    ~539,500 HTTP requests / hour
+    • Full OAuth Sessions Completed:   197 full sessions in 30s (~6.6 sessions/sec)
+    • Equivalent Auth Session Rate:    ~23,640 full auth sessions / hour (Target was a few thousand/hr)
+    • End-to-End Session Latency:      p(50) = 250 ms | p(90) = 396 ms | p(95) = 425 ms | max = 503 ms
     • Public Discovery / JWKS 304:     100.00% (724 out of 724 requests returned 304 Not Modified)
-    • Overall HTTP Failure Rate:       0.04% (only 2 out of 4,875 requests failed; halved from 0.08%)
-    • Individual Request Median:       567 µs
+    • Overall HTTP Failure Rate:       0.08% (4 out of 4,496 requests)
+    • Cryptographic Boundary:          All access, ID, and logout tokens signed within AWS KMS
 ```
+
+### 2. In-Memory Software Signing vs. AWS KMS Hardware Signing
+
+| Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS) | Evaluation |
+|---|---|---|---|
+| **Cryptographic Boundary** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 (KMS HSM)** | Maximum hardware protection |
+| **Algorithm Pinning** | Optional | **Strict RS256 enforced (`none` & `HS256` rejected)** | Pinning active |
+| **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime cutover |
+| **Auth Session Success Rate** | `98.79%` | **`98.00%`** | **Passed** (>95% threshold) |
+| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~23,640 sessions/hr** | **~8x above target** ("few thousand/hr") |
+| **Full Session Latency (p95)** | `146 ms` | **`425 ms`** | **Passed** (<1,500 ms threshold) |
+| **Total HTTP Error Rate** | `0.04%` | **`0.08%`** | **99.92% success rate** |
+| **Discovery & JWKS ETag 304 Rate**| `100.00%` | **`100.00%`** (724 / 724) | Zero payload bandwidth |
 
 ---
 
 ## Architecture References
 - Detailed bottleneck analysis and scaling roadmap: [`docs/architecture/performance_and_scalability.md`](../docs/architecture/performance_and_scalability.md)
+- KMS multi-key rotation architecture and sequence flows: [`docs/architecture/kms_multi_key_rotation_flow.md`](../docs/architecture/kms_multi_key_rotation_flow.md)

@@ -311,14 +311,16 @@ sequenceDiagram
 - **Local Development Fallback:** When `aws.kms.enabled: false`, the server activates the local in-memory key pair strictly for offline unit tests.
 
 #### Measured Performance Impact (k6 Benchmark Comparison):
-| Metric | In-Memory Software Signing | AWS KMS Hardware Signing | Evaluation |
+| Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS) | Evaluation |
 |---|---|---|---|
 | **Cryptographic Security** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 (KMS HSM)** | Maximum security |
-| **Auth Session Success Rate** | `98.79%` | **`97.48%`** | **Passed** (>95% threshold) |
-| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~23,280 sessions/hr** | **~8x above target** ("few thousand/hr") |
-| **Full Session Latency (p95)** | `146 ms` | **`461 ms`** | **Passed** (<1,500 ms threshold) |
+| **Algorithm Pinning** | Optional | **Strict RS256 enforced (`none` & `HS256` rejected)** | Pinning active |
+| **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime |
+| **Auth Session Success Rate** | `98.79%` | **`98.00%`** | **Passed** (>95% threshold) |
+| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~23,640 sessions/hr** | **~8x above target** ("few thousand/hr") |
+| **Full Session Latency (p95)** | `146 ms` | **`425 ms`** | **Passed** (<1,500 ms threshold) |
 | **Total HTTP Error Rate** | `0.04%` | **`0.08%`** | **99.92% success rate** |
-| **Discovery & JWKS ETag 304 Rate** | `100.00%` | **`100.00%`** (725 / 725) | Zero payload bandwidth |
+| **Discovery & JWKS ETag 304 Rate** | `100.00%` | **`100.00%`** (724 / 724) | Zero payload bandwidth |
 
 ### 5. Production Puma Clustered Worker Specification (Finding A)
 > [!IMPORTANT]

@@ -65,6 +65,9 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 
 | Standard / RFC | Specification Name | How It Is Implemented & Enforced |
 |---|---|---|
+| **FIPS 140-2 / KMS** | **Hardware-Backed Asymmetric Signing** | Tokens (access, ID, logout) are signed within an AWS KMS Hardware Security Module (HSM) boundary using `RSA_2048`. Asymmetric private keys never enter JVM heap memory. |
+| **RFC 8725** | **Strict Algorithm Pinning (RS256)** | Authorization server and client strictly enforce `RS256`, rejecting `none`, symmetric HMAC (`HS256`), and unapproved algorithms to eliminate JWT signature confusion attacks. |
+| **Graceful Rotation**| **Multi-Key JWKS Rotation** | Serves active and previous keys concurrently at `/oauth2/jwks`, enabling zero-downtime key rotation while in-flight tokens remain valid through their TTL. |
 | **RFC 9126** | **Pushed Authorization Requests (PAR)** | All authorization parameters (`client_id`, `state`, `nonce`, `code_challenge`) are pushed directly to `/oauth2/par` over TLS via an authenticated backchannel POST. The browser only receives an opaque, single-use `request_uri`. Stops query leakage and URL manipulation. |
 | **RFC 7523** | **`private_key_jwt` Client Authentication** | Clients authenticate exclusively using RS256-signed JWT assertions (`urn:ietf:params:oauth:client-assertion-type:jwt-bearer`). Static client secrets (`client_secret_basic`, `client_secret_post`) and insecure `none` authentication are **strictly rejected with HTTP 401**. Includes JTI replay cache in Redis and strict `iss`, `sub`, `aud` validation. |
 | **RFC 9449** | **Demonstrating Proof-of-Possession (DPoP)** | The `/oauth2/token` endpoint strictly enforces the `DPoP` HTTP header (requests lacking DPoP are rejected with HTTP 400 `invalid_dpop_proof`). Issued access tokens are sender-constrained by embedding the DPoP key thumbprint in the `cnf.jkt` claim. The token cannot be used without the private DPoP key. |
@@ -78,15 +81,48 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 
 ---
 
+## Security Inclusions, Posture & Production Readiness Roadmap
+
+This section documents the security controls currently active in the platform, along with an enterprise production readiness roadmap detailing requirements, benefits, trade-offs, and classification.
+
+### 1. Active Security Inclusions (Implemented in Codebase)
+- **Cryptographic Isolation:** Asymmetric signing keys reside in FIPS 140-2 Level 3 Hardware Security Modules (AWS KMS). Private keys never touch application memory.
+- **Fail-Closed Guarantee:** When KMS signing is enabled (`aws.kms.enabled: true`), the authorization server refuses startup if KMS is unreachable, preventing silent fallback to insecure keys.
+- **Strict Algorithm Pinning:** Rejects `alg: none` and symmetric HMAC `HS256` confusion attacks at both the authorization server and client decoders.
+- **Multi-Key JWKS Rotation:** Concurrent publishing of active and retired keys at `/oauth2/jwks` eliminates downtime during key lifecycle transitions.
+- **Asymmetric Client Identity:** Shared secrets (`client_secret_basic`, `client_secret_post`) are disabled in favor of `private_key_jwt` with Redis JTI replay prevention.
+- **Sender-Constrained Tokens:** RFC 9449 DPoP binds access tokens to ephemeral client keys, mitigating token theft and replay.
+- **Pushed Authorization Requests (PAR):** Eliminates sensitive query parameters in browser history and server access logs.
+- **Issuer Identification:** RFC 9207 prevents OAuth 2.0 Mix-Up attacks.
+- **Server-Determined Scopes:** Prevents client-side privilege escalation.
+- **Hardened Browser Security:** Strict `HttpOnly`, `SameSite: Lax`, and `Secure` cookie attributes; session identifiers are never exposed in URLs (CWE-598).
+- **Constant-Time Operations:** Credential and API key checks use constant-time byte comparisons to eliminate side-channel timing attacks.
+- **Strict Input Validation:** Session identifiers are strictly validated as UUIDv4 before executing Redis operations.
+
+### 2. Production Readiness Roadmap
+
+| Capability / Control | What Is Needed (Implementation Details) | Benefits | Trade-offs & Operational Costs | Classification |
+|---|---|---|---|---|
+| **Edge Web Application Firewall (WAF)** | Deploy AWS WAF or Cloudflare in front of the Application Load Balancer (ALB) with managed rule groups (Core Rule Set, Known Bad Inputs, Amazon IP Reputation) and rate limiting on `/oauth2/token` and `/oauth2/par`. | Shields application containers from volumetric DDoS, credential stuffing, and malicious scraper bots before requests hit application runtimes. | Minor latency addition (1–3 ms); managed service costs; requires periodic false-positive rule tuning. | **Deployment / Cloud Infrastructure Configuration** (No repo change needed) |
+| **TLS 1.3 & HSTS at Reverse Proxy / ALB** | Terminate TLS with ACM certificates on ALB; enforce TLS 1.2/1.3; redirect HTTP 80 to 443; inject `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` header. | Eliminates cleartext traffic on public networks; offloads CPU-intensive TLS handshakes from application instances; prevents SSL stripping. | Requires automated certificate renewal and internal security group management. | **Deployment / Cloud Infrastructure Configuration** |
+| **Mutual TLS (mTLS) for B2B Clients (RFC 8705)** | Configure ALB or Nginx reverse proxy with client certificate verification; pass validated client certificate headers (`X-Forwarded-Client-Cert`); implement Spring Security `TlsClientAuthenticationConverter`. | Hardware-grade client authentication using client-side X.509 certificates (e.g. smart cards, HSMs); eliminates per-request JWT assertion generation overhead. | High PKI complexity; requires managing Certificate Authorities (CAs), certificate lifecycles, and revocation lists (CRL/OCSP). | **Codebase Change** (converter logic) + **Deployment Configuration** (ALB mTLS setup) |
+| **Cloud Secrets Manager Integration** | Store database passwords, Redis credentials, and admin API keys in AWS Secrets Manager or HashiCorp Vault; inject securely via ECS/EKS task definitions. | Eliminates plaintext secrets in code repositories and environment configuration files; supports automated credential rotation. | Cold-start latency while retrieving secrets; additional API call costs. | **Deployment / Cloud Infrastructure Configuration** |
+| **Automated KMS Lifecycle Schedule** | Deploy an AWS EventBridge rule and Lambda function to periodically execute the rotation flow in `scripts/rotate_kms_keys.sh` (e.g. semi-annually), sending operator alerts via SNS. | Guarantees compliance with cryptographic key expiration standards (NIST SP 800-57, PCI DSS 4.0) with zero manual intervention. | Requires monitoring rotation windows to prevent premature decommissioning of keys with active in-flight tokens. | **Deployment / Cloud Infrastructure Configuration** |
+| **Distributed Redis High-Availability** | Migrate standalone Redis container to an AWS ElastiCache Redis replication group (multi-AZ with automatic failover) or Redis Sentinel; configure connection strings accordingly. | Eliminates single point of failure for SSO sessions, JTI replay prevention, and L2 client configuration caching. | Increased cloud infrastructure costs; eventual consistency considerations during failover events. | **Deployment / Cloud Infrastructure Configuration** |
+| **Per-Client Token Bucket Rate Limiting** | Add a distributed rate-limiting filter (e.g., Bucket4j backed by Redis) on `/oauth2/token` and `/oauth2/par` keyed by `client_id`. | Protects the authorization server and KMS Sign API from runaway client loops or compromised client credential abuse. | Additional Redis round-trip latency on token exchange; requires configuring per-tier quota allocations. | **Codebase Change** (add filter to `spring-auth-server`) |
+
+---
+
 ## Architectural Diagrams & Communication Flows
 
 Comprehensive sequence diagrams, topology graphs, and communication flows are documented in [`docs/architecture/`](docs/architecture/README.md):
 
 - [**System Topology & Component Communication**](docs/architecture/README.md): Full component interaction graph, communication channels, and port allocations.
+- [**AWS KMS Key Management, Multi-Key Rotation & Algorithm Pinning**](docs/architecture/kms_multi_key_rotation_flow.md): End-to-end KMS HSM signing, zero-downtime key rotation lifecycle, automated rotation script, and RFC 8725 algorithm pinning.
 - [**OAuth 2.1 Code Flow with PAR, DPoP & Rails SSO**](docs/architecture/oauth2_par_dpop_flow.md): Step-by-step sequence diagram from initial browser click to DPoP-protected UserInfo query.
 - [**Multi-Tier Client Configuration & Hot-Reload Flow**](docs/architecture/client_config_and_caching_flow.md): Sequence diagrams covering warm reboots (< 5ms zero-S3 boot), cold start fallback, dynamic client creation, and immediate deletion/revocation.
 - [**Token Lifecycle, Revocation & OIDC Back-Channel Logout**](docs/architecture/token_lifecycle_and_logout_flow.md): Sequence diagrams for RFC 7009 token revocation, RFC 7662 introspection, and OIDC Back-Channel Logout 1.0 push.
-- [**Performance, Scalability & Bottleneck Analysis**](docs/architecture/performance_and_scalability.md): Deep-dive analysis of all 10 system bottlenecks, 4,000x crypto speedups, in-memory JWKS/discovery caching, ETag 304 validation, automated retries, and high-scale roadmap.
+- [**Performance, Scalability & Bottleneck Analysis**](docs/architecture/performance_and_scalability.md): Deep-dive analysis of system bottlenecks, cryptographic speedups, in-memory JWKS/discovery caching, ETag 304 validation, automated retries, and high-scale roadmap.
 
 ---
 
@@ -179,6 +215,11 @@ A comprehensive, multi-step automated test harness is provided across all subpro
    - In-memory thread-safe JWKS cache resolution (< 1 ms lookup)
    - Automated retry loop with exponential backoff & randomized jitter
 
+4. **Suite 4: AWS KMS Cryptographic Signing, Multi-Key Rotation & Strict Algorithm Pinning (`test_kms_signing.rb`)**
+   - Direct AWS KMS HSM asymmetric signing validation (private keys remain within KMS boundary)
+   - Strict Algorithm Pinning negative tests (verifies that `alg: none` and `alg: HS256` client assertions are strictly rejected with HTTP 400)
+   - Graceful multi-key JWKS rotation (verifies dual key publication at `/oauth2/jwks` and validates tokens signed by active vs. previous keys)
+
 ### Run Functional Tests from any component directory:
 
 ```bash
@@ -196,7 +237,7 @@ bash client-manager/functional_tests/run_functional_tests.sh
 
 ## Performance & Concurrency Load Testing (k6)
 
-An automated **k6** load testing suite is located in [`k6/oauth_load_test.js`](k6/oauth_load_test.js) (documented in [`k6/README.md`](k6/README.md)) to prove the platform handles thousands of authentication sessions per hour and high-concurrency burst traffic:
+An automated **k6** load testing suite is located in [`k6/oauth_load_test.js`](k6/oauth_load_test.js) (documented in [`k6/README.md`](k6/README.md)) to evaluate the platform under concurrent load with hardware-backed AWS KMS signing enabled:
 
 - **Scenario 1 (`full_oauth_session_flow`):** 5 concurrent virtual users continuously executing the complete 6-hop interactive OAuth 2.1 authorization session.
 - **Scenario 2 (`discovery_and_jwks_burst`):** Ramping up to 30 req/sec querying discovery and JWKS endpoints with conditional `If-None-Match` ETags.
@@ -214,14 +255,18 @@ k6 run --vus 2 --iterations 10 k6/oauth_load_test.js
 k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 ```
 
-### Measured Performance Highlights:
-- **Throughput:** 4,875 requests in 30 seconds (**162 req/sec sustained** $\approx$ **~583,000 req/hr**).
-- **Session Capacity:** 245 full multi-hop auth sessions in 30s (**~29,400 sessions/hr**, well beyond the "few thousand/hr" goal).
-- **Auth Session Success Rate:** **98.79%** (+3.09% boost with HTTP/2 multiplexing + Puma tuning).
-- **Session Latency:** **p50: 112 ms**, **p95: 146 ms**, **max: 161 ms**.
-- **Caching Efficiency:** **100% of repeat discovery & JWKS requests returned HTTP 304** (0 body bytes).
-- **HTTP Error Rate:** **0.04%** (only 2 out of 4,875 requests failed; halved from 0.08%).
-- **Request Latency:** Individual request median **567 µs**.
+### Measured Performance Benchmarks:
+
+| Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS) | Evaluation |
+|---|---|---|---|
+| **Cryptographic Boundary** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 (KMS HSM)** | Maximum hardware protection |
+| **Algorithm Pinning** | Optional | **Strict RS256 enforced (`none` & `HS256` rejected)** | Pinning active |
+| **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime cutover |
+| **Auth Session Success Rate** | `98.79%` | **`98.00%`** | **Passed** (>95% threshold) |
+| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~23,640 sessions/hr** | **~8x above target** ("few thousand/hr") |
+| **Full Session Latency (p95)** | `146 ms` | **`425 ms`** | **Passed** (<1,500 ms threshold) |
+| **Total HTTP Error Rate** | `0.04%` | **`0.08%`** | **99.92% success rate** |
+| **Discovery & JWKS ETag 304 Rate**| `100.00%` | **`100.00%`** (724 / 724) | Zero payload bandwidth |
 
 ---
 

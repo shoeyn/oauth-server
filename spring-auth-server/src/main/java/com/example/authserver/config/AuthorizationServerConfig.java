@@ -94,19 +94,18 @@ public class AuthorizationServerConfig {
             .securityMatcher(authorizationServerConfigurer.getEndpointsMatcher())
             .with(authorizationServerConfigurer, (authorizationServer) ->
                 authorizationServer
-                    .pushedAuthorizationRequestEndpoint(Customizer.withDefaults()) // Spring Security 7 Native PAR (RFC 9126)
+                    .pushedAuthorizationRequestEndpoint(Customizer.withDefaults()) // Native RFC 9126 PAR support
                     .tokenIntrospectionEndpoint(Customizer.withDefaults()) // RFC 7662 Token Introspection
                     .tokenRevocationEndpoint(Customizer.withDefaults()) // RFC 7009 Token Revocation
-                    // Security Improvement (RFC 9449 Section 5): Enforce DPoP proof header on token endpoint requests.
-                    // Strictly rejects any token grant request that attempts to omit the DPoP HTTP header with invalid_dpop_proof.
+                    // Enforce RFC 9449 Section 5: Require DPoP proof header on token exchange to sender-constrain tokens
                     .tokenEndpoint(tokenEndpoint ->
                         tokenEndpoint.accessTokenRequestConverter(new StrictDPoPTokenRequestAuthenticationConverter())
                     )
-                    // Security / Architecture: Ignore client-requested scopes and pre-determine scopes strictly from the registered client
+                    // Bind pre-determined authorized scopes strictly from registered client configuration
                     .authorizationEndpoint(authorizationEndpoint -> authorizationEndpoint
                         .authorizationRequestConverter(new ClientPreDeterminedScopeAuthorizationRequestConverter(registeredClientRepository))
-                        // Security Improvement (RFC 9207): OAuth 2.0 Authorization Server Issuer Identification
-                        // Appends 'iss' to the redirect URI alongside code and state to protect against Mix-Up Attacks
+                        // RFC 9207: Authorization Server Issuer Identification in Authorization Response
+                        // Appends 'iss' parameter to callback redirect to prevent OAuth 2.0 mix-up attacks
                         .authorizationResponseHandler((request, response, authentication) -> {
                             if (authentication instanceof OAuth2AuthorizationCodeRequestAuthenticationToken token) {
                                 String redirectUri = token.getRedirectUri();
@@ -120,7 +119,6 @@ public class AuthorizationServerConfig {
                             }
                         })
                     )
-                    // OpenID Connect 1.0 features
                     .oidc(oidc -> oidc
                         .userInfoEndpoint(userInfo -> userInfo
                             .userInfoMapper(createOidcUserInfoMapper())
@@ -131,10 +129,9 @@ public class AuthorizationServerConfig {
                                 response.getWriter().write("{\"error\":\"invalid_token\",\"details\":\"" + exception.getMessage() + "\"}");
                             })
                         )
-                        // OIDC RP-Initiated Logout (Single Sign-Out): Clears security context and evicts shared Redis session
+                        // OIDC RP-Initiated Logout: Invalidate local security context and evict shared SSO session
                         .logoutEndpoint(logoutEndpoint -> logoutEndpoint
                             .logoutResponseHandler((request, response, authentication) -> {
-                                // Evict shared Redis session and clear cookie on OIDC Single Sign-Out
                                 String sessionId = null;
                                 if (request.getCookies() != null) {
                                     for (jakarta.servlet.http.Cookie c : request.getCookies()) {
@@ -154,7 +151,7 @@ public class AuthorizationServerConfig {
                                 clearedCookie.setHttpOnly(true);
                                 response.addCookie(clearedCookie);
 
-                                // Security Improvement (OIDC Back-Channel Logout 1.0):
+                                // OpenID Connect Back-Channel Logout 1.0:
                                 // Asynchronously dispatch signed logout_token to registered client back-channel endpoint
                                 oidcBackChannelLogoutService.dispatchLogout(
                                         null, "demo-client",
@@ -169,9 +166,8 @@ public class AuthorizationServerConfig {
                             })
                         )
                     )
-                    // Security Improvement (RFC 7523): Restrict client authentication strictly to private_key_jwt.
-                    // Completely disables and clears all weak shared-secret converters (client_secret_basic, client_secret_post, none)
-                    // and removes unneeded authentication providers.
+                    // Enforce RFC 7523 private_key_jwt client authentication exclusively.
+                    // Shared-secret mechanisms (client_secret_basic, client_secret_post) are rejected.
                     .clientAuthentication(clientAuthentication -> {
                         clientAuthentication.authenticationConverters(converters -> {
                             converters.clear();
@@ -191,11 +187,11 @@ public class AuthorizationServerConfig {
             .authorizeHttpRequests((authorize) ->
                 authorize.anyRequest().authenticated()
             )
-            // Security Improvement: Use trusted issuerUrl in entry point to prevent Host Header Poisoning open redirects
+            // Route unauthenticated requests to the external Rails IdP with trusted issuer URL
             .exceptionHandling((exceptions) -> exceptions
                 .authenticationEntryPoint(new ExternalLoginAuthenticationEntryPoint(railsLoginUrl, issuerUrl))
             )
-            // Performance Improvement: In-Memory response caching with ETag for discovery and JWKS
+            // HTTP conditional caching filter (ETag/304) for high-frequency discovery and JWKS endpoints
             .addFilterBefore(
                 new DiscoveryAndJwksCacheFilter(),
                 SecurityContextHolderFilter.class
@@ -213,8 +209,7 @@ public class AuthorizationServerConfig {
             RSAPublicKey demoClientPublicKey,
             StringRedisTemplate redisTemplate) {
         return (authenticationProviders) -> {
-            // Security Improvement: Eliminate weak/shared-secret authentication providers.
-            // Only JwtClientAssertionAuthenticationProvider is permitted to authenticate clients.
+            // Permit only asymmetric private_key_jwt client authentication
             authenticationProviders.removeIf(provider -> !(provider instanceof JwtClientAssertionAuthenticationProvider));
 
             for (AuthenticationProvider provider : authenticationProviders) {
@@ -229,11 +224,11 @@ public class AuthorizationServerConfig {
                                     .signatureAlgorithm(org.springframework.security.oauth2.jose.jws.SignatureAlgorithm.RS256)
                                     .build();
 
-                            // Security Improvement: Clock skew tolerance limited to 60s to reject expired client assertion tokens
+                            // Allow maximum 60 seconds clock skew for client assertion validity
                             OAuth2TokenValidator<Jwt> timestampValidator = new JwtTimestampValidator(Duration.ofSeconds(60));
 
-                            // Security Improvement: Strict Algorithm Pinning (RFC 7523 & RFC 8725 Section 3.1)
-                            // Strictly rejects 'none', symmetric HMAC, and non-approved algorithms to prevent algorithm confusion attacks
+                            // Strict Algorithm Pinning (RFC 7523 & RFC 8725 Section 3.1):
+                            // Reject 'none', symmetric HMAC, and non-RS256 algorithms to mitigate algorithm confusion attacks
                             OAuth2TokenValidator<Jwt> algorithmValidator = (jwt) -> {
                                 Object alg = jwt.getHeaders().get("alg");
                                 if (alg == null || !"RS256".equalsIgnoreCase(alg.toString())) {
@@ -246,8 +241,7 @@ public class AuthorizationServerConfig {
                             };
 
                             OAuth2TokenValidator<Jwt> clientValidator = (jwt) -> {
-                                // Security Improvement: Subject and Issuer must strictly match the registered client_id (RFC 7523 Section 3)
-                                // Stops malicious clients from using another client's identity or cross-client token forgery
+                                // Validate subject and issuer match registered client identifier (RFC 7523 Section 3)
                                 if (!registeredClient.getClientId().equals(jwt.getSubject())) {
                                     return OAuth2TokenValidatorResult.failure(new OAuth2Error(
                                             "invalid_client_assertion",
@@ -262,8 +256,7 @@ public class AuthorizationServerConfig {
                                             null));
                                 }
 
-                                // Security Improvement: Audience (aud) validation (RFC 7523 Section 3)
-                                // Ensures assertion was explicitly minted for this authorization server, preventing cross-server token replay
+                                // Validate audience specifically targets this authorization server (RFC 7523 Section 3)
                                 List<String> audiences = jwt.getAudience();
                                 boolean validAudience = audiences != null && audiences.stream().anyMatch(aud ->
                                         aud.contains("9000") || aud.equalsIgnoreCase(issuerUrl)
@@ -275,8 +268,7 @@ public class AuthorizationServerConfig {
                                             null));
                                 }
 
-                                // Security Improvement: Replay Protection using unique JWT ID ('jti') in Redis (RFC 7523 Section 3)
-                                // Stops attackers from capturing a client assertion and replaying it within its validity window
+                                // JTI Replay Protection: Enforce single-use client assertion within expiration window
                                 String jti = jwt.getId();
                                 if (jti != null && !jti.isBlank()) {
                                     Boolean isNew = redisTemplate.opsForValue().setIfAbsent("oauth2:jti:" + jti, "used", Duration.ofMinutes(5));
@@ -422,9 +414,11 @@ public class AuthorizationServerConfig {
         };
     }
 
-    // Security Improvement (RFC 7523): Strictly enforce private_key_jwt client authentication.
-    // Explicitly rejects legacy and insecure shared-secret authentication mechanisms (client_secret_basic, client_secret_post)
-    // with an explicit OAuth2 invalid_client error rather than silently ignoring or bypassing them.
+    /**
+     * Enforces RFC 7523 asymmetric private_key_jwt client authentication.
+     * Explicitly rejects insecure shared-secret authentication mechanisms
+     * (client_secret_basic and client_secret_post) with HTTP 401 invalid_client.
+     */
     private static class StrictClientAssertionAuthenticationConverter implements AuthenticationConverter {
         private final org.springframework.security.oauth2.server.authorization.web.authentication.JwtClientAssertionAuthenticationConverter delegate =
                 new org.springframework.security.oauth2.server.authorization.web.authentication.JwtClientAssertionAuthenticationConverter();
@@ -454,7 +448,10 @@ public class AuthorizationServerConfig {
         }
     }
 
-    // Security & Architecture: Ignore client-requested scopes and pre-determine scopes strictly from registered client
+    /**
+     * Enforces server-determined scopes by binding registered client authorized scopes
+     * to the authorization code request, mitigating client-side scope manipulation.
+     */
     private static class ClientPreDeterminedScopeAuthorizationRequestConverter implements AuthenticationConverter {
         private final RegisteredClientRepository registeredClientRepository;
         private final OAuth2AuthorizationCodeRequestAuthenticationConverter defaultConverter =
@@ -464,24 +461,6 @@ public class AuthorizationServerConfig {
             this.registeredClientRepository = registeredClientRepository;
         }
 
-        /*
-         * RFC 9126 PAR Mandatory Enforcement Note:
-         * To mandate Pushed Authorization Requests (PAR) and reject direct GET/POST authorization requests:
-         * 1. In RFC 9126 Section 4, clients using PAR obtain a 'request_uri' (urn:ietf:params:oauth:request_uri:...)
-         *    via the backchannel endpoint (/oauth2/par) and pass it to /oauth2/authorize.
-         * 2. To reject direct authorization requests without 'request_uri', check:
-         *       String requestUri = request.getParameter("request_uri");
-         *       if (!StringUtils.hasText(requestUri)) {
-         *           OAuth2Error error = new OAuth2Error(
-         *               org.springframework.security.oauth2.core.OAuth2ErrorCodes.INVALID_REQUEST,
-         *               "Pushed Authorization Requests (PAR) are required by policy. Directly initiating authorization without a valid 'request_uri' is prohibited.",
-         *               "https://datatracker.ietf.org/doc/html/rfc9126#section-4"
-         *           );
-         *           throw new org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationException(error, null);
-         *       }
-         * 3. Register this check in this converter before or after default conversion. Direct requests
-         *    lacking 'request_uri' will then be rejected immediately with an OAuth2 invalid_request error.
-         */
         @Override
         public Authentication convert(HttpServletRequest request) {
             Authentication authentication = this.defaultConverter.convert(request);
@@ -507,8 +486,10 @@ public class AuthorizationServerConfig {
         }
     }
 
-    // Security Improvement (RFC 9449 Section 5): Enforce DPoP proof header on token endpoint requests.
-    // Strictly rejects any token request that omits the DPoP HTTP header with invalid_dpop_proof.
+    /**
+     * Enforces RFC 9449 Demonstrating Proof-of-Possession (DPoP) on token endpoint requests.
+     * Rejects token grant requests that omit the DPoP HTTP proof header with invalid_dpop_proof.
+     */
     private static class StrictDPoPTokenRequestAuthenticationConverter implements AuthenticationConverter {
         @Override
         public Authentication convert(HttpServletRequest request) {

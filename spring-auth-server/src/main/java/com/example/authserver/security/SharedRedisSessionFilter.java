@@ -46,9 +46,9 @@ public class SharedRedisSessionFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Performance Optimization: Skip shared Redis session lookup for non-interactive M2M,
+     * Skips shared Redis session lookup for non-interactive machine-to-machine,
      * token exchange, JWKS, and discovery endpoints.
-     * Only interactive user endpoints (like /oauth2/authorize) require a user session.
+     * Only interactive user endpoints (such as /oauth2/authorize) require user session evaluation.
      */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {

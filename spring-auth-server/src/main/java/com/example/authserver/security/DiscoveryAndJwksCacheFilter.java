@@ -13,11 +13,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
 /**
- * Performance Improvement: In-Memory Response Caching & ETag filter for Well-Known & JWKS endpoints.
- * Avoids JSON re-serialization, cryptographic key extraction, and security filter overhead
- * for high-throughput public discovery endpoints (.well-known/openid-configuration,
- * .well-known/oauth-authorization-server, /oauth2/jwks).
- * Supports HTTP 304 Not Modified validation via ETags.
+ * In-memory HTTP response caching and ETag filter for public discovery and JWKS endpoints.
+ * Serves cached byte arrays for /.well-known/openid-configuration,
+ * /.well-known/oauth-authorization-server, and /oauth2/jwks with Cache-Control headers
+ * and returns HTTP 304 Not Modified when client ETags match.
  */
 public class DiscoveryAndJwksCacheFilter extends OncePerRequestFilter {
 

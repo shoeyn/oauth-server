@@ -5,7 +5,7 @@ require "uri"
 require "active_support/security_utils"
 
 class SessionsController < ApplicationController
-  # Security Improvement: Allowed origins for OAuth return_to redirects to prevent Open Redirect phishing attacks
+  # Whitelist of allowed redirect targets for the return_to parameter to prevent Open Redirect attacks
   ALLOWED_RETURN_HOSTS = [
     "localhost:9000",
     "127.0.0.1:9000",
@@ -17,17 +17,16 @@ class SessionsController < ApplicationController
   end
 
   def create
-    # Security Improvement: Sanitize inputs to prevent unexpected payload injection
     username = params[:username].to_s.strip.slice(0, 100)
     username = "demo_user" if username.blank?
 
     password = params[:password].to_s
 
-    # Security Improvement: Use secure_compare to prevent timing attacks through side-channel latency differences
+    # Constant-time comparison to mitigate timing attacks
     expected_password = "password"
     is_valid_password = ActiveSupport::SecurityUtils.secure_compare(password, expected_password)
 
-    # In PoC mode, we accept valid credentials or valid non-empty password
+    # In development/PoC mode, accept predefined credentials or non-empty password
     unless is_valid_password || password.present?
       flash[:error] = "Invalid credentials"
       return render :new, status: :unprocessable_entity
@@ -35,7 +34,6 @@ class SessionsController < ApplicationController
 
     return_to = sanitize_return_to(params[:return_to])
 
-    # Simulated user details collected by Rails app
     user_payload = {
       username: username,
       email: "#{username}@example.com",
@@ -44,21 +42,20 @@ class SessionsController < ApplicationController
       authenticated_at: Time.now.utc.iso8601
     }
 
-    # Store user session JSON in shared Redis (using persistent connection pool/client)
-    # Security Improvement: Invalidate old session in Redis to stop session fixation attacks
+    # Invalidate previous session in Redis to prevent session fixation attacks
     old_session_id = cookies[:SHARED_SESSION_ID]
     if old_session_id.present? && valid_session_id?(old_session_id)
       redis_client.del("session:#{old_session_id}")
     end
 
-    # Security Improvement: Generate a cryptographically strong UUIDv4 for the session identifier
+    # Issue cryptographically secure UUIDv4 session identifier and persist to Redis
     session_id = SecureRandom.uuid
     redis_client.set("session:#{session_id}", user_payload.to_json, ex: 7200)
 
-    # Security Improvement: Hardened Cookie Settings
-    # 1. httponly: true -> Stop malicious client-side JavaScript from grabbing the sensitive session cookie (mitigates XSS cookie theft)
-    # 2. same_site: :lax -> Prevent Cross-Site Request Forgery (CSRF) by blocking cookie inclusion on third-party cross-site requests
-    # 3. secure: request.ssl? -> Transmit cookie only over encrypted HTTPS/TLS connections to prevent man-in-the-middle network interception
+    # Issue hardened session cookie:
+    # - HttpOnly: Prevents client-side script access (mitigates XSS cookie theft)
+    # - SameSite: Lax: Mitigates CSRF on cross-site requests
+    # - Secure: Transmitted only over TLS in production
     cookies[:SHARED_SESSION_ID] = {
       value: session_id,
       path: "/",
@@ -68,10 +65,7 @@ class SessionsController < ApplicationController
       secure: request.ssl?
     }
 
-    # Security Improvement: Do NOT append session_id into URL query parameters!
-    # Transmitting session identifiers in query strings leaks them into browser histories, access logs,
-    # and HTTP Referer headers (CWE-598: Information Exposure Through Query Strings in GET Request).
-    # The session is maintained exclusively via the HttpOnly cookie above.
+    # Session identifier is transmitted exclusively via cookie, never in URL query strings (CWE-598)
     redirect_to return_to, allow_other_host: true, status: :see_other
   end
 
@@ -83,7 +77,6 @@ class SessionsController < ApplicationController
     session_id = cookies[:SHARED_SESSION_ID]
     if session_id.present? && valid_session_id?(session_id)
       redis_client.del("session:#{session_id}")
-      # Security Improvement: Explicitly clear the cookie with matching path to prevent orphaned session cookies
       cookies.delete(:SHARED_SESSION_ID, path: "/")
     end
     redirect_to "/login", notice: "Logged out"
@@ -91,7 +84,7 @@ class SessionsController < ApplicationController
 
   private
 
-  # Performance Improvement: Reusable thread-safe Redis client to avoid TCP connection churn under high load
+  # Thread-safe persistent Redis connection
   def self.redis_client
     @redis_client ||= Redis.new(
       url: ENV.fetch("REDIS_URL", "redis://localhost:6379"),
@@ -106,20 +99,18 @@ class SessionsController < ApplicationController
     self.class.redis_client
   end
 
-  # Security Improvement: Validate return_to parameter against trusted OAuth host whitelist to prevent Open Redirect attacks
+  # Validates return_to parameter against trusted hosts to prevent open redirects
   def sanitize_return_to(target_url)
     return "http://localhost:9000" if target_url.blank?
 
     begin
       parsed = URI.parse(target_url.to_s.strip)
-      # Allow relative paths or whitelisted hosts
       if parsed.host.nil?
         target_url.start_with?("/") ? target_url : "http://localhost:9000"
       elsif ALLOWED_RETURN_HOSTS.include?(parsed.host) || ALLOWED_RETURN_HOSTS.include?("#{parsed.host}:#{parsed.port}")
         target_url
       else
-        # Security Improvement: Disallow redirecting to unauthorized external domains
-        Rails.logger.warn("Blocked potentially malicious open redirect to: #{target_url}")
+        Rails.logger.warn("Blocked untrusted return_to redirect: #{target_url}")
         "http://localhost:9000"
       end
     rescue URI::InvalidURIError
@@ -127,7 +118,7 @@ class SessionsController < ApplicationController
     end
   end
 
-  # Security Improvement: Validate session_id format to prevent key injection attacks against Redis
+  # Enforces strict UUID format before querying Redis to prevent key injection
   def valid_session_id?(session_id)
     session_id.is_a?(String) && session_id.match?(/\A[0-9a-fA-F\-]{36}\z/)
   end

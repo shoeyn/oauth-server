@@ -85,7 +85,7 @@ public class KeyConfig {
             }
 
             try {
-                // Resilience: Query KMS for active public key
+                // Fetch public key from KMS once at startup and cache in-memory
                 GetPublicKeyRequest request = GetPublicKeyRequest.builder().keyId(kmsKeyAlias).build();
                 GetPublicKeyResponse response = kmsClient.getPublicKey(request);
                 byte[] publicKeyDer = response.publicKey().asByteArray();

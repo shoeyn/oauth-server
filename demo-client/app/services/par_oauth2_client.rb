@@ -5,19 +5,19 @@ require "openssl"
 require "uri"
 require "monitor"
 
-# Security Improvement: ParOAuth2Client extends the official, maintained OAuth2::Client library
-# adding first-class support for:
-# 1. RFC 9126: Pushed Authorization Requests (PAR)
-# 2. RFC 7523: Private Key JWT Client Authentication (private_key_jwt)
-# 3. RFC 7636: Proof Key for Code Exchange (PKCE)
-# 4. RFC 9449: Sender-Constrained DPoP Tokens (ES256 & RS256)
-# 5. OpenID Connect ID Token validation (State & Nonce matching)
-# 6. Performance & Scalability: In-memory thread-safe JWKS cache with kid auto-rotation,
-#    HTTP Keep-Alive socket pooling, and automated retry mechanisms.
+# High-assurance OAuth 2.1 & OpenID Connect client extending OAuth2::Client.
+#
+# Standards & Specifications:
+# - RFC 9126: Pushed Authorization Requests (PAR)
+# - RFC 7523: Asymmetric Client Authentication (private_key_jwt)
+# - RFC 7636: Proof Key for Code Exchange (PKCE S256)
+# - RFC 9449: Demonstrating Proof-of-Possession (DPoP sender-constrained tokens)
+# - RFC 9207: Authorization Server Issuer Identification
+# - OpenID Connect Core 1.0 & RP-Initiated / Back-Channel Logout 1.0
 class ParOAuth2Client < OAuth2::Client
   attr_reader :private_key, :issuer_url, :par_url
 
-  # Thread-safe in-memory cache for AS JWKS sets across threads & requests
+  # Thread-safe in-memory cache for authorization server JWKS sets across worker threads
   @@jwks_cache = Monitor.new
   @@cached_jwks = {} # issuer_url => { jwk_set: JWT::JWK::Set, expires_at: Time, last_fetched_at: Time }
 
@@ -26,7 +26,7 @@ class ParOAuth2Client < OAuth2::Client
     @private_key = OpenSSL::PKey::RSA.new(private_key_pem)
     @par_url = options.delete(:par_url) || "#{@issuer_url}/oauth2/par"
 
-    # Performance Improvement: Configure HTTP Keep-Alive to reuse persistent TCP/TLS sockets
+    # Configure persistent HTTP keep-alive connection pooling
     conn_opts = (options[:connection_opts] || {}).dup
     conn_opts[:headers] = {
       "Connection" => "keep-alive",
@@ -35,7 +35,7 @@ class ParOAuth2Client < OAuth2::Client
 
     super(
       client_id,
-      nil, # Security: No client secret; client authenticates exclusively via private_key_jwt
+      nil, # Client secret omitted; authentication handled exclusively via private_key_jwt
       {
         site: @issuer_url,
         authorize_url: "#{@issuer_url}/oauth2/authorize",
@@ -46,11 +46,10 @@ class ParOAuth2Client < OAuth2::Client
     )
   end
 
-  # Security Improvement (RFC 7523 Section 3): Build and sign an authentication assertion JWT
-  # - iss & sub: Must match client_id to prevent client impersonation
-  # - aud: Strictly targeted to the authorization server endpoint to prevent cross-server replay
-  # - jti: Cryptographically random UUID to prevent assertion replay within validity window
-  # - exp: Short-lived expiration (60 seconds)
+  # Builds and cryptographically signs an RFC 7523 client assertion JWT using RS256.
+  #
+  # @param audience [String, nil] Target endpoint URI (defaults to token_url)
+  # @return [String] Compact serialized signed client assertion JWT
   def build_client_assertion(audience = nil)
     aud = audience || token_url
     now = Time.now.to_i
@@ -70,9 +69,11 @@ class ParOAuth2Client < OAuth2::Client
     JWT.encode(payload, @private_key, "RS256", headers)
   end
 
-  # Security Improvement (RFC 9126): Push Authorization Request (PAR)
-  # Pushes all authorization parameters over direct authenticated TLS backchannel,
-  # preventing sensitive parameters (scopes, state, PKCE challenge) from leaking into browser URL or access logs.
+  # Submits authorization parameters directly over the authenticated backchannel
+  # using RFC 9126 Pushed Authorization Requests (PAR).
+  #
+  # @param auth_params [Hash] Authorization parameters (state, nonce, code_challenge, etc.)
+  # @return [String] Opaque request_uri returned by the authorization server
   def push_authorization_request(auth_params)
     assertion = build_client_assertion(@par_url)
 
@@ -96,8 +97,14 @@ class ParOAuth2Client < OAuth2::Client
     parsed["request_uri"] || raise("No request_uri returned from PAR endpoint")
   end
 
-  # Security Improvement: Exchange authorization code with PKCE verification, private_key_jwt client assertion,
-  # and optional RFC 9449 DPoP proof header
+  # Exchanges an authorization code for tokens with PKCE code_verifier,
+  # private_key_jwt client assertion, and optional RFC 9449 DPoP proof header.
+  #
+  # @param code [String] Authorization code
+  # @param code_verifier [String] PKCE code verifier
+  # @param redirect_uri [String] Client redirect URI matching the authorization request
+  # @param dpop_key [OpenSSL::PKey::EC, OpenSSL::PKey::RSA, nil] Ephemeral key for DPoP proof
+  # @return [OAuth2::AccessToken]
   def exchange_code(code, code_verifier, redirect_uri, dpop_key = nil)
     assertion = build_client_assertion(token_url)
 
@@ -114,19 +121,18 @@ class ParOAuth2Client < OAuth2::Client
     opts = {}
     if dpop_key.present?
       dpop_proof = build_dpop_proof("POST", token_url, nil, dpop_key)
-      # OAuth2::Client#params_to_req_opts extracts :headers from params
       params[:headers] = { "DPoP" => dpop_proof }
       opts[:headers] = { "DPoP" => dpop_proof }
     end
 
-    # Calls OAuth2::Client's built-in token endpoint request mechanism
     auth_code.get_token(code, params, opts)
   end
 
-  # Performance & Security Improvement (RFC 9449 Section 4.3):
-  # Generate ephemeral asymmetric key for DPoP proof-of-possession.
-  # Defaults to EC P-256 (prime256v1 / ES256) which generates in ~0.01 ms (over 4,000x faster than RSA-2048)
-  # eliminating a major CPU bottleneck under high concurrent authentication sessions.
+  # Generates an ephemeral asymmetric key for DPoP proof-of-possession (RFC 9449).
+  # Defaults to EC P-256 (ES256) for sub-millisecond generation time.
+  #
+  # @param type [Symbol] :ec for P-256 (default) or :rsa for RSA-2048
+  # @return [OpenSSL::PKey::EC, OpenSSL::PKey::RSA]
   def self.generate_dpop_key(type = :ec)
     if type == :rsa
       OpenSSL::PKey::RSA.generate(2048)
@@ -135,9 +141,14 @@ class ParOAuth2Client < OAuth2::Client
     end
   end
 
-  # Security Improvement (RFC 9449 Section 4.2): Construct signed DPoP proof JWT
-  # Binds the request to the client's private key via thumbprint (jkt).
-  # Dynamically supports both EC (ES256) and RSA (RS256) keys.
+  # Constructs a signed DPoP proof JWT (RFC 9449 Section 4.2).
+  # Binds the request method and URI to the client's public key (jwk header claim).
+  #
+  # @param http_method [String] HTTP request method (e.g. "POST", "GET")
+  # @param http_url [String] Target request URI
+  # @param access_token [String, nil] Raw access token for 'ath' claim binding
+  # @param dpop_key [OpenSSL::PKey::EC, OpenSSL::PKey::RSA, String]
+  # @return [String] Compact serialized DPoP proof JWT
   def build_dpop_proof(http_method, http_url, access_token = nil, dpop_key = nil)
     key = parse_dpop_key(dpop_key)
     raise "Missing DPoP private key" unless key
@@ -184,18 +195,25 @@ class ParOAuth2Client < OAuth2::Client
     end
   end
 
-  # Security Improvement (OIDC Core 1.0 Section 3.1.3.7): Cryptographically verify ID Token signature and claims
-  # 1. Signature Verification: Validates JWS signature against the Authorization Server's published JWKS (/oauth2/jwks)
-  #    to ensure the ID token was authentically minted by the AS and has not been tampered with or forged.
-  # 2. Issuer Validation: Ensures 'iss' matches the configured issuer URL, preventing token substitution attacks.
-  # 3. Audience Validation: Ensures 'aud' contains client_id, preventing token confusion attacks across clients.
-  # 4. Nonce Validation: Validates 'nonce' matches the value sent during authorization, stopping replay and token injection.
-  # 5. Access Token Hash (at_hash) Validation: Cryptographically binds access token to ID token (OIDC Core Section 3.1.3.7).
-  # 6. Expiration & Future-Dating Check: Validates exp and iat timestamps with clock skew tolerance.
+  # Validates and decodes an OpenID Connect ID Token according to OIDC Core 1.0 Section 3.1.3.7.
+  #
+  # Cryptographic & Semantic Checks:
+  # 1. Strict Algorithm Pinning: Enforces RS256 algorithm.
+  # 2. Cryptographic Signature: Verified against the authorization server's JWKS (/oauth2/jwks).
+  # 3. Fail-Closed Architecture: Rejects token if JWKS cannot be resolved.
+  # 4. Nonce Matching: Prevents token injection and replay attacks.
+  # 5. Issuer & Audience Verification: Matches configured issuer URL and client ID.
+  # 6. Temporal Validity: Validates exp and iat with 60-second clock skew tolerance.
+  # 7. Access Token Hash (at_hash): Validates cryptographic binding between access token and ID token.
+  #
+  # @param id_token_jwt [String] Raw JWS ID token string
+  # @param expected_nonce [String, nil] Expected nonce value from authorization request
+  # @param raw_access_token [String, nil] Raw access token for at_hash verification
+  # @return [Hash] Decoded JWT payload claims
   def decode_and_verify_id_token(id_token_jwt, expected_nonce, raw_access_token = nil)
     return {} if id_token_jwt.blank?
 
-    # Extract kid from unverified JWS header to allow cached JWKS lookups and key rotation auto-refresh
+    # Inspect unverified header to extract key ID for JWKS resolution and enforce algorithm pinning
     header = (JWT.decode(id_token_jwt, nil, false)[1] rescue {}) || {}
     alg = header["alg"]
     if alg.blank? || alg.downcase == "none" || alg != "RS256"
@@ -205,13 +223,12 @@ class ParOAuth2Client < OAuth2::Client
     kid = header["kid"]
     jwk_set = fetch_jwks(kid)
 
-    # Security Improvement: Fail-Secure Architecture (RFC 7519 & OIDC Core 1.0)
-    # Fail-closed: Never accept unverified tokens if the AS JWKS cannot be loaded or returns invalid keys
+    # Fail closed if JWKS cannot be loaded or returns empty set
     unless jwk_set.present?
       raise "Security Error: Cryptographic failure. Unable to fetch valid JWKS from Authorization Server (#{@issuer_url}/oauth2/jwks). Refusing to process unverified ID Token."
     end
 
-    # Security Improvement: Cryptographic RS256 signature verification against AS published JWKS
+    # Cryptographic RS256 signature verification against published JWKS
     decoded = JWT.decode(id_token_jwt, nil, true, {
       algorithms: ["RS256"],
       jwks: jwk_set,
@@ -223,38 +240,36 @@ class ParOAuth2Client < OAuth2::Client
 
     payload = decoded[0]
     now = Time.now.to_i
-    leeway = 60 # 60 seconds clock skew tolerance (standard RFC 7519 recommendation)
+    leeway = 60 # 60 seconds clock skew tolerance
 
-    # Security Improvement: Nonce validation prevents token injection and replay attacks (OIDC Core Section 3.1.3.7)
+    # Validate nonce matches authorization session
     if expected_nonce.present? && payload["nonce"] != expected_nonce
       raise "Security Error: ID Token nonce ('#{payload['nonce']}') does not match expected nonce ('#{expected_nonce}')"
     end
 
-    # Security Improvement: Issuer validation ensures token was minted by trusted auth server
+    # Validate issuer matches authorization server URL
     if payload["iss"] != @issuer_url
       raise "Security Error: ID Token issuer ('#{payload['iss']}') does not match expected issuer ('#{@issuer_url}')"
     end
 
-    # Security Improvement: Audience validation ensures token was intended for this client
+    # Validate audience contains client ID
     aud = payload["aud"]
     valid_aud = aud == id || (aud.is_a?(Array) && aud.include?(id))
     unless valid_aud
       raise "Security Error: ID Token audience ('#{aud}') does not include client_id ('#{id}')"
     end
 
-    # Security Improvement: Expiration check with clock skew tolerance
+    # Validate expiration timestamp
     if payload["exp"].to_i < (now - leeway)
       raise "Security Error: ID Token has expired at #{Time.at(payload['exp'].to_i)}"
     end
 
-    # Security Improvement: Future-dating check on Issued-At (iat)
-    # Rejects tokens fabricated with future issuance times
+    # Validate issuance time is not future-dated
     if payload["iat"].present? && payload["iat"].to_i > (now + leeway)
       raise "Security Error: ID Token issued in the future at #{Time.at(payload['iat'].to_i)}"
     end
 
-    # Security Improvement (OIDC Core 1.0 Section 3.1.3.7): at_hash (Access Token Hash) Validation
-    # Mitigates access token substitution and injection attacks by verifying the SHA-256 hash
+    # Validate access token hash (at_hash) binding
     if payload["at_hash"].present? && raw_access_token.present?
       digest = OpenSSL::Digest::SHA256.digest(raw_access_token)
       expected_at_hash = Base64.urlsafe_encode64(digest[0...16], padding: false)
@@ -266,8 +281,13 @@ class ParOAuth2Client < OAuth2::Client
     payload
   end
 
-  # Resilience Improvement: Automated retry mechanism with exponential backoff and jitter
-  # for idempotent endpoints (JWKS, UserInfo, Introspection, Revocation) and pre-flight connect errors.
+  # Executes a block with exponential backoff and randomized jitter
+  # for idempotent HTTP network operations.
+  #
+  # @param max_retries [Integer] Maximum retry attempts (default 3)
+  # @param base_delay [Float] Base backoff delay in seconds
+  # @param max_delay [Float] Ceiling for backoff delay
+  # @param operation_name [String] Descriptive name for logging
   def with_retries(max_retries: 3, base_delay: 0.1, max_delay: 1.0, operation_name: "Operation")
     retries = 0
     begin
@@ -286,13 +306,12 @@ class ParOAuth2Client < OAuth2::Client
     end
   end
 
-  # Performance & Resilience Improvement:
-  # 1. In-memory thread-safe cache with 1-hour TTL: Returns parsed JWT::JWK::Set in 0 ms,
-  #    eliminating JSON deserialization and RSA point reconstruction overhead on every token verification.
-  # 2. Key Rotation Recovery: If an ID token arrives with a 'kid' not in the cache, the cache
-  #    is automatically invalidated and re-fetched once from /oauth2/jwks (rate-limited to max once every 5s).
-  # 3. Fail-closed: Never accept unverified tokens if JWKS cannot be loaded.
-  # 4. Independent of Rails.cache: Works seamlessly as a standalone client library or within Rails.
+  # Resolves the authorization server JWKS with thread-safe in-memory caching (1-hour TTL).
+  # If a token presents an unknown kid, triggers a single rate-limited network refresh
+  # to seamlessly accommodate zero-downtime key rotations.
+  #
+  # @param kid [String, nil] Target key ID
+  # @return [JWT::JWK::Set, nil]
   def fetch_jwks(kid = nil)
     now = Time.now
     @@jwks_cache.synchronize do
@@ -412,8 +431,12 @@ class ParOAuth2Client < OAuth2::Client
     end
   end
 
-  # Security Improvement (RFC 7009): Client-Authenticated Token Revocation
-  # Allows clients to explicitly revoke access tokens or refresh tokens via /oauth2/revoke
+  # Revokes an access token or refresh token via RFC 7009 Token Revocation,
+  # authenticating via RFC 7523 private_key_jwt client assertion.
+  #
+  # @param token_value [String] Token string to revoke
+  # @param token_type_hint [String] "access_token" or "refresh_token"
+  # @return [Boolean] True if revocation was successful
   def revoke_token(token_value, token_type_hint = "access_token")
     return false if token_value.blank?
 
@@ -438,12 +461,17 @@ class ParOAuth2Client < OAuth2::Client
     response.status == 200
   end
 
-  # Security Improvement (OIDC Back-Channel Logout 1.0 Section 2.4): Verify logout_token
-  # - Cryptographically validates JWS signature against AS published JWKS
-  # - events claim MUST contain "http://schemas.openid.net/event/backchannel-logout"
-  # - MUST NOT contain nonce claim (prevents ID token substitution)
-  # - aud MUST match client_id
-  # - iss MUST match issuer_url
+  # Validates and decodes a signed logout_token according to OIDC Back-Channel Logout 1.0 Section 2.4.
+  #
+  # Cryptographic & Semantic Checks:
+  # 1. Strict Algorithm Pinning: Enforces RS256 algorithm.
+  # 2. Cryptographic Signature: Verified against AS JWKS.
+  # 3. Events Claim: Must contain 'http://schemas.openid.net/event/backchannel-logout'.
+  # 4. Nonce Prohibition: Rejects tokens containing a nonce to avoid token confusion attacks.
+  # 5. Audience & Issuer: Validates client ID and issuer URL.
+  #
+  # @param logout_token_jwt [String] Compact serialized JWT
+  # @return [Hash, nil] Validated payload claims or nil
   def verify_logout_token(logout_token_jwt)
     return nil if logout_token_jwt.blank?
 
@@ -490,8 +518,11 @@ class ParOAuth2Client < OAuth2::Client
     payload
   end
 
-  # OpenID Connect Core 1.0 Section 5.3: UserInfo Request
-  # Uses Bearer or DPoP access token to request protected user claims authorized by requested scopes
+  # Fetches UserInfo claims (OIDC Core 1.0 Section 5.3) using Bearer or DPoP authentication.
+  #
+  # @param access_token [String] Active access token
+  # @param dpop_key [OpenSSL::PKey::EC, OpenSSL::PKey::RSA, String, nil] Ephemeral DPoP key
+  # @return [Hash] User profile claims
   def fetch_userinfo(access_token, dpop_key = nil)
     return {} if access_token.blank?
 
@@ -509,7 +540,6 @@ class ParOAuth2Client < OAuth2::Client
       end
     end
 
-    # Security Improvement: Check HTTP status code and log or raise if token is unauthorized/expired
     unless response.status == 200
       Rails.logger.warn("UserInfo request returned HTTP #{response.status}: #{response.body}")
       return {}
