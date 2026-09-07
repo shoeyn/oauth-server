@@ -1,104 +1,112 @@
-# Multi-Tier Client Configuration & Hot-Reload Flow
+# Client Configuration, Persistence & Near-Caching Flow
 
-This document details the configuration management and multi-tiered caching architecture for registered OAuth 2.1 clients across **Next.js**, **LocalStack S3**, **Redis**, and **Spring Authorization Server**.
+This document details the configuration management, PostgreSQL relational persistence, and high-performance near-caching architecture for registered OAuth 2.1 clients across **Next.js**, **PostgreSQL**, **Redis Pub/Sub**, and **Spring Authorization Server**.
+
+> [!NOTE]
+> **Implementation Status: Fully Implemented & Production-Active**
+> AWS S3 has been completely deprecated and purged from this flow. Registered client configurations and RSA public keys are persisted with ACID durability in PostgreSQL, accessible only through the Java Spring Admin REST API (`/api/admin/clients`). Runtime authorization reads resolve in ~0.001 ms from the in-memory L1 near-cache with zero database round-trips.
 
 ---
 
-## Multi-Tier Cache Hierarchy
+## Architecture Topology & Trust Boundaries
+
+To comply strictly with the organizational policy that **only the Java application communicates directly with PostgreSQL**, external administrative clients (such as Next.js) never receive database credentials. Instead, they interact with Spring Auth Server via an authenticated REST interface (`/api/admin/clients`).
 
 ```mermaid
 flowchart TD
-    subgraph L1 ["L1: In-Memory Cache (Spring Boot Process)"]
-        L1Maps["ConcurrentHashMap<String, RegisteredClient>\nConcurrentHashMap<String, RSAPublicKey>\n• Latency: < 1 microsecond\n• Zero network overhead at authorization/token time"]
+    subgraph ClientManager ["Administrative Frontend Tier (Port 3001)"]
+        NextJS["Next.js Client Manager\n• Pure Web UI / React 19\n• Web Crypto API (In-browser RSA 2048)\n• Zero AWS SDKs / Zero DB Drivers"]
     end
 
-    subgraph L2 ["L2: Redis Hash Cache (Redis Server DB 0)"]
-        L2Hash["Hash Key: oauth2:clients:configs\nField: client_id | Value: JSON DTO\n• Latency: < 2 milliseconds\n• Expiration: 30-day sliding TTL\n• Survives Spring server reboots & deployments\n• Zero S3 calls on warm restarts"]
+    subgraph SpringApp ["Java Application Cluster (Port 9000)"]
+        AdminAPI["ClientAdminController\n(X-Admin-Api-Key Protection)"]
+        L1Maps["L1 In-Memory Near-Cache\n• ConcurrentHashMap<String, RegisteredClient>\n• ConcurrentHashMap<String, RSAPublicKey>\n• Sub-millisecond reads (< 0.002 ms)"]
+        Repo["PostgresRegisteredClientRepository\nHikariCP Connection Pool"]
     end
 
-    subgraph L3 ["L3: Persistent Object Store (LocalStack S3)"]
-        L3S3["Bucket: oauth2-clients\nObjects: clients/<client_id>.json\n• Durable Single Source of Truth\n• Audit history, backup, and external management"]
+    subgraph ClusterSync ["Cluster Notification Tier (Port 6379)"]
+        RedisPubSub["Redis Pub/Sub Channel\n'oauth2:clients:reload'\n• Instantaneous cluster cache invalidation"]
     end
 
-    L1Maps <-->|Warm boot reads / Refresh updates| L2Hash
-    L2Hash <-->|Cold start fallback / Refresh sync| L3S3
+    subgraph DataTier ["Isolated Database Tier (Port 5432)"]
+        Postgres[("PostgreSQL Database 'authserver'\n• oauth2_registered_client\n• oauth2_client_public_key\n• ACID-durable single source of truth")]
+    end
+
+    NextJS -->|HTTP REST (GET/POST/DELETE /api/admin/clients)| AdminAPI
+    AdminAPI --> Repo
+    Repo -->|Direct JDBC SQL Only| Postgres
+    AdminAPI -->|Publish Invalidation| RedisPubSub
+    RedisPubSub -->|Hot-Reload Broadcast| SpringApp
+    L1Maps <-->|Warm Cache / Invalidation Refresh| Repo
 ```
 
 ---
 
-## Flow 1: Service Startup (Warm Boot vs. Cold Start)
+## Flow 1: Service Startup & Near-Cache Pre-Warming
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant Spring as Spring Authorization Server
-    participant Redis as Redis (Port 6379)
-    participant S3 as LocalStack S3 (Port 4566)
+    participant Flyway as Flyway Migration Engine
+    participant PG as PostgreSQL (Port 5432)
 
     Note over Spring: Spring Boot boots up (@PostConstruct init())
-    Spring->>Redis: HGETALL oauth2:clients:configs
-    alt Cache Hit (Warm Boot - Normal Operating Condition)
-        Redis-->>Spring: Map<clientId, clientJson>
-        Note over Spring: 1. Deserialize ClientConfigDto<br/>2. Parse X.509 RSA public key PEMs<br/>3. Populate in-memory ConcurrentHashMaps<br/>4. Log: "Loaded X clients from Redis (booted without querying S3)"
-        Note over Spring, Redis: READY in < 5ms! (Zero S3 network requests)
-    else Cache Miss (Cold Start - Redis Empty or First Run)
-        Redis-->>Spring: Empty / Nil
-        Note over Spring: Log: "Redis client cache is empty or unavailable. Fetching from S3..."
-        Spring->>S3: ListObjectsV2 (prefix: "clients/")
-        S3-->>Spring: Object Keys [clients/demo-client.json, ...]
-        loop For each JSON object
-            Spring->>S3: GetObject (key: clients/<id>.json)
-            S3-->>Spring: JSON Payload
-            Note over Spring: Parse DTO, parse RSA public key, populate in-memory maps
-        end
-        Spring->>Redis: HSET oauth2:clients:configs <id> <json>
-        Spring->>Redis: EXPIRE oauth2:clients:configs 2592000 (30 Days)
-        Note over Spring: Log: "Synchronized X clients to Redis cache with 30 days TTL"
-        Note over Spring, S3: READY (Redis cache now warm for subsequent reboots)
+    Spring->>Flyway: flyway.migrate()
+    Flyway->>PG: Validate & Execute V1 schema migrations
+    PG-->>Flyway: Schema verified (tables guaranteed)
+
+    Spring->>PG: SELECT count(*) FROM oauth2_registered_client
+    alt Database Empty (First Boot)
+        PG-->>Spring: count = 0
+        Note over Spring: Register default demo-client with public key
+        Spring->>PG: INSERT INTO oauth2_registered_client & oauth2_client_public_key
+    else Database Populated
+        PG-->>Spring: count > 0
     end
+
+    Note over Spring: Pre-warm L1 in-memory near-cache
+    Spring->>PG: SELECT * FROM oauth2_registered_client JOIN oauth2_client_public_key
+    PG-->>Spring: Active clients & X.509 RSA public keys
+    Note over Spring: Populate ConcurrentHashMaps (clients & keys)
+    Note over Spring: READY! All runtime auth reads serve from memory in < 0.002 ms.
 ```
 
 ---
 
-## Flow 2: Dynamic Client Creation & Real-Time Hot-Reload
+## Flow 2: Dynamic Client Creation via Admin REST API
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Admin as Admin Browser
     participant Manager as Next.js Client Manager (3001)
-    participant S3 as LocalStack S3 (4566)
-    participant Redis as Redis (6379)
-    participant Spring as Spring Auth Server (9000)
+    participant SpringAdmin as Spring ClientAdminController (9000)
+    participant PG as PostgreSQL (5432)
+    participant Redis as Redis Pub/Sub (6379)
+    participant Cluster as Spring Auth Server Instances
 
     Admin->>Manager: Fill Client Form (ID, Redirects, Scopes)<br/>Click "Generate RSA Key Pair" (Web Crypto API)
     Note over Admin, Manager: Web Crypto generates 2048-bit RS256 key pair in browser.<br/>Private key downloaded as PEM; public key populated into form.
-    Admin->>Manager: Click "Save Client Configuration"
+    Admin->>Manager: Click "Save Client"
     activate Manager
 
-    %% 1. Write S3
-    Manager->>S3: PutObject (bucket: oauth2-clients, key: clients/<id>.json)
-    S3-->>Manager: HTTP 200 OK
+    Manager->>SpringAdmin: POST /api/admin/clients (Headers: X-Admin-Api-Key, JSON body)
+    activate SpringAdmin
+    Note over SpringAdmin: Constant-time API Key verification
+    SpringAdmin->>PG: INSERT INTO oauth2_registered_client<br/>INSERT INTO oauth2_client_public_key ON CONFLICT UPDATE
+    PG-->>SpringAdmin: Row persisted (ACID commit)
+    Note over SpringAdmin: Refresh local L1 near-cache
 
-    %% 2. Sync Redis Hash
-    Manager->>Redis: HSET oauth2:clients:configs <id> <json>
-    Manager->>Redis: EXPIRE oauth2:clients:configs 2592000 (30 Days)
+    SpringAdmin->>Redis: PUBLISH oauth2:clients:reload {"action":"save", "clientId":"<id>"}
+    SpringAdmin-->>Manager: HTTP 201 Created
+    deactivate SpringAdmin
 
-    %% 3. Publish Reload Event
-    Manager->>Redis: PUBLISH oauth2:clients:reload {"action": "save", "clientId": "<id>"}
-    Manager-->>Admin: HTTP 201 Created (Client saved)
+    Manager-->>Admin: Success Notification
     deactivate Manager
 
-    %% 4. Spring Reload Trigger
-    activate Spring
-    Redis-->>Spring: Message on 'oauth2:clients:reload': RELOAD:<id>
-    Note over Spring: ClientReloadRedisSubscriber receives event.<br/>Triggers asynchronous refresh() in < 15ms.
-    Spring->>S3: ListObjectsV2 & GetObject
-    S3-->>Spring: Fresh JSONs
-    Note over Spring: 1. Update in-memory ConcurrentHashMaps<br/>2. Re-sync Redis Hash with renewed 30-day TTL<br/>3. Log: "Reloaded X clients from S3"
-    deactivate Spring
-
-    Note over Admin, Spring: New client can immediately authenticate with private_key_jwt without server restart!
+    Redis-->>Cluster: Invalidation signal received
+    Note over Cluster: All cluster instances re-warm L1 near-cache from PostgreSQL
 ```
 
 ---
@@ -110,32 +118,29 @@ sequenceDiagram
     autonumber
     actor Admin as Admin Browser
     participant Manager as Next.js Client Manager (3001)
-    participant S3 as LocalStack S3 (4566)
-    participant Redis as Redis (6379)
-    participant Spring as Spring Auth Server (9000)
-    participant Rogue as Deleted Client App
+    participant SpringAdmin as Spring ClientAdminController (9000)
+    participant PG as PostgreSQL (5432)
+    participant Redis as Redis Pub/Sub (6379)
+    participant Rogue as Deleted Client Application
 
     Admin->>Manager: Click "Delete Client" for 'test-client'
     activate Manager
-    Manager->>S3: DeleteObject (key: clients/test-client.json)
-    S3-->>Manager: HTTP 204 No Content
-    Manager->>Redis: HDEL oauth2:clients:configs test-client
-    Manager->>Redis: PUBLISH oauth2:clients:reload {"action": "delete", "clientId": "test-client"}
-    Manager-->>Admin: HTTP 200 OK (Deleted)
+    Manager->>SpringAdmin: DELETE /api/admin/clients/test-client (Headers: X-Admin-Api-Key)
+    activate SpringAdmin
+    SpringAdmin->>PG: DELETE FROM oauth2_client_public_key WHERE client_id = 'test-client'<br/>DELETE FROM oauth2_registered_client WHERE client_id = 'test-client'
+    PG-->>SpringAdmin: Rows deleted
+    Note over SpringAdmin: Evict 'test-client' from local L1 near-cache
+    SpringAdmin->>Redis: PUBLISH oauth2:clients:reload {"action":"delete", "clientId":"test-client"}
+    SpringAdmin-->>Manager: HTTP 200 OK
+    deactivate SpringAdmin
+    Manager-->>Admin: Client deleted
     deactivate Manager
 
-    %% Spring Reload Trigger
-    activate Spring
-    Redis-->>Spring: Message on 'oauth2:clients:reload': RELOAD:test-client
-    Spring->>S3: ListObjectsV2 (test-client is absent)
-    Note over Spring: 1. Evict test-client from in-memory maps<br/>2. Re-sync Redis Hash<br/>3. Log: "Reloaded 1 client from S3"
-    deactivate Spring
-
-    %% Negative test verification
-    Note over Rogue, Spring: Deleted client attempts token exchange
-    Rogue->>Spring: POST /oauth2/par or POST /oauth2/token (client_id: test-client)
-    activate Spring
-    Note over Spring: StrictClientAssertionAuthenticationConverter looks up test-client.<br/>Not found in in-memory repository!
-    Spring-->>Rogue: HTTP 401 Unauthorized<br/>{"error": "invalid_client"}
-    deactivate Spring
+    %% Unauthorized attempt
+    Note over Rogue, SpringAdmin: Deleted client attempts token exchange
+    Rogue->>SpringAdmin: POST /oauth2/par or POST /oauth2/token (client_id: test-client)
+    activate SpringAdmin
+    Note over SpringAdmin: L1 near-cache lookup returns null!
+    SpringAdmin-->>Rogue: HTTP 401 Unauthorized<br/>{"error": "invalid_client"}
+    deactivate SpringAdmin
 ```

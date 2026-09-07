@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listClients, saveClient } from "@/lib/s3";
+import { listClients, saveClient } from "@/lib/clients";
 import { ClientConfig } from "@/lib/types";
 
 export async function GET() {

@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "OAuth 2.1 Client Config Manager | Spring Security",
-  description: "Dynamic S3-backed OAuth 2.1 client configuration manager with real-time Spring Security synchronization",
+  description: "Dynamic PostgreSQL-backed OAuth 2.1 client configuration manager with real-time Spring Security synchronization",
 };
 
 export default function RootLayout({

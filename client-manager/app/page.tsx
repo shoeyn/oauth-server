@@ -225,7 +225,7 @@ export default function Home() {
         throw new Error(errJson.error || "Failed to save client");
       }
 
-      setSyncStatus(`Client '${payload.clientId}' successfully saved to S3 & notified Spring via Redis!`);
+      setSyncStatus(`Client '${payload.clientId}' successfully saved to PostgreSQL via Spring Admin API!`);
       setTimeout(() => setSyncStatus(null), 5000);
       setModalMode(null);
       await fetchClients();
@@ -237,14 +237,14 @@ export default function Home() {
   }
 
   async function handleDelete(client: ClientConfig) {
-    if (!confirm(`Are you sure you want to delete client '${client.clientId}' from S3? This will immediately revoke its ability to authenticate.`)) {
+    if (!confirm(`Are you sure you want to delete client '${client.clientId}'? This will remove it from PostgreSQL and revoke its ability to authenticate.`)) {
       return;
     }
 
     try {
       const res = await fetch(`/api/clients/${client.clientId}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete client");
-      setSyncStatus(`Client '${client.clientId}' deleted from S3 & Spring updated.`);
+      setSyncStatus(`Client '${client.clientId}' deleted from PostgreSQL & Spring near-cache purged.`);
       setTimeout(() => setSyncStatus(null), 5000);
       await fetchClients();
     } catch (err) {
@@ -265,11 +265,11 @@ export default function Home() {
               <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
                 OAuth 2.1 Client Config Manager
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium">
-                  S3 Backed
+                  PostgreSQL Backed
                 </span>
               </h1>
               <p className="text-sm text-slate-400 mt-0.5">
-                Centralized management for OAuth 2.1 clients with real-time Redis Pub/Sub synchronization to Spring Security.
+                Centralized management for OAuth 2.1 clients via Spring Admin API with PostgreSQL persistence and cluster near-caching.
               </p>
             </div>
           </div>
@@ -307,20 +307,20 @@ export default function Home() {
         <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
           <div className="flex items-center gap-3 mb-2">
             <HardDrive className="w-5 h-5 text-sky-400" />
-            <h3 className="font-semibold text-slate-200 text-sm">Storage Layer</h3>
+            <h3 className="font-semibold text-slate-200 text-sm">Persistence Tier</h3>
           </div>
           <p className="text-xs text-slate-400">
-            LocalStack S3 bucket <code className="text-sky-400 bg-slate-950 px-1.5 py-0.5 rounded">oauth2-clients/clients/*.json</code> emulating AWS S3.
+            PostgreSQL relational store (<code className="text-sky-400 bg-slate-950 px-1.5 py-0.5 rounded">oauth2_registered_client</code>) managed strictly by Spring.
           </p>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
           <div className="flex items-center gap-3 mb-2">
             <Radio className="w-5 h-5 text-indigo-400" />
-            <h3 className="font-semibold text-slate-200 text-sm">Real-time Reload</h3>
+            <h3 className="font-semibold text-slate-200 text-sm">L1 Near-Cache & Sync</h3>
           </div>
           <p className="text-xs text-slate-400">
-            Redis Pub/Sub channel <code className="text-indigo-400 bg-slate-950 px-1.5 py-0.5 rounded">oauth2:clients:reload</code> instructs Spring to hot-reload clients.
+            Microsecond reads via Spring JVM near-cache; Redis Pub/Sub invalidates nodes in &lt; 1 ms.
           </p>
         </div>
 
@@ -345,7 +345,7 @@ export default function Home() {
         {loading && clients.length === 0 ? (
           <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
             <RefreshCw className="w-8 h-8 animate-spin text-indigo-400" />
-            <span>Loading clients from S3...</span>
+            <span>Loading clients from Spring...</span>
           </div>
         ) : error ? (
           <div className="p-8 text-center text-rose-400 flex items-center justify-center gap-2">
@@ -354,7 +354,7 @@ export default function Home() {
           </div>
         ) : clients.length === 0 ? (
           <div className="p-12 text-center text-slate-400">
-            <p>No clients found in S3 bucket.</p>
+            <p>No clients found in PostgreSQL.</p>
             <button
               onClick={openCreateModal}
               className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white"
@@ -679,7 +679,7 @@ export default function Home() {
                   disabled={submitting}
                   className="px-5 py-2 text-sm font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 disabled:opacity-50"
                 >
-                  {submitting ? "Saving to S3 & Syncing..." : modalMode === "create" ? "Save Client to S3" : "Update Client in S3"}
+                  {submitting ? "Saving to PostgreSQL..." : modalMode === "create" ? "Save Client" : "Update Client"}
                 </button>
               </div>
             </form>

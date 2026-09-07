@@ -110,4 +110,4 @@ sequenceDiagram
 2. **Sender-Constrained Tokens (RFC 9449)**: The access token is cryptographically bound to the client's public DPoP key via the `cnf.jkt` claim. If stolen in transit, it is unusable without the matching private DPoP key.
 3. **Mix-Up Attack Immunity (RFC 9207)**: The authorization server returns `iss=http://localhost:9000`, and the client verifies this before dispatching authorization codes.
 4. **No Static Secrets (RFC 7523)**: Client authenticates using an asymmetric RSA 2048-bit key pair (`private_key_jwt`), completely eliminating shared secret brute-forcing.
-5. **Privilege Escalation Defense**: Scopes are entirely server-determined based on client configuration in S3.
+5. **Privilege Escalation Defense**: Scopes are entirely server-determined based on client configuration in PostgreSQL.

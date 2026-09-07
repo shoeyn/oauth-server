@@ -13,6 +13,20 @@ server:
 spring:
   application:
     name: spring-auth-server
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/authserver}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -24,11 +38,7 @@ auth:
     login-url: ${RAILS_LOGIN_URL:http://localhost:3000/login}
   server:
     issuer-url: ${AUTH_SERVER_ISSUER:http://localhost:9000}
-
 aws:
-  s3:
-    endpoint: ${AWS_S3_ENDPOINT:http://localhost:4566}
-    bucket: ${AWS_S3_BUCKET:oauth2-clients}
   kms:
     enabled: ${AWS_KMS_ENABLED:true}
     endpoint: ${AWS_KMS_ENDPOINT:http://localhost:4566}

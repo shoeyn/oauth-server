@@ -11,13 +11,17 @@ sequenceDiagram
     autonumber
     participant Client as Resource Server / Client App
     participant Spring as Spring Auth Server (9000)
+    participant PG as PostgreSQL (Port 5432 - Java Only)
     participant Redis as Redis (6379)
 
     %% Introspection Before Revocation
     Note over Client, Spring: 1. Real-time Token Introspection (RFC 7662)
     Client->>Spring: POST /oauth2/introspect<br/>(token=ACCESS_TOKEN, client_assertion=JWT)
     activate Spring
-    Note over Spring: 1. Authenticate client with private_key_jwt<br/>2. Look up authorization in OAuth2AuthorizationService<br/>3. Verify token has not expired or been revoked
+    Note over Spring: 1. Authenticate client with private_key_jwt against L1 near-cache
+    Spring->>PG: SELECT * FROM oauth2_authorization WHERE access_token_value = ?
+    PG-->>Spring: Valid authorization record
+    Note over Spring: 2. Verify token has not expired or been revoked
     Spring-->>Client: HTTP 200 OK<br/>{"active": true, "sub": "alice_smith", "scope": "openid profile ...", "cnf": {"jkt": "..."}}
     deactivate Spring
 
@@ -25,7 +29,9 @@ sequenceDiagram
     Note over Client, Spring: 2. Token Revocation (RFC 7009)
     Client->>Spring: POST /oauth2/revoke<br/>(token=ACCESS_TOKEN, token_type_hint=access_token, client_assertion=JWT)
     activate Spring
-    Note over Spring: 1. Authenticate client with private_key_jwt<br/>2. Mark token and associated refresh token as revoked<br/>3. Invalidate authorization state
+    Note over Spring: 1. Authenticate client with private_key_jwt
+    Spring->>PG: UPDATE oauth2_authorization SET access_token_metadata = ? (revoked=true)
+    PG-->>Spring: Row updated (ACID commit)
     Spring-->>Client: HTTP 200 OK
     deactivate Spring
 
@@ -33,6 +39,8 @@ sequenceDiagram
     Note over Client, Spring: 3. Introspection After Revocation
     Client->>Spring: POST /oauth2/introspect<br/>(token=ACCESS_TOKEN, client_assertion=JWT)
     activate Spring
+    Spring->>PG: SELECT * FROM oauth2_authorization WHERE access_token_value = ?
+    PG-->>Spring: Authorization record with revoked status
     Note over Spring: Token found in revoked state
     Spring-->>Client: HTTP 200 OK<br/>{"active": false}
     deactivate Spring

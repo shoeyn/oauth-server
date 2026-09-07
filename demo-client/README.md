@@ -30,7 +30,7 @@ A modern, production-grade OAuth 2.1 and OpenID Connect (OIDC) client applicatio
    - Validates that the callback contains `iss` matching the configured Authorization Server URL to mitigate Mix-Up attacks.
 
 7. **Server-Determined Scopes**:
-   - The client requests NO scopes (`scope` parameter omitted). Authorized scopes are pre-determined by the Authorization Server and configured in S3 via the Next.js Client Manager.
+   - The client requests NO scopes (`scope` parameter omitted). Authorized scopes are pre-determined by the Authorization Server and persisted in PostgreSQL via the Next.js Client Manager and Spring Admin REST API.
 
 8. **RFC 7009 & RFC 7662: Token Revocation & Introspection**:
    - Interactive revocation on `/profile` revokes tokens at the authorization server and flushes the local Redis session.
@@ -79,7 +79,7 @@ bash functional_tests/run_functional_tests.sh
 ```
 Runs all 4 suites:
 1. `test_oauth_security_features.rb` (PAR, DPoP, PKCE, Issuer ID, Revocation, Introspection, Back-Channel Logout)
-2. `test_s3_dynamic_client_reload.rb` (S3 CRUD, Redis hot-reload, dynamic client token exchange, and revocation)
+2. `test_s3_dynamic_client_reload.rb` (Dynamic PostgreSQL client CRUD via Spring Admin API, Redis hot-reload, dynamic client token exchange, and revocation)
 3. `test_performance_and_resilience.rb` (In-memory 304 caching, EC vs RSA DPoP benchmark, in-memory JWKS cache hit, retries)
 4. `test_kms_signing.rb` (AWS KMS HSM signing, strict algorithm pinning rejection of `none` and `HS256`, multi-key JWKS rotation)
 

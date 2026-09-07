@@ -17,7 +17,7 @@ public class ClientReloadRedisSubscriber {
     @Bean
     public RedisMessageListenerContainer redisMessageListenerContainer(
             RedisConnectionFactory connectionFactory,
-            S3RegisteredClientRepository s3RegisteredClientRepository) {
+            PostgresRegisteredClientRepository registeredClientRepository) {
 
         RedisMessageListenerContainer container = new RedisMessageListenerContainer();
         container.setConnectionFactory(connectionFactory);
@@ -27,7 +27,7 @@ public class ClientReloadRedisSubscriber {
                     String channel = new String(message.getChannel());
                     String body = new String(message.getBody());
                     log.info("Received Redis pub/sub reload signal on channel '{}': {}", channel, body);
-                    s3RegisteredClientRepository.refresh();
+                    registeredClientRepository.refresh();
                 }
         );
 

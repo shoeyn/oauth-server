@@ -56,8 +56,11 @@ import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.OidcUserInfo;
-import org.springframework.security.oauth2.server.authorization.InMemoryOAuth2AuthorizationService;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService;
+import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.oidc.authentication.OidcUserInfoAuthenticationContext;
@@ -82,7 +85,7 @@ public class AuthorizationServerConfig {
     @Order(Ordered.HIGHEST_PRECEDENCE)
     public SecurityFilterChain authorizationServerSecurityFilterChain(
             HttpSecurity http,
-            com.example.authserver.client.S3RegisteredClientRepository registeredClientRepository,
+            com.example.authserver.client.PostgresRegisteredClientRepository registeredClientRepository,
             RSAPublicKey demoClientPublicKey,
             StringRedisTemplate redisTemplate,
             OidcBackChannelLogoutService oidcBackChannelLogoutService) throws Exception {
@@ -205,7 +208,7 @@ public class AuthorizationServerConfig {
     }
 
     private Consumer<List<AuthenticationProvider>> configureClientAssertionAuthentication(
-            com.example.authserver.client.S3RegisteredClientRepository s3RegisteredClientRepository,
+            com.example.authserver.client.PostgresRegisteredClientRepository registeredClientRepository,
             RSAPublicKey demoClientPublicKey,
             StringRedisTemplate redisTemplate) {
         return (authenticationProviders) -> {
@@ -215,7 +218,7 @@ public class AuthorizationServerConfig {
             for (AuthenticationProvider provider : authenticationProviders) {
                 if (provider instanceof JwtClientAssertionAuthenticationProvider jwtClientAssertionProvider) {
                     jwtClientAssertionProvider.setJwtDecoderFactory((registeredClient) -> {
-                        RSAPublicKey foundKey = s3RegisteredClientRepository.getClientPublicKey(registeredClient.getClientId());
+                        RSAPublicKey foundKey = registeredClientRepository.getClientPublicKey(registeredClient.getClientId());
                         final RSAPublicKey clientKey = (foundKey != null) ? foundKey : demoClientPublicKey;
                         String cacheKey = registeredClient.getClientId() + ":" + (clientKey != null ? clientKey.hashCode() : 0);
                         return jwtDecoderCache.computeIfAbsent(cacheKey, (k) -> {
@@ -295,9 +298,32 @@ public class AuthorizationServerConfig {
     // Architecture & Security: Pre-determined client scopes assigned strictly from registered client.
     // When clients omit 'scope' (as mandated by server-determined scope policy), this wrapper ensures
     // the registered client's authorized scopes are automatically attached to the authorization and access token.
+    // Durability: Backed by PostgreSQL JdbcOAuth2AuthorizationService for zero-loss horizontal scaling.
     @Bean
-    public OAuth2AuthorizationService authorizationService(RegisteredClientRepository registeredClientRepository) {
-        InMemoryOAuth2AuthorizationService delegate = new InMemoryOAuth2AuthorizationService();
+    public OAuth2AuthorizationService authorizationService(
+            JdbcTemplate jdbcTemplate,
+            RegisteredClientRepository registeredClientRepository) {
+
+        ClassLoader classLoader = JdbcOAuth2AuthorizationService.class.getClassLoader();
+        tools.jackson.databind.jsontype.BasicPolymorphicTypeValidator ptv =
+                tools.jackson.databind.jsontype.BasicPolymorphicTypeValidator.builder()
+                        .allowIfBaseType(Object.class)
+                        .allowIfSubType(Object.class)
+                        .build();
+
+        tools.jackson.databind.json.JsonMapper jsonMapper = tools.jackson.databind.json.JsonMapper.builder()
+                .addModules(org.springframework.security.jackson.SecurityJacksonModules.getModules(classLoader))
+                .polymorphicTypeValidator(ptv)
+                .build();
+
+        JdbcOAuth2AuthorizationService delegate = new JdbcOAuth2AuthorizationService(jdbcTemplate, registeredClientRepository);
+        JdbcOAuth2AuthorizationService.JsonMapperOAuth2AuthorizationRowMapper rowMapper =
+                new JdbcOAuth2AuthorizationService.JsonMapperOAuth2AuthorizationRowMapper(registeredClientRepository, jsonMapper);
+        rowMapper.setLobHandler(new org.springframework.jdbc.support.lob.DefaultLobHandler());
+        delegate.setAuthorizationRowMapper(rowMapper);
+        delegate.setAuthorizationParametersMapper(
+                new JdbcOAuth2AuthorizationService.JsonMapperOAuth2AuthorizationParametersMapper(jsonMapper));
+
         return new OAuth2AuthorizationService() {
             @Override
             public void save(OAuth2Authorization authorization) {
@@ -365,6 +391,13 @@ public class AuthorizationServerConfig {
                 return delegate.findByToken(token, tokenType);
             }
         };
+    }
+
+    @Bean
+    public OAuth2AuthorizationConsentService authorizationConsentService(
+            JdbcTemplate jdbcTemplate,
+            RegisteredClientRepository registeredClientRepository) {
+        return new JdbcOAuth2AuthorizationConsentService(jdbcTemplate, registeredClientRepository);
     }
 
     @Bean

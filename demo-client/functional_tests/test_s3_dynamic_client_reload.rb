@@ -1,13 +1,13 @@
 #!/usr/bin/env ruby
 # ==============================================================================
-# Functional Test: S3 Client Config Manager & Dynamic Redis Reload
+# Functional Test: Dynamic Client Registration & Real-Time Near-Cache Reload
 # ==============================================================================
 # Verifies:
-# 1. LocalStack S3 bucket connectivity via Next.js API (/api/clients).
-# 2. Dynamic creation of a new client via Next.js API.
-# 3. Real-time client reload by Spring Auth Server via Redis Pub/Sub.
+# 1. Next.js Client Manager REST API connectivity (/api/clients) to Spring Admin API.
+# 2. Dynamic creation of a new client via Next.js API into PostgreSQL.
+# 3. Real-time near-cache invalidation by Spring Auth Server via Redis Pub/Sub.
 # 4. Successful OAuth 2.1 authentication (private_key_jwt + DPoP + PKCE) for new client.
-# 5. Dynamic deletion of the client and immediate HTTP 401 revocation in Spring.
+# 5. Dynamic deletion of the client from PostgreSQL and immediate HTTP 401 revocation in Spring.
 # ==============================================================================
 
 require "net/http"
@@ -20,7 +20,7 @@ require "redis"
 require "securerandom"
 
 puts "================================================================================"
-puts "  S3 DYNAMIC CLIENT CONFIG & REDIS HOT-RELOAD FUNCTIONAL TEST"
+puts "  DYNAMIC CLIENT REGISTRATION & NEAR-CACHE HOT-RELOAD FUNCTIONAL TEST"
 puts "================================================================================"
 
 TEST_CLIENT_ID = "dynamic-functional-test-client"
@@ -36,9 +36,9 @@ def base64url_encode(str)
 end
 
 # ------------------------------------------------------------------------------
-# STEP 1: Verify Next.js API & S3 Connectivity
+# STEP 1: Verify Next.js API & Spring Admin API Connectivity
 # ------------------------------------------------------------------------------
-puts "\n1. Checking Next.js Client Manager & S3 connection..."
+puts "\n1. Checking Next.js Client Manager & Spring Admin API connection..."
 res = nextjs_http.get("/api/clients")
 if res.code.to_i != 200
   puts "   FAILED: Next.js API returned HTTP #{res.code} (#{res.body})"
@@ -47,7 +47,7 @@ end
 
 existing_clients = JSON.parse(res.body)
 client_ids = existing_clients.map { |c| c["clientId"] }
-puts "   SUCCESS: Retrieved #{existing_clients.size} client(s) from S3: #{client_ids.join(', ')}"
+puts "   SUCCESS: Retrieved #{existing_clients.size} client(s) via Next.js API: #{client_ids.join(', ')}"
 
 # ------------------------------------------------------------------------------
 # STEP 2: Generate Ephemeral 2048-bit RSA Key Pair
@@ -85,7 +85,7 @@ if post_res.code.to_i != 201
   puts "   FAILED: Failed to create client via Next.js API: HTTP #{post_res.code} (#{post_res.body})"
   exit 1
 end
-puts "   SUCCESS: Client '#{TEST_CLIENT_ID}' written to S3 and Redis reload signal dispatched."
+puts "   SUCCESS: Client '#{TEST_CLIENT_ID}' persisted to PostgreSQL and Redis reload signal dispatched."
 
 # Give Redis subscriber up to 250ms to update the in-memory cache
 sleep 0.25
@@ -233,7 +233,7 @@ if del_res.code.to_i != 200
   puts "   FAILED: Could not delete client: HTTP #{del_res.code} (#{del_res.body})"
   exit 1
 end
-puts "   SUCCESS: Client deleted from S3 and Redis reload broadcast."
+puts "   SUCCESS: Client deleted from PostgreSQL and Redis reload broadcast."
 
 # Give Redis reload subscriber up to 250ms
 sleep 0.25
@@ -263,6 +263,6 @@ else
 end
 
 puts "\n================================================================================"
-puts "  S3 DYNAMIC CLIENT & REDIS RELOAD TEST PASSED SUCCESSFULLY!"
+puts "  DYNAMIC CLIENT & REDIS RELOAD TEST PASSED SUCCESSFULLY!"
 puts "================================================================================"
 exit 0

@@ -1,6 +1,6 @@
-# OAuth 2.1 Client Configuration Manager (Next.js 15 & LocalStack S3)
+# OAuth 2.1 Client Configuration Manager (Next.js 15 & Spring Admin API)
 
-A modern, responsive administrative web application and REST API for managing dynamic OAuth 2.1 client configurations in **AWS S3** (locally emulated via **LocalStack**), backed by **Redis Pub/Sub** for zero-downtime hot-reloading in Spring Authorization Server.
+A modern, responsive administrative web application and REST API for managing registered OAuth 2.1 client configurations via Spring Authorization Server's secure administrative interface, persisted in **PostgreSQL** with instantaneous cluster near-cache synchronization.
 
 ---
 
@@ -13,31 +13,33 @@ A modern, responsive administrative web application and REST API for managing dy
 | - In-Browser 2048-bit RSA Key Pair Generator (Web Crypto API)                      |
 | - Server-Determined Scopes & Token TTL Settings                                    |
 | - REST API (/api/clients, /api/clients/[id])                                       |
-+--------------------------+-----------------------------------+---------------------+
-                           | S3 PutObject / DeleteObject       | Redis PUBLISH
-                           v                                   v
-             +------------------------------+     +----------------------------------+
-             | LocalStack S3 (Port 4566)     |     | Redis (Port 6379)                |
-             | Bucket: oauth2-clients       |     | Channel: oauth2:clients:reload   |
-             | Key: clients/<client_id>.json|     +----------------+-----------------+
-             +--------------+---------------+                      |
-                            | getObject()                          | Redis Message Listener
-                            v                                      v
-+------------------------------------------------------------------+-----------------+
-| Spring Authorization Server (http://localhost:9000)                                |
-| - S3RegisteredClientRepository: Dynamically loads and caches client JSON configs   |
-| - ClientReloadRedisSubscriber: Refreshes client repository in real time (<20ms)    |
-| - Dynamic private_key_jwt validation: Authenticates clients via S3 public key      |
++------------------------------------------+-----------------------------------------+
+                                           | HTTP REST (GET/POST/DELETE)
+                                           | Header: X-Admin-Api-Key
+                                           v
 +------------------------------------------------------------------------------------+
+| Spring Authorization Server (http://localhost:9000)                                |
+| - ClientAdminController: Authenticated REST interface for client provisioning      |
+| - PostgresRegisteredClientRepository: Persists clients & RSA keys in PostgreSQL   |
+| - L1 In-Memory Near-Cache: Microsecond lookups (< 0.002 ms)                         |
+| - ClientReloadRedisSubscriber: Invalidates cluster near-caches via Redis Pub/Sub   |
++---------------------+------------------------------------------------+--------------+
+                      | JDBC Pool (HikariCP)                           | Redis PUBLISH
+                      v                                                v
+        +-----------------------------+                  +---------------------------+
+        | PostgreSQL (Port 5432)      |                  | Redis (Port 6379)         |
+        | - oauth2_registered_client  |                  | Channel:                  |
+        | - oauth2_client_public_key  |                  | oauth2:clients:reload     |
+        +-----------------------------+                  +---------------------------+
 ```
 
 ---
 
 ## Features
 
-1. **S3-Backed Client Configuration**:
-   - Stores all client definitions as JSON files in `s3://oauth2-clients/clients/<client_id>.json`.
-   - Complete schema support for redirect URIs, post-logout URIs, token TTLs, and grant types.
+1. **Organizational Architecture Compliance**:
+   - Next.js never connects directly to PostgreSQL. All operations flow through Spring Auth Server's authenticated `/api/admin/clients` endpoint.
+   - Zero AWS S3 dependencies, zero S3 IAM policies, and zero relational database drivers in the frontend.
 
 2. **In-Browser Cryptographic Key Pair Generation**:
    - Generate secure 2048-bit RSA key pairs (`RS256`) directly in the browser via the native Web Crypto API.
@@ -48,52 +50,24 @@ A modern, responsive administrative web application and REST API for managing dy
    - Toggle standard server-determined scopes (`openid`, `profile`, `email`, `user.read`, `demo.secret_access`) or define custom scopes.
    - Guarantees clients cannot self-assign privileged scopes.
 
-4. **Multi-Tier Redis L2 Caching & Hot-Reloading**:
-   - On `saveClient`: Simultaneously persists client JSON to S3, writes it to Redis Hash `oauth2:clients:configs` with a 30-day TTL (`EXPIRE 2592000`), and publishes `RELOAD:<client_id>` to Redis channel `oauth2:clients:reload`.
-   - On `deleteClient`: Deletes from S3, evicts from Redis Hash (`HDEL oauth2:clients:configs <id>`), and publishes the `RELOAD` event.
-   - For full sequence diagrams, see [Multi-Tier Client Configuration & Hot-Reload Flow](../../docs/architecture/client_config_and_caching_flow.md).
-
-5. **LocalStack Emulation (Zero AWS Costs)**:
-   - Configured to communicate exclusively with LocalStack S3 (`http://localhost:4566` / `http://localstack:4566`), avoiding any external AWS calls or credentials.
-
----
-
-## S3 Client JSON Schema
-
-Each client is persisted at `clients/<client_id>.json` matching this schema:
-
-```json
-{
-  "clientId": "partner-client",
-  "clientName": "Partner Client Application",
-  "clientAuthenticationMethods": ["private_key_jwt"],
-  "authorizationGrantTypes": ["authorization_code", "refresh_token", "client_credentials"],
-  "redirectUris": ["http://localhost:8080/callback"],
-  "postLogoutRedirectUris": ["http://localhost:8080/"],
-  "scopes": ["openid", "profile", "email", "user.read"],
-  "requireProofKey": true,
-  "requireAuthorizationConsent": false,
-  "accessTokenTimeToLiveMinutes": 15,
-  "refreshTokenTimeToLiveDays": 30,
-  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
-}
-```
+4. **Real-Time Cluster Invalidation**:
+   - When a client is created, updated, or deleted, Spring updates PostgreSQL, purges its local L1 near-cache, and broadcasts an invalidation notice across the cluster via Redis Pub/Sub (`oauth2:clients:reload`).
 
 ---
 
 ## REST API Endpoints
 
 ### 1. `GET /api/clients`
-Retrieves all registered clients currently stored in the S3 bucket.
+Retrieves all registered clients via Spring Admin API (`/api/admin/clients`).
 
 ### 2. `POST /api/clients`
-Creates or updates a client JSON configuration in S3 and broadcasts a Redis reload event.
-- **Request Body**: JSON matching the schema above.
+Creates or updates a client in PostgreSQL via Spring Admin API.
+- **Request Body**: JSON client configuration matching the `ClientConfig` schema.
 - **Response**: HTTP 201 with saved client data.
 
 ### 3. `DELETE /api/clients/[id]`
-Deletes the client configuration from S3 and broadcasts a Redis reload event.
-- **Response**: HTTP 200 `{"deleted": true}`.
+Deletes the client configuration from PostgreSQL via Spring Admin API.
+- **Response**: HTTP 200 `{"success": true, "clientId": "<id>"}`.
 
 ---
 
@@ -101,8 +75,7 @@ Deletes the client configuration from S3 and broadcasts a Redis reload event.
 
 ### Prerequisites
 - Node.js 18+ and `pnpm`
-- Running Redis on `localhost:6379`
-- Running LocalStack on `localhost:4566`
+- Spring Auth Server running on `localhost:9000`
 
 ### Start Development Server
 ```bash
@@ -124,4 +97,4 @@ Visit: **`http://localhost:3001`**
 ```bash
 bash functional_tests/run_functional_tests.sh
 ```
-Verifies client creation, Redis event publishing, OAuth 2.1 code exchange authentication against Spring, and dynamic client deletion.
+Verifies client creation, near-cache synchronization, OAuth 2.1 code exchange authentication against Spring, and dynamic client deletion.

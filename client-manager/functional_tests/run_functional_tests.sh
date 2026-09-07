@@ -12,7 +12,7 @@ mise exec -- bundle exec ruby "$DIR/test_oauth_security_features.rb"
 
 echo ""
 echo "================================================================================"
-echo "  SUITE 2: Dynamic S3 Client Config & Redis Hot-Reload"
+echo "  SUITE 2: Dynamic PostgreSQL Client Config & Redis Hot-Reload"
 echo "================================================================================"
 mise exec -- bundle exec ruby "$DIR/test_s3_dynamic_client_reload.rb"
 

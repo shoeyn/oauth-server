@@ -30,7 +30,7 @@ services:
     ports:
       - "4566:4566"
     environment:
-      - SERVICES=s3,kms
+      - SERVICES=kms
       - AWS_DEFAULT_REGION=us-east-1
     volumes:
       - ./localstack/init:/etc/localstack/init/ready.d
@@ -40,6 +40,23 @@ services:
       timeout: 5s
       retries: 10
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: poc-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=authserver
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d authserver"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
   client-manager:
     build:
       context: ./client-manager
@@ -48,17 +65,10 @@ services:
       - "3001:3001"
     environment:
       - PORT=3001
-      - S3_ENDPOINT=http://localstack:4566
-      - S3_BUCKET=oauth2-clients
-      - AWS_REGION=us-east-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - REDIS_URL=redis://redis:6379
+      - SPRING_AUTH_SERVER_URL=http://spring-auth-server:9000
+      - ADMIN_API_KEY=secret-admin-key
     depends_on:
-      redis:
-        condition: service_healthy
-      localstack:
-        condition: service_started
+      - spring-auth-server
 
   spring-auth-server:
     build:
@@ -69,10 +79,11 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/authserver
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
       - RAILS_LOGIN_URL=http://localhost:3000/login
       - AUTH_SERVER_ISSUER=http://localhost:9000
-      - AWS_S3_ENDPOINT=http://localstack:4566
-      - AWS_S3_BUCKET=oauth2-clients
       - AWS_KMS_ENABLED=true
       - AWS_KMS_ENDPOINT=http://localstack:4566
       - AWS_KMS_KEY_ALIAS=alias/oauth2-signing-key
@@ -80,6 +91,8 @@ services:
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       rails-app:
@@ -105,3 +118,6 @@ services:
         condition: service_started
     profiles:
       - demo
+
+volumes:
+  postgres-data:

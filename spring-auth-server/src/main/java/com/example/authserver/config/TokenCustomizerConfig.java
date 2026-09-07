@@ -21,17 +21,19 @@ public class TokenCustomizerConfig {
     public OAuth2TokenCustomizer<JwtEncodingContext> jwtTokenCustomizer() {
         return (context) -> {
             Authentication principal = context.getPrincipal();
-            AuthenticatedUser userDetails = null;
+            UserData userData = null;
 
-            if (principal != null && principal.getDetails() instanceof AuthenticatedUser user) {
-                userDetails = user;
-            } else {
+            if (principal != null) {
+                userData = extractUserData(principal.getDetails());
+            }
+
+            if (userData == null) {
                 org.springframework.security.oauth2.server.authorization.OAuth2Authorization authorization =
                         context.get(org.springframework.security.oauth2.server.authorization.OAuth2Authorization.class);
                 if (authorization != null) {
                     Authentication userAuth = authorization.getAttribute(java.security.Principal.class.getName());
-                    if (userAuth != null && userAuth.getDetails() instanceof AuthenticatedUser user) {
-                        userDetails = user;
+                    if (userAuth != null) {
+                        userData = extractUserData(userAuth.getDetails());
                         principal = userAuth;
                     }
                 }
@@ -52,7 +54,9 @@ public class TokenCustomizerConfig {
                         try {
                             com.nimbusds.jose.jwk.JWK jwk = com.nimbusds.jose.jwk.JWK.parse(jwkHeader);
                             String jkt = jwk.computeThumbprint().toString();
-                            context.getClaims().claim("cnf", java.util.Map.of("jkt", jkt));
+                            java.util.Map<String, Object> cnf = new java.util.LinkedHashMap<>();
+                            cnf.put("jkt", jkt);
+                            context.getClaims().claim("cnf", cnf);
                         } catch (Exception ignored) {
                         }
                     }
@@ -70,18 +74,18 @@ public class TokenCustomizerConfig {
                     context.getClaims().claim("authorities", authorities);
                 }
 
-                if (userDetails != null) {
-                    if (userDetails.email() != null) {
-                        context.getClaims().claim("email", userDetails.email());
+                if (userData != null) {
+                    if (userData.email() != null) {
+                        context.getClaims().claim("email", userData.email());
                     }
-                    if (userDetails.name() != null) {
-                        context.getClaims().claim("name", userDetails.name());
+                    if (userData.name() != null) {
+                        context.getClaims().claim("name", userData.name());
                     }
-                    if (userDetails.roles() != null && !userDetails.roles().isEmpty()) {
-                        context.getClaims().claim("roles", userDetails.roles());
+                    if (userData.roles() != null && !userData.roles().isEmpty()) {
+                        context.getClaims().claim("roles", userData.roles());
                     }
-                    if (userDetails.authenticatedAt() != null) {
-                        context.getClaims().claim("authenticated_at", userDetails.authenticatedAt());
+                    if (userData.authenticatedAt() != null) {
+                        context.getClaims().claim("authenticated_at", userData.authenticatedAt());
                     }
                 }
             }
@@ -89,17 +93,32 @@ public class TokenCustomizerConfig {
             // Customizing ID Token (OpenID Connect assertion)
             if (OidcParameterNames.ID_TOKEN.equals(context.getTokenType().getValue())) {
                 context.getClaims().claim("token_type_category", "id_token");
-                context.getClaims().claim("auth_time", Instant.now().getEpochSecond());
 
-                if (userDetails != null) {
-                    if (userDetails.email() != null && context.getAuthorizedScopes().contains(OidcScopes.EMAIL)) {
-                        context.getClaims().claim("email", userDetails.email());
+                if (userData != null) {
+                    if (userData.email() != null && context.getAuthorizedScopes().contains(OidcScopes.EMAIL)) {
+                        context.getClaims().claim("email", userData.email());
                     }
-                    if (userDetails.name() != null && context.getAuthorizedScopes().contains(OidcScopes.PROFILE)) {
-                        context.getClaims().claim("name", userDetails.name());
+                    if (userData.name() != null && context.getAuthorizedScopes().contains(OidcScopes.PROFILE)) {
+                        context.getClaims().claim("name", userData.name());
                     }
                 }
             }
         };
     }
+
+    @SuppressWarnings("unchecked")
+    private UserData extractUserData(Object details) {
+        if (details instanceof AuthenticatedUser u) {
+            return new UserData(u.email(), u.name(), u.roles(), u.authenticatedAt());
+        } else if (details instanceof java.util.Map<?, ?> m) {
+            String email = m.get("email") != null ? m.get("email").toString() : null;
+            String name = m.get("name") != null ? m.get("name").toString() : null;
+            List<String> roles = m.get("roles") instanceof List<?> r ? (List<String>) r : List.of();
+            String authAt = m.get("authenticated_at") != null ? m.get("authenticated_at").toString() : null;
+            return new UserData(email, name, roles, authAt);
+        }
+        return null;
+    }
+
+    private record UserData(String email, String name, List<String> roles, String authenticatedAt) {}
 }

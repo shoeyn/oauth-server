@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -89,10 +90,17 @@ public class SharedRedisSessionFilter extends OncePerRequestFilter {
                         // Spring Security 7 multifactor / auth_time tracking for OIDC id_token
                         authorities.add(FactorGrantedAuthority.fromAuthority(FactorGrantedAuthority.PASSWORD_AUTHORITY));
 
-                        // Security Improvement: Pass null for credentials to prevent sensitive credential residue in memory/heap dumps
+                        // Store user details as standard Map to guarantee safe Jackson serialization in JdbcOAuth2AuthorizationService
+                        Map<String, Object> userDetails = new java.util.HashMap<>();
+                        userDetails.put("username", user.username());
+                        if (user.email() != null) userDetails.put("email", user.email());
+                        if (user.name() != null) userDetails.put("name", user.name());
+                        if (user.roles() != null) userDetails.put("roles", user.roles());
+                        if (user.authenticatedAt() != null) userDetails.put("authenticated_at", user.authenticatedAt());
+
                         UsernamePasswordAuthenticationToken auth =
                                 new UsernamePasswordAuthenticationToken(user.username(), null, authorities);
-                        auth.setDetails(user);
+                        auth.setDetails(userDetails);
 
                         SecurityContext context = SecurityContextHolder.createEmptyContext();
                         context.setAuthentication(auth);

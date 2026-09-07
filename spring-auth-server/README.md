@@ -27,12 +27,14 @@ A hardened, enterprise **OAuth 2.1 Authorization Server** built with **Spring Bo
    - Client assertions undergo RS256 signature verification, audience validation (`aud`), issuer/subject matching (`iss == sub == client_id`), and Redis-backed JTI replay protection.
    - Public keys are dynamically resolved per client at request time via `JwtClientAssertionAuthenticationProvider.setJwtDecoderFactory(...)`.
 
-5. **Multi-Tier Client Configuration & Hot-Reloading (L1-L3)**:
-   - **L1 In-Memory Cache**: `ConcurrentHashMap` instances in [`S3RegisteredClientRepository`](src/main/java/com/example/authserver/client/S3RegisteredClientRepository.java) satisfy authorization requests and assertion verification in nanoseconds without network overhead.
-   - **L2 Redis Cache (`oauth2:clients:configs`)**: Registered client configurations are cached in a Redis hash with a 30-day sliding TTL. On service restarts, Spring boots in **< 5ms directly from Redis without making any S3 network calls**.
-   - **L3 S3 Object Store**: Single source of truth in `s3://oauth2-clients/clients/*.json` (LocalStack). If Redis is cold, Spring falls back to S3 and synchronizes Redis.
-   - **Real-Time Hot-Reloading**: [`ClientReloadRedisSubscriber`](src/main/java/com/example/authserver/client/ClientReloadRedisSubscriber.java) listens to Redis channel `oauth2:clients:reload`. Updates from Next.js refresh in-memory maps and Redis cache in < 15ms without restarting Spring Boot.
-   - For complete sequence flows, see [Multi-Tier Client Configuration & Hot-Reload Flow](../docs/architecture/client_config_and_caching_flow.md).
+5. **PostgreSQL Persistence & High-Performance Near-Caching**:
+   - **ACID Persistence**: Registered clients and public keys are durably stored in PostgreSQL (`oauth2_registered_client`, `oauth2_client_public_key`) via [`PostgresRegisteredClientRepository`](src/main/java/com/example/authserver/client/PostgresRegisteredClientRepository.java).
+   - **In-Memory Near-Cache**: Pre-warmed `ConcurrentHashMap` caches serve token validation and signature checks in ~0.001 ms with **zero database round-trips** during steady-state traffic.
+   - **Distributed Authorizations**: [`JdbcOAuth2AuthorizationService`](src/main/java/com/example/authserver/config/AuthorizationServerConfig.java) stores active authorization codes, refresh tokens, and consent state in PostgreSQL (`oauth2_authorization`, `oauth2_authorization_consent`), enabling seamless multi-pod horizontal scaling and zero session loss on restarts.
+   - **Database Evolution via Flyway**: Automated migrations manage schema versioning and B-tree index creation in `db/migration/`.
+   - **Java Admin REST API**: External managers invoke authenticated endpoints (`/api/admin/clients`) on the Java service, preserving zero-trust isolation so **only Java communicates with PostgreSQL**.
+   - **Real-Time Cluster Hot-Reloading**: [`ClientReloadRedisSubscriber`](src/main/java/com/example/authserver/client/ClientReloadRedisSubscriber.java) listens to Redis channel `oauth2:clients:reload`. Updates refresh in-memory maps across all nodes instantaneously without restarting Spring Boot.
+   - For complete architecture details, see [PostgreSQL Persistence & Performance Architecture](../docs/architecture/postgres_persistence_and_performance.md).
 
 6. **Mandatory DPoP Proofs at Token Endpoint (RFC 9449 Section 5)**:
    - `StrictDPoPTokenRequestAuthenticationConverter` strictly requires the `DPoP` HTTP header on `/oauth2/token` requests, returning HTTP 400 `invalid_dpop_proof` if missing.
@@ -91,7 +93,7 @@ docker compose up -d spring-auth-server
 
 The test suite executes all 4 suites:
 1. **OAuth 2.1 & OIDC Advanced Security Features** (PAR, DPoP, PKCE, Issuer ID, Revocation, Introspection, Back-Channel Logout)
-2. **Dynamic S3 Client Configuration & Redis Hot-Reload** (S3 CRUD, real-time reload, dynamic client token exchange, and revocation)
+2. **Dynamic Client Configuration & Near-Cache Hot-Reload** (Admin REST API, PostgreSQL persistence, real-time reload, dynamic client token exchange, and revocation)
 3. **Performance, In-Memory Caching & Resilience** (ETag 304 validation, EC vs RSA DPoP benchmark, in-memory JWKS cache hit, retries)
 4. **AWS KMS Cryptographic Signing & Security Verification** (KMS HSM signing, strict algorithm pinning, multi-key JWKS rotation)
 

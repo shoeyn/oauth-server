@@ -24,44 +24,66 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 ├───────────────────────────────┤ ├─────────────────────────┤ ├─────────────────────────────────┤
 │ • Zero Client Scopes          │ │ • User Login UI         │ │ • In-Browser RSA Key Generator  │
 │ • Ephemeral DPoP Key Pair     │ │ • SHARED_SESSION_ID     │ │ • Server-Determined Scopes Config│
-│ • Local Redis Session (DB 1)  │ │ • Writes user to Redis  │ │ • REST API (/api/clients)       │
-│ • Back-Channel Logout Receiver│ └────────────┬────────────┘ └────────┬───────────────┬─────────┘
-└───────────────┬───────────────┘              │                       │ S3 JSON Put   │
-                │                              │                       ▼               │
-   Backchannel  │ Backchannel PAR & Token      │ Shared Session  ┌─────────────┐       │ Redis Pub/Sub
-   Logout Push  │ (DPoP + private_key_jwt)     │ Context         │ LocalStack  │       │ (Channel:
-   (/oidc/...)  │                              │ (session:<id>)  │ S3 (4566)   │       │ oauth2:clients:reload)
-                ▼                              ▼                 └──────┬──────┘       │
-┌───────────────────────────────────────────────────────────────────────┼──────────────┼─────────┐
-│                    Spring Authorization Server (http://localhost:9000)│              │         │
-├───────────────────────────────────────────────────────────────────────┼──────────────┼─────────┤
-│ • RFC 9126: Native Pushed Authorization Requests (PAR)                │ S3Client     │         │
-│ • RFC 7523: Strict private_key_jwt Authentication (weak methods off)  │ GetObject    │         │
-│ • RFC 9449: Strictly Enforced DPoP Tokens (Sender-Constrained cnf.jkt)│              │         │
-│ • RFC 7636: Proof Key for Code Exchange (PKCE S256) strictly enforced │              │         │
-│ • RFC 9207: Authorization Server Issuer Identification (Mix-Up defense)              │         │
-│ • Server-Determined Authorization Scopes (zero client scope tampering)               │         │
-│ • RFC 7009: Token Revocation & RFC 7662: Token Introspection                         │         │
-│ • OpenID Connect Back-Channel Logout 1.0 (asynchronous signed logout_token)         │         │
-│ • S3RegisteredClientRepository: Dynamic S3 client loader & in-memory cache <─────────┘         │
-│ • ClientReloadRedisSubscriber: Real-time hot-reloading on Redis signal <───────────────────────┘
-│ • SharedRedisSessionFilter: SSO bridge with Rails IdP via Redis DB 0                           │
-└──────────────────────────────────────────────┬─────────────────────────────────────────────────┘
-                                               │
-                                               ▼
-                                ┌──────────────────────────────┐
-                                │         Redis Server         │
-                                │    (localhost:6379)          │
-                                ├──────────────────────────────┤
-                                │ DB 0: Rails SSO & Spring JTI │
-                                │ DB 1: Demo Client Sessions   │
-                                │ Pub/Sub: Hot-Reload Channel  │
-                                └──────────────────────────────┘
+│ • Local Redis Session (DB 1)  │ │ • Writes user to Redis  │ │ • Proxies to Spring Admin API   │
+│ • Back-Channel Logout Receiver│ └────────────┬────────────┘ └────────┬────────────────────────┘
+└───────────────┬───────────────┘              │                       │
+                │                              │                       │ Admin REST API
+   Backchannel  │ Backchannel PAR & Token      │ Shared Session        │ (POST/GET/DELETE /api/admin)
+   Logout Push  │ (DPoP + private_key_jwt)     │ Context               │ (X-Admin-Api-Key)
+   (/oidc/...)  │                              │ (session:<id>)        │
+                 ▼                              ▼                       ▼
+┌───────────────────────────────────────────────────────────────────────────────────────────────┐
+│                    Spring Authorization Server (http://localhost:9000)                        │
+├───────────────────────────────────────────────────────────────────────────────────────────────┤
+│ • RFC 9126: Native Pushed Authorization Requests (PAR)                                        │
+│ • RFC 7523: Strict private_key_jwt Authentication (weak methods off)                          │
+│ • RFC 9449: Strictly Enforced DPoP Tokens (Sender-Constrained cnf.jkt)                        │
+│ • RFC 7636: Proof Key for Code Exchange (PKCE S256) strictly enforced                         │
+│ • RFC 9207: Authorization Server Issuer Identification (Mix-Up defense)                       │
+│ • Server-Determined Authorization Scopes (zero client scope tampering)                        │
+│ • RFC 7009: Token Revocation & RFC 7662: Token Introspection                                  │
+│ • OpenID Connect Back-Channel Logout 1.0 (asynchronous signed logout_token)                  │
+│ • PostgresRegisteredClientRepository: In-memory near-cache + Postgres ACID store              │
+│ • JdbcOAuth2AuthorizationService: Distributed persistent authorizations & refresh             │
+│ • Flyway: Automated database schema versioning and lifecycle management                       │
+│ • ClientReloadRedisSubscriber: Cluster cache invalidation via Redis Pub/Sub                   │
+│ • SharedRedisSessionFilter: SSO bridge with Rails IdP via Redis DB 0                          │
+│ • ClientAdminController: Secure administrative REST API (/api/admin/clients)                  │
+└───────┬──────────────────────────────┬────────────────────────────────────────┬───────────────┘
+        │                              │                                        │
+        │ (Port 5432 - Java Only)      │ (Port 6379)                            │ (Port 4566 - KMS)
+        ▼                              ▼                                        ▼
+┌──────────────────────────────┐ ┌──────────────────────────────┐ ┌──────────────────────────────┐
+│     PostgreSQL Database      │ │         Redis Server         │ │     LocalStack (AWS KMS)     │
+│       (localhost:5432)       │ │       (localhost:6379)       │ │       (localhost:4566)       │
+├──────────────────────────────┤ ├──────────────────────────────┤ ├──────────────────────────────┤
+│ • oauth2_registered_client   │ │ DB 0: Rails SSO & Spring JTI │ │ • Asymmetric RS256 Hardware  │
+│ • oauth2_authorization       │ │ DB 1: Demo Client Sessions   │ │   Signing (RSA_2048)         │
+│ • oauth2_authorization_consent│ │ Pub/Sub: Cluster Sync       │ │ • Multi-Key JWKS Rotation    │
+│ • oauth2_client_public_key   │ └──────────────────────────────┘ │ • FIPS 140-2 Level 3 HSM     │
+│ • flyway_schema_history      │                                  └──────────────────────────────┘
+└──────────────────────────────┘
 ```
 
 ---
 
-## Implemented Security Standards & Specifications
+## Standards Compliance & Core Architecture
+
+| Domain | Standard / Mechanism | Implementation Details |
+|---|---|---|
+| **Persistence** | **PostgreSQL & Flyway Migrations** | Complete ACID persistence for runtime authorization codes, user consent, refresh tokens, and registered clients via [`JdbcOAuth2AuthorizationService`](spring-auth-server/src/main/java/com/example/authserver/config/AuthorizationServerConfig.java) and [`PostgresRegisteredClientRepository`](spring-auth-server/src/main/java/com/example/authserver/client/PostgresRegisteredClientRepository.java). Conforms strictly to organization policy: **only the Java application connects to PostgreSQL**. |
+| **Performance** | **In-Memory Near-Cache** | Pre-warmed L1 `ConcurrentHashMap` cache serves steady-state authorization checks in ~0.001 ms with **zero database round-trips**. Real-time cluster invalidation via Redis Pub/Sub (`oauth2:clients:reload`). |
+| **Protocol** | **OAuth 2.1 (Draft 11)** | Strictly enforces PKCE S256 (`requireProofKey: true`), rejects plain `code_challenge_method`, disallows implicit and resource owner password grants. |
+| **Client Auth** | **RFC 7523 private_key_jwt** | Asymmetric client assertions signed with client RSA/EC private keys. Weak methods (`client_secret_basic`, `client_secret_post`) are rejected. JTI replay caching in Redis. |
+| **Sender Constraints** | **RFC 9449 DPoP** | Mandatory DPoP proof on token requests. Access tokens are cryptographically bound to client keys via `cnf.jkt` claim. |
+| **Request Security** | **RFC 9126 PAR** | Authorization requests are pushed to `/oauth2/par` via backchannel POST; returns single-use `request_uri`. |
+| **Token Signing** | **AWS KMS (FIPS 140-2 Level 3 / 140-3)** | Asymmetric hardware-backed token signing using AWS KMS RSA_2048 key pairs (`RSASSA_PKCS1_V1_5_SHA_256`). Private keys never enter JVM memory. |
+| **Algorithm Pinning** | **Strict RS256 Verification** | Eliminates algorithm confusion attacks (`alg: none`, symmetric HMAC `HS256`). Enforced at both authorization server and client. |
+| **Key Rotation** | **Graceful Multi-Key JWKS** | Zero-downtime rotation. Active key signs new tokens; active + previous keys published concurrently at `/oauth2/jwks`. |
+| **Mix-Up Defense** | **RFC 9207 Issuer Identification** | Authorization server appends `iss` parameter to callback redirects. Client validates `iss` matches trusted authorization server. |
+| **Scope Policy** | **Server-Determined Scopes** | Authorization server binds scopes strictly from registered client configuration. Client scope parameters are ignored. |
+| **Logout** | **OIDC Back-Channel Logout 1.0** | Asynchronous HTTP POST of signed `logout_token` with 3-attempt exponential backoff retry. |
+| **SSO Bridge** | **Shared Redis Session** | Rails IdP writes authenticated session to Redis (`session:<uuid>`). Spring Auth Server authenticates users via `SHARED_SESSION_ID` cookie. |
 
 | Standard / RFC | Specification Name | How It Is Implemented & Enforced |
 |---|---|---|
@@ -77,7 +99,7 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 | **RFC 7009** | **Token Revocation** | Clients revoke tokens via `/oauth2/revoke` authenticated with `private_key_jwt`. Revocation invalidates the authorization and immediately flushes local and distributed sessions. |
 | **RFC 7662** | **Token Introspection** | Resource servers and clients check token validity in real time at `/oauth2/introspect` using `private_key_jwt`. Useful for immediate fraud checks prior to executing sensitive actions. |
 | **OIDC BCL 1.0** | **Back-Channel Logout 1.0** | Spring Authorization Server dispatches a signed JWT `logout_token` asynchronously to the client's backchannel endpoint (`/oidc/backchannel_logout`), terminating the user's session without relying on user-agent redirection. |
-| **Config Mgmt** | **Multi-Tier Client Cache (L1-L3)** | Next.js writes client JSON to S3 (`oauth2-clients/clients/*.json`) and synchronizes Redis Hash `oauth2:clients:configs` with 30-day TTL. Spring loads registered clients from Redis on boot in < 5ms (zero S3 calls on warm restarts), with real-time hot-reloading via Redis Pub/Sub (`oauth2:clients:reload`). |
+| **Config Mgmt** | **PostgreSQL & In-Memory Near-Cache** | Next.js writes client registrations directly to Spring Authorization Server via authenticated Admin REST API (`X-Admin-Api-Key`). Spring stores clients in PostgreSQL (`oauth2_registered_client`) with strict ACID guarantees. An in-memory L1 cache (`ConcurrentHashMap`) serves runtime authorization checks in ~0.001 ms with zero database round-trips. Real-time cluster cache eviction via Redis Pub/Sub (`oauth2:clients:reload`). |
 
 ---
 
@@ -98,6 +120,7 @@ This section documents the security controls currently active in the platform, a
 - **Hardened Browser Security:** Strict `HttpOnly`, `SameSite: Lax`, and `Secure` cookie attributes; session identifiers are never exposed in URLs (CWE-598).
 - **Constant-Time Operations:** Credential and API key checks use constant-time byte comparisons to eliminate side-channel timing attacks.
 - **Strict Input Validation:** Session identifiers are strictly validated as UUIDv4 before executing Redis operations.
+- **Zero-Trust Storage Isolation & Complete S3 Removal:** AWS S3 was completely decommissioned and removed from the ecosystem to eliminate eventual consistency lags and prevent front-end storage access. Persistent storage is strictly centralized in PostgreSQL with access exclusive to the Java application. Administrative client management occurs exclusively through Spring's authenticated Admin REST API (`/api/admin/clients` with constant-time `X-Admin-Api-Key` verification), enforcing zero-trust domain boundaries.
 
 ### 2. Production Readiness Roadmap
 
@@ -120,9 +143,10 @@ Comprehensive sequence diagrams, topology graphs, and communication flows are do
 - [**System Topology & Component Communication**](docs/architecture/README.md): Full component interaction graph, communication channels, and port allocations.
 - [**AWS KMS Key Management, Multi-Key Rotation & Algorithm Pinning**](docs/architecture/kms_multi_key_rotation_flow.md): End-to-end KMS HSM signing, zero-downtime key rotation lifecycle, automated rotation script, and RFC 8725 algorithm pinning.
 - [**OAuth 2.1 Code Flow with PAR, DPoP & Rails SSO**](docs/architecture/oauth2_par_dpop_flow.md): Step-by-step sequence diagram from initial browser click to DPoP-protected UserInfo query.
-- [**Multi-Tier Client Configuration & Hot-Reload Flow**](docs/architecture/client_config_and_caching_flow.md): Sequence diagrams covering warm reboots (< 5ms zero-S3 boot), cold start fallback, dynamic client creation, and immediate deletion/revocation.
+- [**Client Configuration, Near-Cache & Dynamic Admin Flow**](docs/architecture/client_config_and_caching_flow.md): Sequence diagrams covering in-memory near-cache lookups (~0.001 ms), PostgreSQL ACID persistence, dynamic client onboarding via Spring Admin REST API, and immediate revocation.
 - [**Token Lifecycle, Revocation & OIDC Back-Channel Logout**](docs/architecture/token_lifecycle_and_logout_flow.md): Sequence diagrams for RFC 7009 token revocation, RFC 7662 introspection, and OIDC Back-Channel Logout 1.0 push.
 - [**Performance, Scalability & Bottleneck Analysis**](docs/architecture/performance_and_scalability.md): Deep-dive analysis of system bottlenecks, cryptographic speedups, in-memory JWKS/discovery caching, ETag 304 validation, automated retries, and high-scale roadmap.
+- [**PostgreSQL Persistence Architecture & Performance Analysis**](docs/architecture/postgres_persistence_and_performance.md): Architectural rationale for database-backed clients, Flyway schema migrations, Java-only network isolation, and near-cache performance.
 
 ---
 
@@ -130,11 +154,12 @@ Comprehensive sequence diagrams, topology graphs, and communication flows are do
 
 | Service | Port | Description | Technology Stack |
 |---|---|---|---|
-| **`client-manager`**| `3001` | OAuth 2.1 Client Config Manager UI | Next.js 15, React 19, Tailwind CSS, S3, Redis |
+| **`postgres`** | `5432` | ACID Store for Authorizations & Clients (Java only) | PostgreSQL 16 Alpine |
+| **`client-manager`**| `3001` | OAuth 2.1 Client Config Manager UI | Next.js 15, React 19, Tailwind CSS, Spring Admin API |
 | **`demo-client`** | `8080` | Interactive OAuth 2.1 client & UI | Ruby 4.0, Puma, Rack, Redis DB 1 |
 | **`rails-app`** | `3000` | External Identity Provider (IdP) | Ruby on Rails 7, Redis DB 0 |
 | **`spring-auth-server`**| `9000` | OAuth 2.1 & OIDC Authorization Server | Spring Boot 4.0.8, Spring Security 7.0.7, Java 25 |
-| **`localstack`** | `4566` | Local AWS S3 service emulation | LocalStack 3.8 (S3: `oauth2-clients`) |
+| **`localstack`** | `4566` | Local AWS KMS HSM service emulation | LocalStack 3.8 (KMS: `alias/oauth2-signing-key`) |
 | **`poc-redis`** | `6379` | Shared Redis session, cache & pub/sub | Redis 7 Alpine |
 
 ---
@@ -143,12 +168,12 @@ Comprehensive sequence diagrams, topology graphs, and communication flows are do
 
 ### Prerequisites
 - **mise** (or Java 25 + Ruby 4.0.6 installed locally), or **Docker & Docker Compose**.
-- Running Redis instance on `localhost:6379` and LocalStack on `localhost:4566`.
+- Running Redis instance on `localhost:6379`, PostgreSQL on `localhost:5432`, and LocalStack on `localhost:4566`.
 
 ### Option A: Running with Docker Compose
 To run the full stack in Docker containers:
 ```bash
-docker compose up --build -d redis localstack rails-app spring-auth-server client-manager demo-client
+docker compose up --build -d postgres redis localstack rails-app spring-auth-server client-manager demo-client
 ```
 - Access the **Client Config Manager** at: **`http://localhost:3001`**
 - Access the **Demo Client** at: **`http://localhost:8080`**
@@ -191,7 +216,7 @@ docker compose up --build -d redis localstack rails-app spring-auth-server clien
 
 ## Running the Automated Functional Test Suites
 
-A comprehensive, multi-step automated test harness is provided across all subprojects, verifying both core OAuth 2.1 security features and real-time S3 dynamic configuration:
+A comprehensive, multi-step automated test harness is provided across all subprojects, verifying both core OAuth 2.1 security features and dynamic PostgreSQL client configuration with Redis hot-reloading:
 
 1. **Suite 1: OAuth 2.1 & OIDC Advanced Security Features (`test_oauth_security_features.rb`)**
    - Zero-scope client authorization & server-determined scope assignment
@@ -202,10 +227,10 @@ A comprehensive, multi-step automated test harness is provided across all subpro
    - RFC 7009 token revocation & RFC 7662 token introspection
    - OpenID Connect Back-Channel Logout 1.0 (signed `logout_token` JWS delivery & session eviction)
 
-2. **Suite 2: Dynamic S3 Client Config & Redis Hot-Reload (`test_s3_dynamic_client_reload.rb`)**
-   - Next.js REST API & LocalStack S3 bucket connectivity
+2. **Suite 2: Dynamic PostgreSQL Client Config & Redis Hot-Reload (`test_s3_dynamic_client_reload.rb`)**
+   - Next.js REST API & Spring Admin REST API connectivity
    - On-the-fly 2048-bit RSA key pair generation & client creation via `POST /api/clients`
-   - Real-time Redis Pub/Sub notification (`oauth2:clients:reload`) & Spring dynamic reload
+   - Real-time Redis Pub/Sub notification (`oauth2:clients:reload`) & Spring dynamic near-cache reload
    - Dynamic client authentication (PAR + PKCE + `private_key_jwt` + DPoP token exchange)
    - Dynamic client deletion via `DELETE /api/clients/:id` & immediate HTTP 401 revocation
 
@@ -274,7 +299,7 @@ k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 
 ```
 .
-├── docker-compose.yml              # Multi-container orchestration (LocalStack, Redis, Spring, Rails, Demo, Manager)
+├── docker-compose.yml              # Multi-container orchestration (Postgres, LocalStack, Redis, Spring, Rails, Demo, Manager)
 ├── README.md                       # Comprehensive platform documentation
 ├── k6/                             # Automated k6 performance and concurrency load testing suite
 │   ├── oauth_load_test.js          # Multi-scenario k6 load test (Full OAuth flow + Caching burst)
@@ -283,21 +308,22 @@ k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 │   └── architecture/
 │       ├── README.md               # Topology, communication matrix, and architecture index
 │       ├── oauth2_par_dpop_flow.md # End-to-end PAR + DPoP + PKCE + Rails SSO sequence diagram
-│       ├── client_config_and_caching_flow.md # Multi-tier L1-L3 cache & hot-reload sequence diagrams
+│       ├── client_config_and_caching_flow.md # Multi-tier near-cache & hot-reload sequence diagrams
+│       ├── kms_multi_key_rotation_flow.md   # AWS KMS HSM signing & zero-downtime rotation
 │       ├── token_lifecycle_and_logout_flow.md# Revocation, Introspection, and Backchannel Logout flows
+│       ├── postgres_persistence_and_performance.md # Rationale for DB-backed clients & Java isolation
 │       └── performance_and_scalability.md   # Bottleneck audit, 4000x speedup, k6 results, scale roadmap
-├── localstack/                     # LocalStack S3 initialization & seeding
-│   ├── init/01-init-s3.sh          # Auto-creates oauth2-clients bucket and seeds demo-client.json
-│   └── seed-demo-client.sh         # Standalone S3 seeder script
+├── localstack/                     # LocalStack AWS KMS initialization & key provisioning
+│   └── init/02-init-kms.sh         # Provisions RSA_2048 signing keys in KMS with alias
 ├── client-manager/                 # Next.js 15 OAuth 2.1 Client Configuration Manager
 │   ├── app/                        # Dashboard UI, client modals, raw JSON viewer
-│   ├── app/api/clients/            # S3 client CRUD endpoints & Redis reload notifier
+│   ├── app/api/clients/            # Proxy endpoints forwarding to Spring Admin REST API
 │   ├── functional_tests/           # Client manager copy of functional test suite
 │   │   ├── run_functional_tests.sh
 │   │   ├── test_oauth_security_features.rb
 │   │   ├── test_s3_dynamic_client_reload.rb
 │   │   └── test_performance_and_resilience.rb
-│   └── lib/s3.ts                   # AWS SDK v2 client, S3 bucket operations, Redis Pub/Sub
+│   └── lib/clients.ts              # Spring Admin API proxy client & X-Admin-Api-Key authentication
 ├── spring-auth-server/             # Spring Boot 4 / Spring Security 7 Authorization Server
 │   ├── functional_tests/           # Automated security test suite & shell runner
 │   │   ├── run_functional_tests.sh
@@ -305,20 +331,25 @@ k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 │   │   ├── test_s3_dynamic_client_reload.rb
 │   │   └── test_performance_and_resilience.rb
 │   ├── pom.xml
-│   └── src/main/java/com/example/authserver/
-│       ├── client/
-│       │   ├── S3RegisteredClientRepository.java    # S3 client loader & in-memory cache
-│       │   ├── ClientReloadRedisSubscriber.java    # Listens to oauth2:clients:reload
-│       │   └── ClientConfigDto.java                 # Jackson DTO mapping S3 JSON schema
-│       ├── config/
-│       │   ├── AuthorizationServerConfig.java       # Strict converters, PAR, DPoP, revocation
-│       │   ├── S3ClientConfig.java                  # AWS SDK v2 S3Client bean with LocalStack endpoint
-│       │   ├── KeyConfig.java                       # RSA signing keys & JWK Source
-│       │   ├── TokenCustomizerConfig.java           # DPoP cnf.jkt binding & custom claims
-│       │   └── ExternalLoginAuthenticationEntryPoint.java # SSO redirect to Rails IdP
-│       └── security/
-│           ├── OidcBackChannelLogoutService.java    # Dispatches signed logout_token JWS
-│           └── SharedRedisSessionFilter.java        # Bridges Rails shared session to Spring context
+│   └── src/main/
+│       ├── java/com/example/authserver/
+│       │   ├── client/
+│       │   │   ├── PostgresRegisteredClientRepository.java # Near-cached PostgreSQL client repository
+│       │   │   ├── ClientReloadRedisSubscriber.java        # Listens to oauth2:clients:reload
+│       │   │   └── ClientConfigDto.java                    # Jackson DTO for client configurations
+│       │   ├── config/
+│       │   │   ├── AuthorizationServerConfig.java          # Strict converters, PAR, DPoP, revocation
+│       │   │   ├── KeyConfig.java                          # AWS KMS HSM signing & Multi-Key JWKS
+│       │   │   ├── TokenCustomizerConfig.java              # DPoP cnf.jkt binding & custom claims
+│       │   │   └── ExternalLoginAuthenticationEntryPoint.java # SSO redirect to Rails IdP
+│       │   ├── controller/
+│       │   │   └── ClientAdminController.java              # Protected Admin API for client management
+│       │   └── security/
+│       │       ├── OidcBackChannelLogoutService.java       # Dispatches signed logout_token JWS
+│       │       └── SharedRedisSessionFilter.java           # Bridges Rails shared session to Spring context
+│       └── resources/db/migration/
+│           ├── V1__create_oauth2_schema.sql                # Core Spring Security OAuth2 tables
+│           └── V2__create_client_public_keys.sql           # Public key store for private_key_jwt
 ├── rails-app/                      # Ruby on Rails 7 Identity Provider
 │   ├── app/controllers/sessions_controller.rb      # Writes session:<uuid> to Redis
 │   ├── app/views/sessions/new.html.erb             # User login form
