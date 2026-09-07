@@ -33,6 +33,7 @@ aws:
     enabled: ${AWS_KMS_ENABLED:true}
     endpoint: ${AWS_KMS_ENDPOINT:http://localhost:4566}
     key-alias: ${AWS_KMS_KEY_ALIAS:alias/oauth2-signing-key}
+    previous-key-aliases: ${AWS_KMS_PREVIOUS_KEY_ALIASES:alias/oauth2-signing-key-previous}
   region: ${AWS_REGION:us-east-1}
   access-key-id: ${AWS_ACCESS_KEY_ID:test}
   secret-access-key: ${AWS_SECRET_ACCESS_KEY:test}

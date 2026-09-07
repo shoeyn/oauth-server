@@ -65,6 +65,9 @@ Click the links below to inspect specific end-to-end communication flows:
 4. [**Performance, Scalability & Bottleneck Analysis**](performance_and_scalability.md)
    - Concurrency bottleneck identification, benchmark metrics (EC vs RSA DPoP, response caching, ETag 304s), resilience/retry patterns, and high-scale roadmap.
 
+5. [**AWS KMS Key Management, Multi-Key JWKS Rotation & Algorithm Pinning**](kms_multi_key_rotation_flow.md)
+   - Hardware Security Module (HSM) boundary, FIPS 140-2 Level 3 protection, zero-downtime multi-key JWKS rotation lifecycle, automated rotation tooling, and strict RFC 8725 algorithm pinning.
+
 ---
 
 ## Port & Protocol Reference
@@ -75,5 +78,5 @@ Click the links below to inspect specific end-to-end communication flows:
 | **`rails-app`** | `3000` | HTTP / TCP | External login & Identity Provider (sets `SHARED_SESSION_ID`) |
 | **`client-manager`** | `3001` | HTTP / TCP | Administrative UI for client configuration & Web Crypto key generation |
 | **`spring-auth-server`**| `9000` | HTTP / TCP | RFC-hardened OAuth 2.1 & OIDC Authorization Server |
-| **`localstack`** | `4566` | HTTP / S3 API | Emulated AWS S3 object store (`oauth2-clients` bucket) |
+| **`localstack`** | `4566` | HTTP / S3 & KMS API | Emulated AWS S3 (`oauth2-clients` bucket) & AWS KMS (FIPS 140-2 HSM) |
 | **`redis`** | `6379` | RESP / TCP | DB 0 (SSO, JTI, L2 Client Cache), DB 1 (Client Tokens), Pub/Sub channels |

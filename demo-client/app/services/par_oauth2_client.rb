@@ -197,6 +197,11 @@ class ParOAuth2Client < OAuth2::Client
 
     # Extract kid from unverified JWS header to allow cached JWKS lookups and key rotation auto-refresh
     header = (JWT.decode(id_token_jwt, nil, false)[1] rescue {}) || {}
+    alg = header["alg"]
+    if alg.blank? || alg.downcase == "none" || alg != "RS256"
+      raise "Security Error: Strict Algorithm Pinning: Only 'RS256' algorithm is permitted. Rejected algorithm '#{alg}'."
+    end
+
     kid = header["kid"]
     jwk_set = fetch_jwks(kid)
 
@@ -446,8 +451,13 @@ class ParOAuth2Client < OAuth2::Client
     begin
       headers = JWT.decode(logout_token_jwt, nil, false)[1]
       kid = headers["kid"]
-    rescue => _e
-      # If header decode fails, let standard decode handle it
+      alg = headers["alg"]
+      if alg.blank? || alg.downcase == "none" || alg != "RS256"
+        raise "Security Error: Strict Algorithm Pinning: Only 'RS256' algorithm is permitted for logout tokens. Rejected algorithm '#{alg}'."
+      end
+    rescue => e
+      raise e if e.message.include?("Strict Algorithm Pinning")
+      # If other header decode fails, let standard decode handle it
     end
 
     jwk_set = fetch_jwks(kid)

@@ -225,10 +225,25 @@ public class AuthorizationServerConfig {
                         String cacheKey = registeredClient.getClientId() + ":" + (clientKey != null ? clientKey.hashCode() : 0);
                         return jwtDecoderCache.computeIfAbsent(cacheKey, (k) -> {
                             log.info("Constructing and caching JwtDecoder for registered client: {}", registeredClient.getClientId());
-                            NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(clientKey).build();
+                            NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(clientKey)
+                                    .signatureAlgorithm(org.springframework.security.oauth2.jose.jws.SignatureAlgorithm.RS256)
+                                    .build();
 
                             // Security Improvement: Clock skew tolerance limited to 60s to reject expired client assertion tokens
                             OAuth2TokenValidator<Jwt> timestampValidator = new JwtTimestampValidator(Duration.ofSeconds(60));
+
+                            // Security Improvement: Strict Algorithm Pinning (RFC 7523 & RFC 8725 Section 3.1)
+                            // Strictly rejects 'none', symmetric HMAC, and non-approved algorithms to prevent algorithm confusion attacks
+                            OAuth2TokenValidator<Jwt> algorithmValidator = (jwt) -> {
+                                Object alg = jwt.getHeaders().get("alg");
+                                if (alg == null || !"RS256".equalsIgnoreCase(alg.toString())) {
+                                    return OAuth2TokenValidatorResult.failure(new OAuth2Error(
+                                            "invalid_client_assertion",
+                                            "Strict Algorithm Pinning: Only 'RS256' algorithm is permitted for client assertions. Rejected: " + alg,
+                                            null));
+                                }
+                                return OAuth2TokenValidatorResult.success();
+                            };
 
                             OAuth2TokenValidator<Jwt> clientValidator = (jwt) -> {
                                 // Security Improvement: Subject and Issuer must strictly match the registered client_id (RFC 7523 Section 3)
@@ -276,7 +291,7 @@ public class AuthorizationServerConfig {
                                 return OAuth2TokenValidatorResult.success();
                             };
 
-                            decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(timestampValidator, clientValidator));
+                            decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(timestampValidator, algorithmValidator, clientValidator));
                             return decoder;
                         });
                     });
