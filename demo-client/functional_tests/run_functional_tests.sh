@@ -24,5 +24,11 @@ mise exec -- bundle exec ruby "$DIR/test_performance_and_resilience.rb"
 
 echo ""
 echo "================================================================================"
+echo "  SUITE 4: AWS KMS Cryptographic Signing & Security Verification"
+echo "================================================================================"
+mise exec -- bundle exec ruby "$DIR/test_kms_signing.rb"
+
+echo ""
+echo "================================================================================"
 echo "  ALL FUNCTIONAL TEST SUITES PASSED SUCCESSFULLY!"
 echo "================================================================================"

@@ -30,7 +30,7 @@ services:
     ports:
       - "4566:4566"
     environment:
-      - SERVICES=s3
+      - SERVICES=s3,kms
       - AWS_DEFAULT_REGION=us-east-1
     volumes:
       - ./localstack/init:/etc/localstack/init/ready.d
@@ -73,6 +73,9 @@ services:
       - AUTH_SERVER_ISSUER=http://localhost:9000
       - AWS_S3_ENDPOINT=http://localstack:4566
       - AWS_S3_BUCKET=oauth2-clients
+      - AWS_KMS_ENABLED=true
+      - AWS_KMS_ENDPOINT=http://localstack:4566
+      - AWS_KMS_KEY_ALIAS=alias/oauth2-signing-key
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test

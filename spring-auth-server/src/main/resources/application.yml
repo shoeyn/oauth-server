@@ -29,6 +29,10 @@ aws:
   s3:
     endpoint: ${AWS_S3_ENDPOINT:http://localhost:4566}
     bucket: ${AWS_S3_BUCKET:oauth2-clients}
+  kms:
+    enabled: ${AWS_KMS_ENABLED:true}
+    endpoint: ${AWS_KMS_ENDPOINT:http://localhost:4566}
+    key-alias: ${AWS_KMS_KEY_ALIAS:alias/oauth2-signing-key}
   region: ${AWS_REGION:us-east-1}
   access-key-id: ${AWS_ACCESS_KEY_ID:test}
   secret-access-key: ${AWS_SECRET_ACCESS_KEY:test}

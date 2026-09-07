@@ -3,7 +3,7 @@ package com.example.authserver.security;
 import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
-import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.JWSSigner;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
@@ -32,6 +32,7 @@ import org.springframework.web.util.UriUtils;
 public class OidcBackChannelLogoutService {
 
     private final RSAKey serverRsaKey;
+    private final JWSSigner jwsSigner;
 
     @Value("${auth.server.issuer-url:http://localhost:9000}")
     private String issuerUrl;
@@ -74,7 +75,7 @@ public class OidcBackChannelLogoutService {
                     .build();
 
             SignedJWT signedJWT = new SignedJWT(header, claims);
-            signedJWT.sign(new RSASSASigner(serverRsaKey.toRSAPrivateKey()));
+            signedJWT.sign(jwsSigner);
             String logoutToken = signedJWT.serialize();
 
             // Performance & Resilience: Asynchronous non-blocking dispatch with automated retries
