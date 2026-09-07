@@ -18,5 +18,11 @@ mise exec -- bundle exec ruby "$DIR/test_s3_dynamic_client_reload.rb"
 
 echo ""
 echo "================================================================================"
+echo "  SUITE 3: Performance, In-Memory Caching & Resilience"
+echo "================================================================================"
+mise exec -- bundle exec ruby "$DIR/test_performance_and_resilience.rb"
+
+echo ""
+echo "================================================================================"
 echo "  ALL FUNCTIONAL TEST SUITES PASSED SUCCESSFULLY!"
 echo "================================================================================"

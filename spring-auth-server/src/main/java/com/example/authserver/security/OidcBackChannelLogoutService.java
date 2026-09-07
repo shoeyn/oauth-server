@@ -77,18 +77,43 @@ public class OidcBackChannelLogoutService {
             signedJWT.sign(new RSASSASigner(serverRsaKey.toRSAPrivateKey()));
             String logoutToken = signedJWT.serialize();
 
-            log.info("Dispatching OIDC Back-Channel Logout to {} (sub={}, sid={})", targetUri, sub, sid);
+            // Performance & Resilience: Asynchronous non-blocking dispatch with automated retries
+            java.util.concurrent.CompletableFuture.runAsync(() -> {
+                int maxRetries = 3;
+                for (int attempt = 1; attempt <= maxRetries; attempt++) {
+                    try {
+                        log.info("Dispatching OIDC Back-Channel Logout to {} (sub={}, sid={}, attempt={}/{})",
+                                targetUri, sub, sid, attempt, maxRetries);
 
-            restClient.post()
-                    .uri(URI.create(targetUri))
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                    .body("logout_token=" + UriUtils.encode(logoutToken, StandardCharsets.UTF_8))
-                    .retrieve()
-                    .toBodilessEntity();
+                        restClient.post()
+                                .uri(URI.create(targetUri))
+                                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                                .body("logout_token=" + UriUtils.encode(logoutToken, StandardCharsets.UTF_8))
+                                .retrieve()
+                                .toBodilessEntity();
 
-            log.info("OIDC Back-Channel Logout successfully delivered to {}", targetUri);
+                        log.info("OIDC Back-Channel Logout successfully delivered to {}", targetUri);
+                        return;
+                    } catch (Exception e) {
+                        if (attempt < maxRetries) {
+                            long backoffMs = (long) (Math.pow(2, attempt - 1) * 200);
+                            log.warn("OIDC Back-Channel Logout attempt {} failed for {}: {}. Retrying in {}ms...",
+                                    attempt, targetUri, e.getMessage(), backoffMs);
+                            try {
+                                Thread.sleep(backoffMs);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                break;
+                            }
+                        } else {
+                            log.warn("Failed to deliver OIDC Back-Channel Logout to {} after {} attempts: {}",
+                                    targetUri, maxRetries, e.getMessage());
+                        }
+                    }
+                }
+            });
         } catch (Exception e) {
-            log.warn("Failed to deliver OIDC Back-Channel Logout to {}: {}", targetUri, e.getMessage());
+            log.warn("Failed to build or sign OIDC Back-Channel Logout token: {}", e.getMessage());
         }
     }
 }

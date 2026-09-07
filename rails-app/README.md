@@ -32,6 +32,7 @@ Every controller and configuration in this application is strictly annotated wit
 | **Constant-Time Verification** | `sessions_controller.rb` | Uses `ActiveSupport::SecurityUtils.secure_compare` to eliminate side-channel timing attack vectors. |
 | **Session Invalidation on Login** | `sessions_controller.rb` | Destroys previous Redis session keys upon re-authentication to prevent session fixation attacks. |
 | **Strict UUID Format Validation** | `sessions_controller.rb` | Enforces regex pattern `^[0-9a-fA-F-]{36}$` before performing Redis operations to avoid key injection. |
+| **Persistent Redis Connection** | `sessions_controller.rb` (`self.redis_client`) | Reuses a thread-safe Redis client connection to eliminate TCP socket churn and ephemeral port exhaustion under heavy concurrent login spikes. |
 | **CSRF Protection** | `application_controller.rb` | Mandates `protect_from_forgery with: :exception` on all state-changing endpoints. |
 
 ---

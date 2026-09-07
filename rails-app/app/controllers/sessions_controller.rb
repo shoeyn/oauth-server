@@ -44,19 +44,16 @@ class SessionsController < ApplicationController
       authenticated_at: Time.now.utc.iso8601
     }
 
-    # Store user session JSON in shared Redis
-    redis_url = ENV.fetch("REDIS_URL", "redis://localhost:6379")
-    redis = Redis.new(url: redis_url, connect_timeout: 3, read_timeout: 3)
-
+    # Store user session JSON in shared Redis (using persistent connection pool/client)
     # Security Improvement: Invalidate old session in Redis to stop session fixation attacks
     old_session_id = cookies[:SHARED_SESSION_ID]
     if old_session_id.present? && valid_session_id?(old_session_id)
-      redis.del("session:#{old_session_id}")
+      redis_client.del("session:#{old_session_id}")
     end
 
     # Security Improvement: Generate a cryptographically strong UUIDv4 for the session identifier
     session_id = SecureRandom.uuid
-    redis.set("session:#{session_id}", user_payload.to_json, ex: 7200)
+    redis_client.set("session:#{session_id}", user_payload.to_json, ex: 7200)
 
     # Security Improvement: Hardened Cookie Settings
     # 1. httponly: true -> Stop malicious client-side JavaScript from grabbing the sensitive session cookie (mitigates XSS cookie theft)
@@ -85,8 +82,7 @@ class SessionsController < ApplicationController
   def destroy
     session_id = cookies[:SHARED_SESSION_ID]
     if session_id.present? && valid_session_id?(session_id)
-      redis_url = ENV.fetch("REDIS_URL", "redis://localhost:6379")
-      Redis.new(url: redis_url).del("session:#{session_id}")
+      redis_client.del("session:#{session_id}")
       # Security Improvement: Explicitly clear the cookie with matching path to prevent orphaned session cookies
       cookies.delete(:SHARED_SESSION_ID, path: "/")
     end
@@ -94,6 +90,21 @@ class SessionsController < ApplicationController
   end
 
   private
+
+  # Performance Improvement: Reusable thread-safe Redis client to avoid TCP connection churn under high load
+  def self.redis_client
+    @redis_client ||= Redis.new(
+      url: ENV.fetch("REDIS_URL", "redis://localhost:6379"),
+      connect_timeout: 2,
+      read_timeout: 2,
+      write_timeout: 2,
+      reconnect_attempts: 2
+    )
+  end
+
+  def redis_client
+    self.class.redis_client
+  end
 
   # Security Improvement: Validate return_to parameter against trusted OAuth host whitelist to prevent Open Redirect attacks
   def sanitize_return_to(target_url)

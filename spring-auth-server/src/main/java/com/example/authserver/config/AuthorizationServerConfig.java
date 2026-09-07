@@ -1,12 +1,15 @@
 package com.example.authserver.config;
 
+import com.example.authserver.security.DiscoveryAndJwksCacheFilter;
 import com.example.authserver.security.OidcBackChannelLogoutService;
 import com.example.authserver.security.SharedRedisSessionFilter;
 import java.nio.charset.StandardCharsets;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,9 +23,11 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.oauth2.server.authorization.OAuth2AuthorizationServerConfigurer;
 import org.springframework.security.web.DefaultRedirectStrategy;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.util.UriUtils;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
@@ -45,7 +50,6 @@ import org.springframework.security.oauth2.server.authorization.settings.TokenSe
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.function.Function;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
@@ -65,6 +69,8 @@ import org.springframework.security.web.authentication.logout.LogoutFilter;
 @Slf4j
 @Configuration(proxyBeanMethods = false)
 public class AuthorizationServerConfig {
+
+    private final Map<String, JwtDecoder> jwtDecoderCache = new ConcurrentHashMap<>();
 
     @Value("${auth.rails.login-url:http://localhost:3000/login}")
     private String railsLoginUrl;
@@ -189,6 +195,11 @@ public class AuthorizationServerConfig {
             .exceptionHandling((exceptions) -> exceptions
                 .authenticationEntryPoint(new ExternalLoginAuthenticationEntryPoint(railsLoginUrl, issuerUrl))
             )
+            // Performance Improvement: In-Memory response caching with ETag for discovery and JWKS
+            .addFilterBefore(
+                new DiscoveryAndJwksCacheFilter(),
+                SecurityContextHolderFilter.class
+            )
             .addFilterAfter(
                 new SharedRedisSessionFilter(redisTemplate),
                 LogoutFilter.class
@@ -209,65 +220,65 @@ public class AuthorizationServerConfig {
             for (AuthenticationProvider provider : authenticationProviders) {
                 if (provider instanceof JwtClientAssertionAuthenticationProvider jwtClientAssertionProvider) {
                     jwtClientAssertionProvider.setJwtDecoderFactory((registeredClient) -> {
-                        log.info("Configuring JwtDecoder for registered client: {}", registeredClient.getClientId());
-                        RSAPublicKey clientKey = s3RegisteredClientRepository.getClientPublicKey(registeredClient.getClientId());
-                        if (clientKey == null) {
-                            log.warn("Public key not found in S3 repository for client '{}', falling back to default key", registeredClient.getClientId());
-                            clientKey = demoClientPublicKey;
-                        }
-                        NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(clientKey).build();
+                        RSAPublicKey foundKey = s3RegisteredClientRepository.getClientPublicKey(registeredClient.getClientId());
+                        final RSAPublicKey clientKey = (foundKey != null) ? foundKey : demoClientPublicKey;
+                        String cacheKey = registeredClient.getClientId() + ":" + (clientKey != null ? clientKey.hashCode() : 0);
+                        return jwtDecoderCache.computeIfAbsent(cacheKey, (k) -> {
+                            log.info("Constructing and caching JwtDecoder for registered client: {}", registeredClient.getClientId());
+                            NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(clientKey).build();
 
-                        // Security Improvement: Clock skew tolerance limited to 60s to reject expired client assertion tokens
-                        OAuth2TokenValidator<Jwt> timestampValidator = new JwtTimestampValidator(Duration.ofSeconds(60));
+                            // Security Improvement: Clock skew tolerance limited to 60s to reject expired client assertion tokens
+                            OAuth2TokenValidator<Jwt> timestampValidator = new JwtTimestampValidator(Duration.ofSeconds(60));
 
-                        OAuth2TokenValidator<Jwt> clientValidator = (jwt) -> {
-                            // Security Improvement: Subject and Issuer must strictly match the registered client_id (RFC 7523 Section 3)
-                            // Stops malicious clients from using another client's identity or cross-client token forgery
-                            if (!registeredClient.getClientId().equals(jwt.getSubject())) {
-                                return OAuth2TokenValidatorResult.failure(new OAuth2Error(
-                                        "invalid_client_assertion",
-                                        "JWT Subject does not match client_id",
-                                        null));
-                            }
-                            String issuer = jwt.getClaimAsString("iss");
-                            if (issuer != null && !registeredClient.getClientId().equals(issuer)) {
-                                return OAuth2TokenValidatorResult.failure(new OAuth2Error(
-                                        "invalid_client_assertion",
-                                        "JWT Issuer does not match client_id",
-                                        null));
-                            }
-
-                            // Security Improvement: Audience (aud) validation (RFC 7523 Section 3)
-                            // Ensures assertion was explicitly minted for this authorization server, preventing cross-server token replay
-                            List<String> audiences = jwt.getAudience();
-                            boolean validAudience = audiences != null && audiences.stream().anyMatch(aud ->
-                                    aud.contains("9000") || aud.equalsIgnoreCase(issuerUrl)
-                            );
-                            if (!validAudience) {
-                                return OAuth2TokenValidatorResult.failure(new OAuth2Error(
-                                        "invalid_client_assertion",
-                                        "JWT Audience does not match this authorization server",
-                                        null));
-                            }
-
-                            // Security Improvement: Replay Protection using unique JWT ID ('jti') in Redis (RFC 7523 Section 3)
-                            // Stops attackers from capturing a client assertion and replaying it within its validity window
-                            String jti = jwt.getId();
-                            if (jti != null && !jti.isBlank()) {
-                                Boolean isNew = redisTemplate.opsForValue().setIfAbsent("oauth2:jti:" + jti, "used", Duration.ofMinutes(5));
-                                if (Boolean.FALSE.equals(isNew)) {
+                            OAuth2TokenValidator<Jwt> clientValidator = (jwt) -> {
+                                // Security Improvement: Subject and Issuer must strictly match the registered client_id (RFC 7523 Section 3)
+                                // Stops malicious clients from using another client's identity or cross-client token forgery
+                                if (!registeredClient.getClientId().equals(jwt.getSubject())) {
                                     return OAuth2TokenValidatorResult.failure(new OAuth2Error(
                                             "invalid_client_assertion",
-                                            "JWT Assertion replay detected: jti has already been used",
+                                            "JWT Subject does not match client_id",
                                             null));
                                 }
-                            }
+                                String issuer = jwt.getClaimAsString("iss");
+                                if (issuer != null && !registeredClient.getClientId().equals(issuer)) {
+                                    return OAuth2TokenValidatorResult.failure(new OAuth2Error(
+                                            "invalid_client_assertion",
+                                            "JWT Issuer does not match client_id",
+                                            null));
+                                }
 
-                            return OAuth2TokenValidatorResult.success();
-                        };
+                                // Security Improvement: Audience (aud) validation (RFC 7523 Section 3)
+                                // Ensures assertion was explicitly minted for this authorization server, preventing cross-server token replay
+                                List<String> audiences = jwt.getAudience();
+                                boolean validAudience = audiences != null && audiences.stream().anyMatch(aud ->
+                                        aud.contains("9000") || aud.equalsIgnoreCase(issuerUrl)
+                                );
+                                if (!validAudience) {
+                                    return OAuth2TokenValidatorResult.failure(new OAuth2Error(
+                                            "invalid_client_assertion",
+                                            "JWT Audience does not match this authorization server",
+                                            null));
+                                }
 
-                        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(timestampValidator, clientValidator));
-                        return decoder;
+                                // Security Improvement: Replay Protection using unique JWT ID ('jti') in Redis (RFC 7523 Section 3)
+                                // Stops attackers from capturing a client assertion and replaying it within its validity window
+                                String jti = jwt.getId();
+                                if (jti != null && !jti.isBlank()) {
+                                    Boolean isNew = redisTemplate.opsForValue().setIfAbsent("oauth2:jti:" + jti, "used", Duration.ofMinutes(5));
+                                    if (Boolean.FALSE.equals(isNew)) {
+                                        return OAuth2TokenValidatorResult.failure(new OAuth2Error(
+                                                "invalid_client_assertion",
+                                                "JWT Assertion replay detected: jti has already been used",
+                                                null));
+                                    }
+                                }
+
+                                return OAuth2TokenValidatorResult.success();
+                            };
+
+                            decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(timestampValidator, clientValidator));
+                            return decoder;
+                        });
                     });
                 }
             }

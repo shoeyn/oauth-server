@@ -45,6 +45,23 @@ public class SharedRedisSessionFilter extends OncePerRequestFilter {
         this.securityContextRepository = new HttpSessionSecurityContextRepository();
     }
 
+    /**
+     * Performance Optimization: Skip shared Redis session lookup for non-interactive M2M,
+     * token exchange, JWKS, and discovery endpoints.
+     * Only interactive user endpoints (like /oauth2/authorize) require a user session.
+     */
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return path.startsWith("/oauth2/token") ||
+               path.startsWith("/oauth2/par") ||
+               path.startsWith("/oauth2/jwks") ||
+               path.startsWith("/oauth2/introspect") ||
+               path.startsWith("/oauth2/revoke") ||
+               path.startsWith("/.well-known/") ||
+               path.startsWith("/actuator/");
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {

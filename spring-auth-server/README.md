@@ -41,6 +41,17 @@ A hardened, enterprise **OAuth 2.1 Authorization Server** built with **Spring Bo
 
 9. **Single Sign-On (SSO) with External Rails IdP via Shared Redis**:
    - `SharedRedisSessionFilter` inspects `SHARED_SESSION_ID` cookie, fetches user authentication data from `session:<id>` in Redis DB 0, and establishes a Spring `SecurityContext`.
+   - **M2M Performance Bypass (`shouldNotFilter`)**: Bypasses Redis queries on machine-to-machine endpoints (`/oauth2/token`, `/oauth2/par`, `/oauth2/jwks`, `/oauth2/introspect`, `/oauth2/revoke`, `/.well-known/**`), eliminating unneeded Redis round-trips.
+
+10. **In-Memory Discovery & JWKS Caching with ETag / HTTP 304**:
+    - `DiscoveryAndJwksCacheFilter` caches pre-rendered byte arrays for `/.well-known/openid-configuration` and `/oauth2/jwks` with `Cache-Control: public, max-age=3600, stale-while-revalidate=86400`.
+    - Returns **HTTP 304 Not Modified with 0 body bytes** on conditional `If-None-Match` requests, eliminating JSON re-serialization overhead.
+
+11. **Cached Client Assertion `JwtDecoder`**:
+    - Reuses `NimbusJwtDecoder` instances in a `ConcurrentHashMap` keyed by `clientId:keyHash`, eliminating RSA key re-parsing and validator chain reconstruction on every client assertion.
+
+12. **Asynchronous Back-Channel Logout Dispatch with Retries**:
+    - `OidcBackChannelLogoutService` dispatches signed `logout_token` notifications asynchronously via `CompletableFuture.runAsync` with a 3-attempt exponential backoff retry loop, decoupling user logout response latency from client endpoint response time.
 
 ---
 
@@ -63,10 +74,16 @@ docker compose up -d spring-auth-server
 
 ## Running the Automated Functional Test Suite
 
-The test suite runs both:
+The test suite runs all 3 suites:
 1. **OAuth 2.1 & OIDC Advanced Security Features** (PAR, DPoP, PKCE, Issuer ID, Revocation, Introspection, Back-Channel Logout)
 2. **Dynamic S3 Client Configuration & Redis Hot-Reload** (S3 CRUD, real-time reload, dynamic client token exchange, and revocation)
+3. **Performance, In-Memory Caching & Resilience** (ETag 304 validation, EC vs RSA DPoP benchmark, in-memory JWKS cache hit, retries)
 
 ```bash
 bash functional_tests/run_functional_tests.sh
+```
+
+## Performance & Load Testing (k6)
+```bash
+k6 run ../k6/oauth_load_test.js
 ```

@@ -62,6 +62,9 @@ Click the links below to inspect specific end-to-end communication flows:
 3. [**Token Lifecycle, Revocation & OIDC Back-Channel Logout Flow**](token_lifecycle_and_logout_flow.md)
    - Detailed diagrams for RFC 7009 Token Revocation, RFC 7662 Token Introspection, and OpenID Connect Back-Channel Logout 1.0 signed JWT dispatch.
 
+4. [**Performance, Scalability & Bottleneck Analysis**](performance_and_scalability.md)
+   - Concurrency bottleneck identification, benchmark metrics (EC vs RSA DPoP, response caching, ETag 304s), resilience/retry patterns, and high-scale roadmap.
+
 ---
 
 ## Port & Protocol Reference

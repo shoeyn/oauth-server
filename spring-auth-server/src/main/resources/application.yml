@@ -1,5 +1,14 @@
 server:
   port: 9000
+  http2:
+    enabled: true
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 20
+    max-connections: 8192
+    accept-count: 200
+    connection-timeout: 20000
 
 spring:
   application:
@@ -8,6 +17,7 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      timeout: 2000ms
 
 auth:
   rails:
@@ -25,9 +35,9 @@ aws:
 
 logging:
   level:
-    org.springframework.security: DEBUG
-    org.springframework.security.oauth2: DEBUG
-    com.example.authserver: DEBUG
+    org.springframework.security: ${LOG_LEVEL_SECURITY:INFO}
+    org.springframework.security.oauth2: ${LOG_LEVEL_SECURITY:INFO}
+    com.example.authserver: ${LOG_LEVEL_APP:INFO}
 
 management:
   endpoints:
