@@ -31,7 +31,9 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
@@ -62,6 +64,7 @@ import org.springframework.security.oauth2.server.authorization.JdbcOAuth2Author
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationException;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.oidc.authentication.OidcUserInfoAuthenticationContext;
 import org.springframework.security.oauth2.server.authorization.web.authentication.OAuth2AuthorizationCodeRequestAuthenticationConverter;
@@ -509,6 +512,22 @@ public class AuthorizationServerConfig {
                     RegisteredClient client = this.registeredClientRepository.findByClientId(token.getClientId());
                     if (client != null) {
                         serverDeterminedScopes = client.getScopes();
+
+                        // Strict RFC 9126 PAR Enforcement Check
+                        Boolean requirePar = client.getClientSettings().getSetting("settings.client.require-pushed-authorization-requests");
+                        if (Boolean.TRUE.equals(requirePar)) {
+                            Object requestUri = token.getAdditionalParameters() != null ?
+                                    token.getAdditionalParameters().get("request_uri") : null;
+                            if (requestUri == null || !StringUtils.hasText(requestUri.toString())) {
+                                log.warn("Strict PAR Enforcement: Rejected direct authorization request for client '{}' missing request_uri.",
+                                        token.getClientId());
+                                throw new OAuth2AuthorizationCodeRequestAuthenticationException(new OAuth2Error(
+                                        OAuth2ErrorCodes.INVALID_REQUEST,
+                                        "Client '" + token.getClientId() + "' strictly requires Pushed Authorization Requests (PAR, RFC 9126). Direct authorization requests without 'request_uri' are rejected.",
+                                        "https://datatracker.ietf.org/doc/html/rfc9126"
+                                ), token);
+                            }
+                        }
                     }
                 }
                 return new OAuth2AuthorizationCodeRequestAuthenticationToken(

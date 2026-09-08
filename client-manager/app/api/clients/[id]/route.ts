@@ -37,6 +37,7 @@ export async function PUT(
       postLogoutRedirectUris: Array.isArray(body.postLogoutRedirectUris) ? body.postLogoutRedirectUris : existing.postLogoutRedirectUris,
       scopes: Array.isArray(body.scopes) ? body.scopes : existing.scopes,
       requireProofKey: body.requireProofKey !== undefined ? !!body.requireProofKey : existing.requireProofKey,
+      requirePushedAuthorizationRequests: body.requirePushedAuthorizationRequests !== undefined ? !!body.requirePushedAuthorizationRequests : existing.requirePushedAuthorizationRequests,
       accessTokenTimeToLiveMinutes: Number(body.accessTokenTimeToLiveMinutes) || existing.accessTokenTimeToLiveMinutes,
       refreshTokenTimeToLiveDays: Number(body.refreshTokenTimeToLiveDays) || existing.refreshTokenTimeToLiveDays,
       publicKeyPem: body.publicKeyPem?.trim() || existing.publicKeyPem,

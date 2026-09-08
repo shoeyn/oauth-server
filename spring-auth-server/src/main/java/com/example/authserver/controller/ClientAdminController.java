@@ -72,6 +72,8 @@ public class ClientAdminController {
         map.put("scopes", c.getScopes());
         map.put("requireProofKey", c.getClientSettings().isRequireProofKey());
         map.put("requireAuthorizationConsent", c.getClientSettings().isRequireAuthorizationConsent());
+        Boolean requirePar = c.getClientSettings().getSetting("settings.client.require-pushed-authorization-requests");
+        map.put("requirePushedAuthorizationRequests", requirePar != null ? requirePar : true);
         map.put("accessTokenTimeToLiveMinutes", c.getTokenSettings().getAccessTokenTimeToLive().toMinutes());
         map.put("refreshTokenTimeToLiveDays", c.getTokenSettings().getRefreshTokenTimeToLive().toDays());
         map.put("publicKeyPem", pem);

@@ -41,6 +41,7 @@ export async function POST(req: Request) {
         : ["openid", "profile", "email"],
       requireProofKey: body.requireProofKey !== undefined ? !!body.requireProofKey : true,
       requireAuthorizationConsent: false,
+      requirePushedAuthorizationRequests: body.requirePushedAuthorizationRequests !== undefined ? !!body.requirePushedAuthorizationRequests : true,
       accessTokenTimeToLiveMinutes: Number(body.accessTokenTimeToLiveMinutes) || 15,
       refreshTokenTimeToLiveDays: Number(body.refreshTokenTimeToLiveDays) || 30,
       publicKeyPem: body.publicKeyPem.trim(),

@@ -15,16 +15,22 @@ require "monitor"
 # - RFC 9207: Authorization Server Issuer Identification
 # - OpenID Connect Core 1.0 & RP-Initiated / Back-Channel Logout 1.0
 class ParOAuth2Client < OAuth2::Client
-  attr_reader :private_key, :issuer_url, :par_url
+  attr_reader :private_key, :issuer_url, :public_issuer_url, :internal_issuer_url, :par_url
 
   # Thread-safe in-memory cache for authorization server JWKS sets across worker threads
   @@jwks_cache = Monitor.new
   @@cached_jwks = {} # issuer_url => { jwk_set: JWT::JWK::Set, expires_at: Time, last_fetched_at: Time }
 
   def initialize(client_id, private_key_pem, options = {})
-    @issuer_url = options.delete(:issuer_url) || ENV.fetch("AUTH_SERVER_URL", "http://localhost:9000")
+    # Public URL is the canonical issuer exposed to browsers and encoded in JWT claims
+    @public_issuer_url = options.delete(:public_issuer_url) || options.delete(:issuer_url) || ENV.fetch("AUTH_SERVER_URL", "http://localhost:9000")
+    # Internal URL is used for direct backchannel HTTP calls (e.g. within container networks)
+    internal_env = ENV["AUTH_SERVER_URL_INTERNAL"]
+    @internal_issuer_url = options.delete(:internal_issuer_url) || (internal_env && !internal_env.empty? ? internal_env : @public_issuer_url)
+    @issuer_url = @public_issuer_url # Backward compatibility alias
+
     @private_key = OpenSSL::PKey::RSA.new(private_key_pem)
-    @par_url = options.delete(:par_url) || "#{@issuer_url}/oauth2/par"
+    @par_url = options.delete(:par_url) || "#{@internal_issuer_url}/oauth2/par"
 
     # Configure persistent HTTP keep-alive connection pooling
     conn_opts = (options[:connection_opts] || {}).dup
@@ -37,9 +43,9 @@ class ParOAuth2Client < OAuth2::Client
       client_id,
       nil, # Client secret omitted; authentication handled exclusively via private_key_jwt
       {
-        site: @issuer_url,
-        authorize_url: "#{@issuer_url}/oauth2/authorize",
-        token_url: "#{@issuer_url}/oauth2/token",
+        site: @internal_issuer_url,
+        authorize_url: "#{@public_issuer_url}/oauth2/authorize",
+        token_url: "#{@internal_issuer_url}/oauth2/token",
         auth_scheme: :request_body,
         connection_opts: conn_opts
       }.merge(options)
@@ -225,14 +231,14 @@ class ParOAuth2Client < OAuth2::Client
 
     # Fail closed if JWKS cannot be loaded or returns empty set
     unless jwk_set.present?
-      raise "Security Error: Cryptographic failure. Unable to fetch valid JWKS from Authorization Server (#{@issuer_url}/oauth2/jwks). Refusing to process unverified ID Token."
+      raise "Security Error: Cryptographic failure. Unable to fetch valid JWKS from Authorization Server (#{@internal_issuer_url}/oauth2/jwks). Refusing to process unverified ID Token."
     end
 
     # Cryptographic RS256 signature verification against published JWKS
     decoded = JWT.decode(id_token_jwt, nil, true, {
       algorithms: ["RS256"],
       jwks: jwk_set,
-      iss: @issuer_url,
+      iss: @public_issuer_url,
       verify_iss: true,
       aud: id,
       verify_aud: true
@@ -248,8 +254,8 @@ class ParOAuth2Client < OAuth2::Client
     end
 
     # Validate issuer matches authorization server URL
-    if payload["iss"] != @issuer_url
-      raise "Security Error: ID Token issuer ('#{payload['iss']}') does not match expected issuer ('#{@issuer_url}')"
+    if payload["iss"] != @public_issuer_url
+      raise "Security Error: ID Token issuer ('#{payload['iss']}') does not match expected issuer ('#{@public_issuer_url}')"
     end
 
     # Validate audience contains client ID
@@ -333,7 +339,7 @@ class ParOAuth2Client < OAuth2::Client
 
       # Fetch from network with automated retries
       raw_json = with_retries(operation_name: "Fetch JWKS") do
-        resp = connection.get("#{@issuer_url}/oauth2/jwks")
+        resp = connection.get("#{@internal_issuer_url}/oauth2/jwks")
         resp.status == 200 ? resp.body : nil
       end
 
@@ -354,7 +360,7 @@ class ParOAuth2Client < OAuth2::Client
       entry ? entry[:jwk_set] : nil
     end
   rescue => e
-    Rails.logger.warn("Failed to fetch JWKS from #{@issuer_url}/oauth2/jwks: #{e.message}") if defined?(Rails) && Rails.respond_to?(:logger) && Rails.logger
+    Rails.logger.warn("Failed to fetch JWKS from #{@internal_issuer_url}/oauth2/jwks: #{e.message}") if defined?(Rails) && Rails.respond_to?(:logger) && Rails.logger
     nil
   end
 
@@ -373,7 +379,7 @@ class ParOAuth2Client < OAuth2::Client
       post_logout_redirect_uri: post_logout_redirect_uri,
       client_id: id
     }.compact
-    "#{@issuer_url}/connect/logout?#{URI.encode_www_form(params)}"
+    "#{@public_issuer_url}/connect/logout?#{URI.encode_www_form(params)}"
   end
 
   # RFC 6749 Section 6 / OAuth 2.1: Refresh Token Grant using private_key_jwt client assertion and optional DPoP proof
@@ -405,7 +411,7 @@ class ParOAuth2Client < OAuth2::Client
   def introspect_token(token_value, token_type_hint = "access_token")
     return { "active" => false } if token_value.blank?
 
-    introspect_url = "#{@issuer_url}/oauth2/introspect"
+    introspect_url = "#{@internal_issuer_url}/oauth2/introspect"
     assertion = build_client_assertion(introspect_url)
 
     request_body = {
@@ -440,7 +446,7 @@ class ParOAuth2Client < OAuth2::Client
   def revoke_token(token_value, token_type_hint = "access_token")
     return false if token_value.blank?
 
-    revoke_url = "#{@issuer_url}/oauth2/revoke"
+    revoke_url = "#{@internal_issuer_url}/oauth2/revoke"
     assertion = build_client_assertion(revoke_url)
 
     request_body = {
@@ -496,7 +502,7 @@ class ParOAuth2Client < OAuth2::Client
     decoded = JWT.decode(logout_token_jwt, nil, true, {
       algorithms: ["RS256"],
       jwks: jwk_set,
-      iss: @issuer_url,
+      iss: @public_issuer_url,
       verify_iss: true,
       aud: id,
       verify_aud: true
@@ -526,11 +532,12 @@ class ParOAuth2Client < OAuth2::Client
   def fetch_userinfo(access_token, dpop_key = nil)
     return {} if access_token.blank?
 
+    userinfo_url = "#{@internal_issuer_url}/userinfo"
     response = with_retries(operation_name: "Fetch UserInfo") do
-      connection.get("#{@issuer_url}/userinfo") do |req|
+      connection.get(userinfo_url) do |req|
         if dpop_key.present?
           # RFC 9449 Section 7: Accessing Protected Resources with DPoP
-          dpop_proof = build_dpop_proof("GET", "#{@issuer_url}/userinfo", access_token, dpop_key)
+          dpop_proof = build_dpop_proof("GET", userinfo_url, access_token, dpop_key)
           req.headers["Authorization"] = "DPoP #{access_token}"
           req.headers["DPoP"] = dpop_proof
         else

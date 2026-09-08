@@ -91,6 +91,30 @@ shared_cookie = login_res.get_fields("set-cookie").grep(/SHARED_SESSION_ID/).fir
 puts "2. Rails IdP authentication successful (SHARED_SESSION_ID acquired)"
 
 # ------------------------------------------------------------------------------
+# STEP 3b: Strict PAR Enforcement Negative Test (Direct Authorize without request_uri)
+# ------------------------------------------------------------------------------
+direct_auth_uri = URI("http://localhost:9000/oauth2/authorize?response_type=code&client_id=demo-client&redirect_uri=http://localhost:8080/callback")
+direct_auth_req = Net::HTTP::Get.new(direct_auth_uri.request_uri)
+direct_auth_req["Cookie"] = shared_cookie
+direct_auth_resp = spring_http.request(direct_auth_req)
+puts "2b. Direct /oauth2/authorize without request_uri: HTTP #{direct_auth_resp.code}"
+
+if direct_auth_resp.code.to_i == 302
+  err_loc = URI(direct_auth_resp["location"])
+  err_params = URI.decode_www_form(err_loc.query).to_h
+  puts "    Redirected to callback with RFC 6749 error: error=#{err_params['error']}"
+  puts "    Error Description: #{err_params['error_description']}"
+  unless err_params["error"] == "invalid_request" && err_params["error_description"].include?("strictly requires Pushed Authorization Requests")
+    abort "   FAILED: Expected error=invalid_request regarding PAR requirement"
+  end
+elsif direct_auth_resp.code.to_i == 400
+  puts "    Rejected with direct HTTP 400 Bad Request"
+else
+  abort "   FAILED: Expected HTTP 302 (RFC 6749 error callback) or HTTP 400, got #{direct_auth_resp.code}"
+end
+puts "    PASSED: Strict PAR Enforcement active (Direct authorization without request_uri strictly rejected)"
+
+# ------------------------------------------------------------------------------
 # STEP 4: Authorization Request & RFC 9207 Issuer Identification
 # ------------------------------------------------------------------------------
 auth_req = Net::HTTP::Get.new(auth_url.request_uri)

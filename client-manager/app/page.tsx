@@ -40,6 +40,7 @@ export default function Home() {
     accessTokenTtl: 15,
     refreshTokenTtl: 30,
     requireProofKey: true,
+    requirePushedAuthorizationRequests: true,
   });
 
   const [generatedKeyNotice, setGeneratedKeyNotice] = useState<string | null>(null);
@@ -76,6 +77,7 @@ export default function Home() {
       accessTokenTtl: 15,
       refreshTokenTtl: 30,
       requireProofKey: true,
+      requirePushedAuthorizationRequests: true,
     });
     setGeneratedKeyNotice(null);
     setModalMode("create");
@@ -94,6 +96,7 @@ export default function Home() {
       accessTokenTtl: client.accessTokenTimeToLiveMinutes || 15,
       refreshTokenTtl: client.refreshTokenTimeToLiveDays || 30,
       requireProofKey: client.requireProofKey ?? true,
+      requirePushedAuthorizationRequests: client.requirePushedAuthorizationRequests ?? true,
     });
     setGeneratedKeyNotice(null);
     setModalMode("edit");
@@ -207,6 +210,7 @@ export default function Home() {
         scopes: formData.scopes,
         publicKeyPem: formData.publicKeyPem.trim(),
         requireProofKey: formData.requireProofKey,
+        requirePushedAuthorizationRequests: formData.requirePushedAuthorizationRequests,
         accessTokenTimeToLiveMinutes: Number(formData.accessTokenTtl) || 15,
         refreshTokenTimeToLiveDays: Number(formData.refreshTokenTtl) || 30,
       };
@@ -383,10 +387,22 @@ export default function Home() {
                       <div className="text-xs text-slate-400">{c.clientName || "Unnamed Client"}</div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                        <Key className="w-3 h-3" />
-                        private_key_jwt
-                      </span>
+                      <div className="flex flex-col gap-1.5 items-start">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          <Key className="w-3 h-3" />
+                          private_key_jwt
+                        </span>
+                        {c.requirePushedAuthorizationRequests ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-indigo-500/15 text-indigo-300 border border-indigo-500/30" title="Strict RFC 9126 PAR Enforced">
+                            <ShieldCheck className="w-3 h-3 text-indigo-400" />
+                            PAR Enforced
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-slate-400 border border-slate-700" title="Direct Authorize Allowed">
+                            Direct Allowed
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-wrap gap-1 max-w-xs">
@@ -662,6 +678,51 @@ export default function Home() {
                     onChange={(e) => setFormData({ ...formData, refreshTokenTtl: parseInt(e.target.value) || 30 })}
                     className="w-full px-3.5 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white text-sm"
                   />
+                </div>
+              </div>
+
+              {/* Advanced Protocol Security Settings */}
+              <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-3">
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Advanced Protocol Security
+                </div>
+                <div className="space-y-3.5">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.requireProofKey}
+                      onChange={(e) => setFormData({ ...formData, requireProofKey: e.target.checked })}
+                      className="mt-1 h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900"
+                    />
+                    <div>
+                      <div className="text-sm font-medium text-white flex items-center gap-2">
+                        Enforce PKCE (RFC 7636)
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-mono">Mandatory</span>
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        Requires SHA-256 code_challenge verification on all authorization code requests.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.requirePushedAuthorizationRequests}
+                      onChange={(e) => setFormData({ ...formData, requirePushedAuthorizationRequests: e.target.checked })}
+                      className="mt-1 h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900"
+                    />
+                    <div>
+                      <div className="text-sm font-medium text-white flex items-center gap-2">
+                        Enforce Pushed Authorization Requests (PAR, RFC 9126)
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-400 font-mono">Recommended (FAPI 2.0)</span>
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        Rejects direct browser <code className="text-amber-300">/oauth2/authorize</code> query parameter flows.
+                        Mandates backchannel registration via <code className="text-indigo-300">/oauth2/par</code> with <code className="text-slate-300">request_uri</code>.
+                      </p>
+                    </div>
+                  </label>
                 </div>
               </div>
 

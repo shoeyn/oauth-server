@@ -8,6 +8,7 @@ export interface ClientConfig {
   scopes: string[];
   requireProofKey: boolean;
   requireAuthorizationConsent: boolean;
+  requirePushedAuthorizationRequests: boolean;
   accessTokenTimeToLiveMinutes: number;
   refreshTokenTimeToLiveDays: number;
   publicKeyPem: string;

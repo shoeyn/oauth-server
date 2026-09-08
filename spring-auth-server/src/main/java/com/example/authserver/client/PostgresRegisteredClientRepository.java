@@ -77,12 +77,9 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
         log.info("Executing Flyway migration to guarantee schema existence...");
         flyway.migrate();
 
-        log.info("Initializing PostgresRegisteredClientRepository with high-performance near-cache...");
-
-        // Ensure database has clients; if empty, register default demo-client
-        int clientCount = getDatabaseClientCount();
-        if (clientCount == 0 && fallbackPublicKey != null) {
-            log.info("Registering default demo-client into PostgreSQL...");
+        // Ensure demo-client is registered and seeded in PostgreSQL on first boot
+        if (!doesClientExist("demo-client")) {
+            log.info("Default 'demo-client' not found in PostgreSQL. Seeding default demo-client...");
             registerDefaultDemoClient();
         }
 
@@ -90,13 +87,17 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
         reloadNearCacheFromDatabase();
     }
 
-    private int getDatabaseClientCount() {
+    private boolean doesClientExist(String clientId) {
         try {
-            Integer count = jdbcTemplate.queryForObject("SELECT count(*) FROM oauth2_registered_client", Integer.class);
-            return count != null ? count : 0;
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM oauth2_registered_client WHERE client_id = ?",
+                    Integer.class,
+                    clientId
+            );
+            return count != null && count > 0;
         } catch (Exception e) {
-            log.warn("Could not query client count from PostgreSQL: {}", e.getMessage());
-            return 0;
+            log.warn("Could not query client existence for '{}' from PostgreSQL: {}", clientId, e.getMessage());
+            return false;
         }
     }
 
@@ -179,6 +180,7 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
                 .clientSettings(ClientSettings.builder()
                         .requireProofKey(true)
                         .requireAuthorizationConsent(false)
+                        .setting("settings.client.require-pushed-authorization-requests", true)
                         .build())
                 .tokenSettings(TokenSettings.builder()
                         .accessTokenFormat(OAuth2TokenFormat.SELF_CONTAINED)
@@ -190,6 +192,23 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
                 .build();
 
         jdbcRepository.save(demoClient);
+
+        // Persist demo-client RSA public key into oauth2_client_public_key table
+        if (fallbackPublicKey != null) {
+            try {
+                String b64 = java.util.Base64.getEncoder().encodeToString(fallbackPublicKey.getEncoded());
+                String pem = "-----BEGIN PUBLIC KEY-----\n" + b64.replaceAll("(.{64})", "$1\n").trim() + "\n-----END PUBLIC KEY-----";
+                jdbcTemplate.update(
+                        "INSERT INTO oauth2_client_public_key (client_id, public_key_pem, updated_at) " +
+                        "VALUES (?, ?, CURRENT_TIMESTAMP) " +
+                        "ON CONFLICT (client_id) DO UPDATE SET public_key_pem = EXCLUDED.public_key_pem, updated_at = CURRENT_TIMESTAMP",
+                        "demo-client", pem
+                );
+                log.info("Default 'demo-client' public key persisted into PostgreSQL.");
+            } catch (Exception e) {
+                log.warn("Failed to persist default demo-client public key to PostgreSQL: {}", e.getMessage());
+            }
+        }
     }
 
     /**
@@ -322,6 +341,8 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
         builder.clientSettings(ClientSettings.builder()
                 .requireProofKey(dto.requireProofKey() != null ? dto.requireProofKey() : true)
                 .requireAuthorizationConsent(dto.requireAuthorizationConsent() != null ? dto.requireAuthorizationConsent() : false)
+                .setting("settings.client.require-pushed-authorization-requests",
+                        dto.requirePushedAuthorizationRequests() != null ? dto.requirePushedAuthorizationRequests() : true)
                 .build());
 
         builder.tokenSettings(TokenSettings.builder()
