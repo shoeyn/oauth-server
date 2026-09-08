@@ -354,7 +354,14 @@ class AuthController < ApplicationController
           req.headers["X-Admin-Api-Key"] = ENV.fetch("ADMIN_API_KEY", "secret-admin-key")
           req.body = URI.encode_www_form({ token: access_token })
         end
-        flash[:notice] = "⚠️ Simulated Fraud Alert: Authorization Server has revoked your authorization session! Test Introspection or Refresh now to observe immediate rejection."
+
+        if response.status == 403
+          flash[:notice] = "🛡️ Perimeter Isolation Verified: The edge reverse proxy (Nginx) correctly rejected public access to /api/admin/revoke-session with HTTP 403 Forbidden. Administrative operations are isolated from external clients."
+        elsif response.status == 200
+          flash[:notice] = "⚠️ Simulated Fraud Alert: Authorization Server has revoked your authorization session! Test Introspection or Refresh now to observe immediate rejection."
+        else
+          flash[:error] = "Administrative revocation returned HTTP #{response.status}: #{response.body}"
+        end
       rescue => e
         flash[:error] = "Failed to simulate revocation: #{e.message}"
       end

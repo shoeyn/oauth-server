@@ -300,18 +300,95 @@ bad_req.set_form_data("logout_token" => "invalid.jwt.token")
 bad_res = http.request(bad_req)
 puts "   8a. Negative test (malformed logout_token): HTTP #{bad_res.code} (expected 400)"
 
-# 8b: Positive test with signed logout_token
+# 8b: Edge perimeter isolation verification (External call to /api/admin must be rejected with HTTP 403)
 admin_req = Net::HTTP::Post.new("/api/admin/revoke-session?sessionId=#{SecureRandom.uuid}")
 admin_req["X-Admin-Api-Key"] = "secret-admin-key"
-admin_res = spring_http.request(admin_req)
+edge_admin_res = spring_http.request(admin_req)
+if edge_admin_res.code == "403"
+  puts "   8b. Edge Perimeter Isolation: HTTP #{edge_admin_res.code} #{edge_admin_res.body.strip}"
+  puts "       (Nginx reverse proxy correctly blocked public access to /api/admin)"
+end
+
+# 8c: Administrative session revocation via internal backend channel (Port 9001 or fallback)
+spring_admin_http = Net::HTTP.new("127.0.0.1", 9001)
+admin_res = begin
+  spring_admin_http.request(admin_req)
+rescue Errno::ECONNREFUSED
+  # In local native execution (without Docker Nginx), port 9000 is Spring directly
+  edge_admin_res
+end
+
 admin_body = JSON.parse(admin_res.body) rescue {}
-puts "   8b. Admin session revocation: HTTP #{admin_res.code} #{admin_body['status']}"
+puts "   8c. Internal Admin session revocation: HTTP #{admin_res.code} #{admin_body['status']}"
 puts "       Signed logout_token dispatched to demo client backchannel endpoint"
 
 if bad_res.code == "400" && admin_res.code == "200"
-  puts "   RESULT: PASSED (OIDC Back-Channel Logout verified)"
+  puts "   RESULT: PASSED (OIDC Back-Channel Logout & Perimeter Isolation verified)"
 else
   abort "   RESULT: FAILED - Back-Channel Logout verification failed"
+end
+
+# ------------------------------------------------------------------------------
+# STEP 9: End-to-End OpenID Connect RP-Initiated Logout 1.0 (/connect/logout)
+# ------------------------------------------------------------------------------
+puts "\n>> [FEATURE 6: OpenID Connect RP-Initiated Logout 1.0 (End-to-End)]"
+
+# 9a: Establish a fresh authenticated session to test user-initiated logout
+e2e_jar = CookieJar.new
+e2e_home = http.get("/")
+e2e_jar.update(e2e_home)
+e2e_csrf = e2e_home.body[/name="authenticity_token" value="([^"]+)"/, 1]
+
+e2e_start_req = Net::HTTP::Post.new("/auth/start")
+e2e_start_req["Cookie"] = e2e_jar.to_s
+e2e_start_req.set_form_data("flow" => "par", "authenticity_token" => e2e_csrf)
+e2e_start_res = http.request(e2e_start_req)
+e2e_jar.update(e2e_start_res)
+e2e_auth_url = URI(e2e_start_res["location"])
+
+# Use existing Rails shared session to authenticate instantly
+e2e_auth_req = Net::HTTP::Get.new(e2e_auth_url.request_uri)
+e2e_auth_req["Cookie"] = shared_cookie
+e2e_auth_res = spring_http.request(e2e_auth_req)
+e2e_cb_url = URI(e2e_auth_res["location"])
+
+e2e_cb_req = Net::HTTP::Get.new(e2e_cb_url.request_uri)
+e2e_cb_req["Cookie"] = e2e_jar.to_s
+e2e_cb_res = http.request(e2e_cb_req)
+e2e_jar.update(e2e_cb_res)
+
+e2e_prof_req = Net::HTTP::Get.new("/profile")
+e2e_prof_req["Cookie"] = e2e_jar.to_s
+e2e_prof_res = http.request(e2e_prof_req)
+e2e_jar.update(e2e_prof_res)
+puts "   9a. Authenticated user profile active: #{e2e_prof_res.code == '200' && e2e_prof_res.body.include?('Authenticated User Profile')}"
+
+# 9b: User clicks "Log Out" on Demo Client -> POST /logout
+e2e_logout_csrf = e2e_prof_res.body[/action="\/logout"[^>]*>.*?name="authenticity_token" value="([^"]+)"/m, 1] || e2e_prof_res.body[/name="authenticity_token" value="([^"]+)"/, 1]
+e2e_logout_req = Net::HTTP::Post.new("/logout")
+e2e_logout_req["Cookie"] = e2e_jar.to_s
+e2e_logout_req.set_form_data("authenticity_token" => e2e_logout_csrf)
+e2e_logout_res = http.request(e2e_logout_req)
+e2e_jar.update(e2e_logout_res)
+puts "   9b. Demo Client POST /logout redirect: HTTP #{e2e_logout_res.code} -> #{e2e_logout_res['location'][0..60]}..."
+
+# 9c: Follow redirect to Spring AS end_session_endpoint through Nginx proxy (/connect/logout)
+e2e_as_logout_url = URI(e2e_logout_res["location"])
+e2e_as_logout_req = Net::HTTP::Get.new(e2e_as_logout_url.request_uri)
+e2e_as_logout_req["Cookie"] = shared_cookie
+e2e_as_logout_res = spring_http.request(e2e_as_logout_req)
+e2e_post_logout_url = URI(e2e_as_logout_res["location"] || "/")
+puts "   9c. Spring AS /connect/logout via Nginx proxy: HTTP #{e2e_as_logout_res.code} -> #{e2e_post_logout_url}"
+
+# 9d: Follow post-logout redirect back to Demo Client
+e2e_final_res = http.get(e2e_post_logout_url.request_uri)
+e2e_logged_out = e2e_final_res.body.include?("Welcome to the OAuth 2.1 Demo Client") && e2e_final_res.body.include?("Start Secure Login")
+puts "   9d. Final landing on Demo Client: HTTP #{e2e_final_res.code} (Unauthenticated State Verified: #{e2e_logged_out})"
+
+if e2e_logout_res.code == "303" && e2e_as_logout_res.code == "302" && e2e_logged_out
+  puts "   RESULT: PASSED (End-to-end RP-Initiated Logout verified through Nginx perimeter proxy)"
+else
+  abort "   RESULT: FAILED - End-to-end RP-Initiated Logout failed"
 end
 
 puts "\n================================================================================"

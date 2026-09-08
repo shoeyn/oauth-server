@@ -166,11 +166,12 @@ Comprehensive sequence diagrams, topology graphs, and communication flows are do
 
 | Service | Port | Description | Technology Stack |
 |---|---|---|---|
+| **`nginx`** | `9000` | Edge Perimeter Reverse Proxy (Public Gateway) | Nginx 1.27 Alpine, HTTP/1.1 keepalive, Header Passthrough |
+| **`spring-auth-server`**| `9001` (internal) | Backend OAuth 2.1 & OIDC Server (Docker `:9000`) | Spring Boot 4.0.8, Spring Security 7.0.7, Java 25 |
 | **`postgres`** | `5432` | ACID Store for Authorizations & Clients (Java only) | PostgreSQL 16 Alpine |
 | **`client-manager`**| `3001` | OAuth 2.1 Client Config Manager UI | Next.js 16, Turbopack, React 19, Tailwind CSS 4, Spring Admin API |
 | **`demo-client`** | `8080` | Interactive OAuth 2.1 client & UI | Ruby 4.0, Puma, Rack, Redis DB 1 |
 | **`rails-app`** | `3000` | External Identity Provider (IdP) | Ruby on Rails 7, Redis DB 0 |
-| **`spring-auth-server`**| `9000` | OAuth 2.1 & OIDC Authorization Server | Spring Boot 4.0.8, Spring Security 7.0.7, Java 25 |
 | **`localstack`** | `4566` | Local AWS KMS HSM service emulation | LocalStack 3.8 (KMS: `alias/oauth2-signing-key`) |
 | **`poc-redis`** | `6379` | Shared Redis session, cache & pub/sub | Redis 7 Alpine |
 

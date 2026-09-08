@@ -70,6 +70,7 @@ All routes served by `spring-auth-server` fall into one of two exposure categori
 | `/oauth2/revoke` | `POST` | RFC 7009 Token Revocation | **Public** | **ALLOW** | `private_key_jwt` assertion |
 | `/oauth2/introspect` | `POST` | RFC 7662 Token Introspection | **Public** | **ALLOW** | `private_key_jwt` assertion |
 | `/userinfo` | `GET` | RFC 9449 User Profile Claims | **Public** | **ALLOW** | Sender-constrained DPoP token |
+| `/connect/logout` | `GET/POST` | OIDC RP-Initiated Logout 1.0 | **Public** | **ALLOW** | `id_token_hint` & `post_logout_redirect_uri` validation |
 | `/api/admin/clients` | `GET` | List all registered clients | **Internal Only** | **BLOCK (403/404)** | Constant-time `X-Admin-Api-Key` |
 | `/api/admin/clients` | `POST` | Register or update OAuth client | **Internal Only** | **BLOCK (403/404)** | Constant-time `X-Admin-Api-Key` |
 | `/api/admin/clients/{id}` | `GET` | Inspect full client details | **Internal Only** | **BLOCK (403/404)** | Constant-time `X-Admin-Api-Key` |
@@ -105,7 +106,11 @@ In an AWS deployment, configure listener rules on the internet-facing ALB:
 
 ### B. Nginx Reverse Proxy Configuration
 
-If Nginx terminates TLS in front of the application cluster:
+> [!NOTE]
+> **Active Docker Implementation: [`nginx/nginx.conf`](../../nginx/nginx.conf)**
+> The local Docker environment implements this exact perimeter proxy topology via the `poc-nginx` container. It binds public port `9000:9000`, forwards all incoming HTTP headers (with `underscores_in_headers on` and `proxy_pass_request_headers on`), routes public OAuth routes to `spring-auth-server:9000`, and rejects `/api/admin/*` and `/actuator/*` at the edge with HTTP 403 Forbidden.
+
+If Nginx terminates TLS in front of the application cluster in production:
 
 ```nginx
 # /etc/nginx/conf.d/spring_auth_server.conf
