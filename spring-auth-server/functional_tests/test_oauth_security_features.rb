@@ -218,6 +218,8 @@ token_key = Rails.cache.redis.with { |c| c.keys("demo_client:token:*") }.last
 clean_key = token_key.sub(/^demo_client:/, "")
 token_data = Rails.cache.read(clean_key) || {}
 access_token = token_data[:raw_access_token]
+raw_id_token = token_data[:raw_id_token]
+id_token_claims = JWT.decode(raw_id_token, nil, false)[0] rescue {}
 token_type = token_data[:token_type]
 access_token_claims = token_data[:access_token_claims] || {}
 jkt = access_token_claims.dig("cnf", "jkt")
@@ -230,10 +232,21 @@ has_secret_clearance = prof_res.body.include?("CONFIDENTIAL-ACCESS-LEVEL-4")
 puts "   Issued Token Type: #{token_type} (expected: DPoP)"
 puts "   Token Confirmation (cnf.jkt): #{jkt}"
 puts "   Server-Assigned Scopes: #{granted_scopes}"
+puts "   ID Token at_hash: #{id_token_claims['at_hash']}"
+puts "   ID Token c_hash: #{id_token_claims['c_hash']}"
 puts "   DPoP-protected UserInfo Claim Retrieved: #{has_secret_clearance}"
 
-if token_type == "DPoP" && jkt && granted_scopes.include?("demo.secret_access") && has_secret_clearance
-  puts "   RESULT: PASSED (Sender-constrained DPoP active, scopes server-determined, privileged claim verified)"
+# Verify Discovery Metadata Alignment (Strict Asymmetric private_key_jwt only)
+disco_res = spring_http.get("/.well-known/openid-configuration")
+disco_json = JSON.parse(disco_res.body)
+auth_methods = disco_json["token_endpoint_auth_methods_supported"]
+puts "   Discovery token_endpoint_auth_methods_supported: #{auth_methods}"
+if auth_methods != ["private_key_jwt"]
+  abort "   FAILED: Discovery metadata does not strictly advertise private_key_jwt: #{auth_methods}"
+end
+
+if token_type == "DPoP" && jkt && granted_scopes.include?("demo.secret_access") && has_secret_clearance && id_token_claims["at_hash"] && id_token_claims["c_hash"]
+  puts "   RESULT: PASSED (Sender-constrained DPoP active, scopes server-determined, at_hash/c_hash bound, privileged claim verified)"
 else
   abort "   RESULT: FAILED - Token validation failed"
 end

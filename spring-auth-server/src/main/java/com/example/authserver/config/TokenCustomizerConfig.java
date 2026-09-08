@@ -94,6 +94,32 @@ public class TokenCustomizerConfig {
             if (OidcParameterNames.ID_TOKEN.equals(context.getTokenType().getValue())) {
                 context.getClaims().claim("token_type_category", "id_token");
 
+                // OpenID Connect Core 1.0 Section 3.1.3.6: Access Token Hash (at_hash)
+                // Binding: leftmost 128 bits of SHA-256 of access token value, base64url encoded
+                org.springframework.security.oauth2.server.authorization.OAuth2Authorization authorization =
+                        context.get(org.springframework.security.oauth2.server.authorization.OAuth2Authorization.class);
+                if (authorization != null) {
+                    org.springframework.security.oauth2.server.authorization.OAuth2Authorization.Token<org.springframework.security.oauth2.core.OAuth2AccessToken> accessTokenHolder =
+                            authorization.getAccessToken();
+                    if (accessTokenHolder != null && accessTokenHolder.getToken() != null) {
+                        String atHash = computeOidcHash(accessTokenHolder.getToken().getTokenValue());
+                        if (atHash != null) {
+                            context.getClaims().claim("at_hash", atHash);
+                        }
+                    }
+
+                    // OpenID Connect Core 1.0 Section 3.3.2.11: Code Hash (c_hash)
+                    // Binding: leftmost 128 bits of SHA-256 of authorization code value, base64url encoded
+                    org.springframework.security.oauth2.server.authorization.OAuth2Authorization.Token<org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode> codeHolder =
+                            authorization.getToken(org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode.class);
+                    if (codeHolder != null && codeHolder.getToken() != null) {
+                        String cHash = computeOidcHash(codeHolder.getToken().getTokenValue());
+                        if (cHash != null) {
+                            context.getClaims().claim("c_hash", cHash);
+                        }
+                    }
+                }
+
                 if (userData != null) {
                     if (userData.email() != null && context.getAuthorizedScopes().contains(OidcScopes.EMAIL)) {
                         context.getClaims().claim("email", userData.email());
@@ -104,6 +130,20 @@ public class TokenCustomizerConfig {
                 }
             }
         };
+    }
+
+    private static String computeOidcHash(String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(value.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            byte[] leftmost128 = java.util.Arrays.copyOf(digest, 16);
+            return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(leftmost128);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @SuppressWarnings("unchecked")

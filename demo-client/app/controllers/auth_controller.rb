@@ -145,8 +145,8 @@ class AuthController < ApplicationController
       raw_refresh_token = token.refresh_token
       token_type = token.params["token_type"] || "Bearer"
 
-      # Security Improvement: Cryptographically verify ID Token signature, nonce, issuer, audience, and at_hash
-      id_token_claims = @client.decode_and_verify_id_token(raw_id_token, expected_nonce, raw_access_token)
+      # Security Improvement: Cryptographically verify ID Token signature, nonce, issuer, audience, at_hash, and c_hash
+      id_token_claims = @client.decode_and_verify_id_token(raw_id_token, expected_nonce, raw_access_token, code)
 
       # Decode access token claims
       access_token_claims = begin

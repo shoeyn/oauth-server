@@ -1,5 +1,6 @@
 package com.example.authserver.config;
 
+import com.example.authserver.security.DPoPNonceFilter;
 import com.example.authserver.security.DiscoveryAndJwksCacheFilter;
 import com.example.authserver.security.OidcBackChannelLogoutService;
 import com.example.authserver.security.SharedRedisSessionFilter;
@@ -208,6 +209,11 @@ public class AuthorizationServerConfig {
                 new DiscoveryAndJwksCacheFilter(),
                 SecurityContextHolderFilter.class
             )
+            // RFC 9449 Section 8: Server-Provided DPoP-Nonce replay protection filter
+            .addFilterAfter(
+                new DPoPNonceFilter(redisTemplate),
+                DiscoveryAndJwksCacheFilter.class
+            )
             .addFilterAfter(
                 new SharedRedisSessionFilter(redisTemplate),
                 LogoutFilter.class
@@ -413,6 +419,10 @@ public class AuthorizationServerConfig {
     public AuthorizationServerSettings authorizationServerSettings() {
         return AuthorizationServerSettings.builder()
                 .issuer(issuerUrl)
+                // If PAR (RFC 9126) is enforced server-wide across all clients and you want to publish
+                // this requirement in /.well-known/openid-configuration and /.well-known/oauth-authorization-server,
+                // you can enable the following setting:
+                // .requirePushedAuthorizationRequests(true)
                 .build();
     }
 

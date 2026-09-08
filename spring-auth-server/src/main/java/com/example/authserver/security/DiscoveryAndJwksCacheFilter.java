@@ -71,6 +71,13 @@ public class DiscoveryAndJwksCacheFilter extends OncePerRequestFilter {
         if (responseWrapper.getStatus() == HttpServletResponse.SC_OK) {
             byte[] content = responseWrapper.getContentAsByteArray();
             if (content.length > 0) {
+                // Strict Discovery Metadata Alignment:
+                // For OpenID & OAuth2 authorization server discovery documents, filter out insecure shared-secret
+                // authentication methods (client_secret_basic, client_secret_post) and advertise strictly private_key_jwt
+                if (path.startsWith("/.well-known/")) {
+                    content = alignDiscoveryMetadata(content);
+                }
+
                 String etag = computeEtag(content);
                 String contentType = responseWrapper.getContentType();
                 if (contentType == null) {
@@ -79,10 +86,44 @@ public class DiscoveryAndJwksCacheFilter extends OncePerRequestFilter {
 
                 // Cache in memory for 1 hour
                 CACHE.put(path, new CachedEntry(content, contentType, etag, now + 3600_000L));
-                applyCacheHeaders(responseWrapper, etag);
+                applyCacheHeaders(response, etag);
+                response.setStatus(HttpServletResponse.SC_OK);
+                response.setContentType(contentType);
+                response.setContentLength(content.length);
+                response.getOutputStream().write(content);
+                response.flushBuffer();
+                return;
             }
         }
         responseWrapper.copyBodyToResponse();
+    }
+
+    /**
+     * Replaces default Spring Security auth methods with strictly private_key_jwt
+     * to accurately reflect the server's asymmetric-only security posture.
+     */
+    private byte[] alignDiscoveryMetadata(byte[] rawJsonBytes) {
+        try {
+            String json = new String(rawJsonBytes, java.nio.charset.StandardCharsets.UTF_8);
+            // Replace token_endpoint_auth_methods_supported
+            json = json.replaceAll(
+                "\"token_endpoint_auth_methods_supported\"\\s*:\\s*\\[[^\\]]+\\]",
+                "\"token_endpoint_auth_methods_supported\": [\"private_key_jwt\"]"
+            );
+            // Replace revocation_endpoint_auth_methods_supported
+            json = json.replaceAll(
+                "\"revocation_endpoint_auth_methods_supported\"\\s*:\\s*\\[[^\\]]+\\]",
+                "\"revocation_endpoint_auth_methods_supported\": [\"private_key_jwt\"]"
+            );
+            // Replace introspection_endpoint_auth_methods_supported
+            json = json.replaceAll(
+                "\"introspection_endpoint_auth_methods_supported\"\\s*:\\s*\\[[^\\]]+\\]",
+                "\"introspection_endpoint_auth_methods_supported\": [\"private_key_jwt\"]"
+            );
+            return json.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return rawJsonBytes;
+        }
     }
 
     private void applyCacheHeaders(HttpServletResponse response, String etag) {

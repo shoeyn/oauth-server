@@ -69,20 +69,26 @@ sequenceDiagram
     deactivate Spring
 
     %% ------------------------------------------------------------------------
-    %% Phase 4: Token Exchange with DPoP & Server-Determined Scopes
+    %% Phase 4: Token Exchange with DPoP Nonce Challenge & Server-Determined Scopes
     %% ------------------------------------------------------------------------
-    Note over User, Client: Phase 4: Sender-Constrained Token Exchange (RFC 9449)
+    Note over User, Client: Phase 4: Sender-Constrained Token Exchange (RFC 9449 & DPoP Nonce)
     User->>Client: GET /callback?code=AUTH_CODE&state=STATE&iss=http://localhost:9000
     activate Client
-    Note over Client: 1. Validate state matches cached session<br/>2. Validate iss == http://localhost:9000 (RFC 9207)<br/>3. Sign private_key_jwt for /oauth2/token<br/>4. Sign DPoP proof for /oauth2/token with ephemeral key
-    Client->>Spring: POST /oauth2/token<br/>Header: DPoP: <dpop_proof><br/>Body: grant_type=authorization_code, code=AUTH_CODE,<br/>code_verifier=VERIFIER, client_assertion=JWT
+    Note over Client: 1. Validate state matches cached session<br/>2. Validate iss == http://localhost:9000 (RFC 9207)<br/>3. Sign private_key_jwt for /oauth2/token<br/>4. Sign initial DPoP proof for /oauth2/token
+    Client->>Spring: POST /oauth2/token (Initial DPoP proof without nonce)
     activate Spring
+    Note over Spring: DPoPNonceFilter (RFC 9449 §8):<br/>- Checks for active DPoP nonce in Redis<br/>- Generates fresh server nonce (60s TTL)<br/>- Responds with HTTP 400 use_dpop_nonce
+    Spring-->>Client: HTTP 400 Bad Request<br/>Header: DPoP-Nonce: <nonce><br/>Body: {"error": "use_dpop_nonce"}
+    deactivate Spring
 
-    Note over Spring: StrictDPoPTokenRequestAuthenticationConverter:<br/>- Mandate DPoP header (reject missing proofs with HTTP 400)<br/>- Validate private_key_jwt assertion<br/>- Verify PKCE code_verifier against stored challenge<br/>- Bind Server-Determined Scopes (openid, profile, email, user.read, demo.secret_access)<br/>- Compute DPoP thumbprint (cnf.jkt) & bind into Access Token
+    Note over Client: Auto-Retry with Server Nonce:<br/>Sign fresh DPoP proof embedding 'nonce: <nonce>'
+    Client->>Spring: POST /oauth2/token<br/>Header: DPoP: <dpop_proof_with_nonce><br/>Body: grant_type=authorization_code, code=AUTH_CODE,<br/>code_verifier=VERIFIER, client_assertion=JWT
+    activate Spring
+    Note over Spring: StrictDPoPTokenRequestAuthenticationConverter & TokenCustomizer:<br/>- Validate DPoP-Nonce from Redis & consume (single-use)<br/>- Validate private_key_jwt assertion<br/>- Verify PKCE code_verifier against stored challenge<br/>- Bind Server-Determined Scopes<br/>- Compute DPoP thumbprint (cnf.jkt) & bind into Access Token<br/>- Compute at_hash (access_token) & c_hash (code) into ID Token
     Spring-->>Client: HTTP 200 OK<br/>{ "token_type": "DPoP", "access_token": "JWT", "id_token": "JWT", "expires_in": 900, "scope": "..." }
     deactivate Spring
 
-    Note over Client: Store tokens in Redis DB 1 session
+    Note over Client: Validate ID Token (RFC 7519 & OIDC Core):<br/>1. Verify signature against cached JWKS<br/>2. Verify at_hash against access_token<br/>3. Verify c_hash against auth code<br/>4. Store tokens in Redis DB 1 session
     Client-->>User: HTTP 302 Redirect to /profile
     deactivate Client
 
@@ -108,6 +114,20 @@ sequenceDiagram
 
 1. **No URL Parameter Leakage**: Sensitive parameters (`code_challenge`, `state`, `nonce`) are never exposed in browser address bars, HTTP referrers, or web server access logs.
 2. **Sender-Constrained Tokens (RFC 9449)**: The access token is cryptographically bound to the client's public DPoP key via the `cnf.jkt` claim. If stolen in transit, it is unusable without the matching private DPoP key.
-3. **Mix-Up Attack Immunity (RFC 9207)**: The authorization server returns `iss=http://localhost:9000`, and the client verifies this before dispatching authorization codes.
-4. **No Static Secrets (RFC 7523)**: Client authenticates using an asymmetric RSA 2048-bit key pair (`private_key_jwt`), completely eliminating shared secret brute-forcing.
-5. **Privilege Escalation Defense**: Scopes are entirely server-determined based on client configuration in PostgreSQL.
+3. **DPoP Server-Provided Nonces (RFC 9449 §8)**: The authorization server enforces server-issued nonces stored in Redis (60-second TTL), preventing proof pre-generation and clock-skew replay attacks.
+4. **Cryptographic Token Binding (`at_hash` & `c_hash`)**: The ID token embeds SHA-256 hashes of the access token and authorization code, cryptographically binding them together and preventing code/token substitution attacks.
+5. **Mix-Up Attack Immunity (RFC 9207)**: The authorization server returns `iss=http://localhost:9000`, and the client verifies this before dispatching authorization codes.
+6. **No Static Secrets (RFC 7523)**: Client authenticates using an asymmetric RSA 2048-bit key pair (`private_key_jwt`), completely eliminating shared secret brute-forcing.
+7. **Privilege Escalation Defense**: Scopes are entirely server-determined based on client configuration in PostgreSQL.
+
+---
+
+## Architectural Decision: Server-Determined Scopes vs. Rich Authorization Requests (RAR - RFC 9396)
+
+### What RAR (RFC 9396) Does
+Rich Authorization Requests (RAR) allows clients to specify fine-grained, structured authorization data using a JSON array (`authorization_details`) during the authorization request (e.g., requesting dynamic per-transaction approval such as `[{"type": "payment_initiation", "amount": 14.23, "currency": "GBP", "recipient": "..."}]`). It is primarily designed for Open Banking / PSD2 dynamic transaction approval where client requests cannot be statically modeled.
+
+### Why We Retain Server-Determined Scopes
+1. **Server-Governed Permissions vs. Client-Dictated Requests**: In our platform, permissions (`openid`, `profile`, `email`, `user.read`, `demo.secret_access`) are administrative boundaries defined centrally in PostgreSQL via the Client Manager. Clients are never permitted to dictate or negotiate their own permissions dynamically.
+2. **Preventing Access Token Bloat**: RAR embeds arbitrary nested JSON structures directly into JWT access tokens. Access tokens travel over HTTP headers (`Authorization: DPoP <token>`) on every downstream request. Bloated tokens increase network overhead, risk exceeding HTTP proxy header limits (typically 8KB–16KB), and slow down token parsing across downstream services.
+3. **Lean Tokens + Rich Userinfo Pattern**: We enforce lean sender-constrained DPoP tokens containing only necessary routing and scope claims (`sub`, `iss`, `aud`, `exp`, `scope`, `cnf.jkt`). Rich user claims, profile metadata, and security clearances are retrieved out-of-band via TLS from the `/userinfo` endpoint or downstream services, providing real-time data freshness without bloating every access token.
