@@ -9,28 +9,28 @@ This document details the cryptographic architecture, zero-downtime multi-key ro
 ```mermaid
 flowchart TD
     subgraph KMS ["AWS KMS / LocalStack HSM Cryptographic Boundary (FIPS 140-2 Level 3)"]
-        ActiveKey["Active Asymmetric Key (RSA_2048)\nAlias: alias/oauth2-signing-key\n(KeyUsage: SIGN_VERIFY)\n• Signs all newly minted tokens\n• Private Key NEVER leaves HSM"]
-        PreviousKey["Previous Asymmetric Key (RSA_2048)\nAlias: alias/oauth2-signing-key-previous\n(KeyUsage: SIGN_VERIFY)\n• Retained during overlap window\n• Signs no new tokens"]
+        ActiveKey["Active Asymmetric Key (RSA_2048)<br/>Alias: alias/oauth2-signing-key<br/>(KeyUsage: SIGN_VERIFY)<br/>• Signs all newly minted tokens<br/>• Private Key NEVER leaves HSM"]
+        PreviousKey["Previous Asymmetric Key (RSA_2048)<br/>Alias: alias/oauth2-signing-key-previous<br/>(KeyUsage: SIGN_VERIFY)<br/>• Retained during overlap window<br/>• Signs no new tokens"]
     end
 
     subgraph SpringServer ["Spring Authorization Server (:9000)"]
-        KeyConfig["KeyConfig & JWKSource\n• Resolves active public key: kms-auth-server-key-1\n• Resolves previous public key: kms-auth-server-key-previous\n• Caches public keys in-memory"]
-        KmsSigner["KmsRsaSigner & KmsJwtEncoder\n• Delegates sign requests to active KMS key\n• Automatic retries (3x) with full jitter\n• Strict Fail-Closed (no local fallback)"]
-        AlgValidator["Strict Algorithm Pinning (RFC 8725 §3.1)\n• Checks JWS header alg == 'RS256'\n• Explicitly rejects 'none', HS256, etc."]
-        JwksEndpoint["GET /oauth2/jwks\nPublishes [{kid: active}, {kid: previous}]"]
+        KeyConfig["KeyConfig & JWKSource<br/>• Resolves active public key: kms-auth-server-key-1<br/>• Resolves previous public key: kms-auth-server-key-previous<br/>• Caches public keys in-memory"]
+        KmsSigner["KmsRsaSigner & KmsJwtEncoder<br/>• Delegates sign requests to active KMS key<br/>• Automatic retries (3x) with full jitter<br/>• Strict Fail-Closed (no local fallback)"]
+        AlgValidator["Strict Algorithm Pinning (RFC 8725 §3.1)<br/>• Checks JWS header alg == 'RS256'<br/>• Explicitly rejects 'none', HS256, etc."]
+        JwksEndpoint["GET /oauth2/jwks<br/>Publishes [{kid: active}, {kid: previous}]"]
     end
 
     subgraph ClientsAndRS ["OAuth Clients & Resource Servers"]
-        DemoClient["Demo Client (:8080)\n• In-Memory JWKS cache (auto-refreshes on unknown kid)\n• Strict algorithm pinning ('RS256')"]
-        ResourceServer["Resource Servers / Microservices\n• Validates ID tokens & access tokens against JWKS"]
+        DemoClient["Demo Client (:8080)<br/>• In-Memory JWKS cache (auto-refreshes on unknown kid)<br/>• Strict algorithm pinning ('RS256')"]
+        ResourceServer["Resource Servers / Microservices<br/>• Validates ID tokens & access tokens against JWKS"]
     end
 
-    ActiveKey -->|kms:GetPublicKey (Startup/Cached)| KeyConfig
-    PreviousKey -->|kms:GetPublicKey (Startup/Cached)| KeyConfig
+    ActiveKey -->|"kms:GetPublicKey (Startup/Cached)"| KeyConfig
+    PreviousKey -->|"kms:GetPublicKey (Startup/Cached)"| KeyConfig
     KeyConfig --> JwksEndpoint
     JwksEndpoint -->|Public JWKS| DemoClient
     JwksEndpoint -->|Public JWKS| ResourceServer
-    SpringServer -->|kms:Sign (Digest over HTTP RPC)| ActiveKey
+    SpringServer -->|"kms:Sign (Digest over HTTP RPC)"| ActiveKey
 ```
 
 ---
@@ -84,7 +84,7 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> Active: Generated in KMS & assigned to alias/oauth2-signing-key
-    Active --> Retiring: New key generated; alias/oauth2-signing-key-previous assigned
+    Active --> Retiring: New key generated, alias/oauth2-signing-key-previous assigned
     note right of Active
         Used for signing new tokens.
         Published in /oauth2/jwks.

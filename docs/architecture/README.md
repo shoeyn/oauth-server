@@ -14,19 +14,19 @@ flowchart TB
     end
 
     subgraph Applications ["Application Tier"]
-        DemoClient["Ruby Demo Client\n(Port 8080)\nPuma + Redis DB 1"]
-        RailsIdP["Rails Identity Provider\n(Port 3000)\nSession SSO Engine"]
-        ClientManager["Next.js Client Manager\n(Port 3001)\nWeb Crypto + Admin UI"]
-        SpringAS["Spring Authorization Server\n(Port 9000)\nSpring Boot 4 / Security 7 / Java 25"]
+        DemoClient["Ruby Demo Client<br/>(Port 8080)<br/>Puma + Redis DB 1"]
+        RailsIdP["Rails Identity Provider<br/>(Port 3000)<br/>Session SSO Engine"]
+        ClientManager["Next.js Client Manager<br/>(Port 3001)<br/>Web Crypto + Admin UI"]
+        SpringAS["Spring Authorization Server<br/>(Port 9000)<br/>Spring Boot 4 / Security 7 / Java 25"]
     end
 
     subgraph SecurityTier ["Cryptographic Hardware Module"]
-        LocalStackKMS[("LocalStack AWS KMS\n(Port 4566)\nFIPS 140-2 Level 3 HSM Token Signing")]
+        LocalStackKMS[("LocalStack AWS KMS<br/>(Port 4566)<br/>FIPS 140-2 Level 3 HSM Token Signing")]
     end
 
     subgraph DataTier ["Data & Storage Tier"]
-        RedisServer[("Redis Server\n(Port 6379)\nDB 0 & DB 1")]
-        PostgresDB[("PostgreSQL 16\n(Port 5432 - Java Only)\nACID Single Source of Truth")]
+        RedisServer[("Redis Server<br/>(Port 6379)<br/>DB 0 & DB 1")]
+        PostgresDB[("PostgreSQL 16<br/>(Port 5432 - Java Only)<br/>ACID Single Source of Truth")]
     end
 
     %% User Interactions
@@ -36,18 +36,18 @@ flowchart TB
     Admin -->|Manage Clients & Generate Keys| ClientManager
 
     %% Backchannel & Inter-Service Communications
-    DemoClient -->|PAR, Token Exchange, UserInfo, Revoke\n(private_key_jwt + DPoP)| SpringAS
-    SpringAS -.->|OIDC Back-Channel Logout\n(Signed logout_token)| DemoClient
-    ClientManager -->|HTTP REST Admin API\n(X-Admin-Api-Key)| SpringAS
+    DemoClient -->|"PAR, Token Exchange, UserInfo, Revoke<br/>(private_key_jwt + DPoP)"| SpringAS
+    SpringAS -.->|"OIDC Back-Channel Logout<br/>(Signed logout_token)"| DemoClient
+    ClientManager -->|"HTTP REST Admin API<br/>(X-Admin-Api-Key)"| SpringAS
 
     %% Data Store Connections
     RailsIdP -->|Write session:uuid| RedisServer
-    SpringAS -->|Read session:uuid (DB 0)\nJTI replay cache\nRedis Pub/Sub listener| RedisServer
-    DemoClient -->|Store sessions & DPoP keys (DB 1)| RedisServer
+    SpringAS -->|"Read session:uuid (DB 0)<br/>JTI replay cache<br/>Redis Pub/Sub listener"| RedisServer
+    DemoClient -->|"Store sessions & DPoP keys (DB 1)"| RedisServer
 
     %% PostgreSQL and KMS
-    SpringAS -->|JDBC Connection Pool (HikariCP)\nOnly Java connects to DB| PostgresDB
-    SpringAS -->|Sign JWT Access Tokens (RS256)| LocalStackKMS
+    SpringAS -->|"JDBC Connection Pool (HikariCP)<br/>Only Java connects to DB"| PostgresDB
+    SpringAS -->|"Sign JWT Access Tokens (RS256)"| LocalStackKMS
 ```
 
 ---

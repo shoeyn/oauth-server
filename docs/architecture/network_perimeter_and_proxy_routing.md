@@ -19,23 +19,23 @@ flowchart TD
     end
 
     subgraph EdgeTier ["Network Perimeter / Reverse Proxy (ALB, Nginx, Envoy)"]
-        PublicListener["Public Edge Listener (:443)\n• TLS 1.3 Termination\n• Edge WAF Inspection"]
-        PathRouter{"Path-Based\nRouting Filter"}
+        PublicListener["Public Edge Listener (:443)<br/>• TLS 1.3 Termination<br/>• Edge WAF Inspection"]
+        PathRouter{"Path-Based<br/>Routing Filter"}
     end
 
     subgraph PrivateNetwork ["Internal Private VPC / Corporate Network"]
-        InternalManager["Next.js Client Manager (:3001)\n(Internal Dashboard)"]
-        InternalDNS["Internal Private Route\n(http://spring-auth-server:9000)"]
+        InternalManager["Next.js Client Manager (:3001)<br/>(Internal Dashboard)"]
+        InternalDNS["Internal Private Route<br/>(http://spring-auth-server:9000)"]
     end
 
     subgraph SpringService ["Spring Authorization Server Cluster (:9000)"]
-        PublicFilter["OAuth 2.1 Protocol Endpoints\n• /oauth2/**\n• /.well-known/**\n• /userinfo"]
-        AdminController["ClientAdminController\n• /api/admin/clients/**\n• Protected by X-Admin-Api-Key"]
-        NearCache["L1 JVM Near-Cache\n(ConcurrentHashMap)"]
+        PublicFilter["OAuth 2.1 Protocol Endpoints<br/>• /oauth2/**<br/>• /.well-known/**<br/>• /userinfo"]
+        AdminController["ClientAdminController<br/>• /api/admin/clients/**<br/>• Protected by X-Admin-Api-Key"]
+        NearCache["L1 JVM Near-Cache<br/>(ConcurrentHashMap)"]
     end
 
     subgraph DataStorage ["Isolated Private Data Tier (Java Only)"]
-        Postgres[("PostgreSQL Database (:5432)\nACID Registered Clients & Grants")]
+        Postgres[("PostgreSQL Database (:5432)<br/>ACID Registered Clients & Grants")]
     end
 
     %% External Traffic Flow
@@ -44,10 +44,10 @@ flowchart TD
     PublicListener --> PathRouter
 
     PathRouter -->|Match /oauth2/**, /.well-known/**| PublicFilter
-    PathRouter -->|Match /api/admin/**| RejectEdge["Edge Rejection\nHTTP 403 Forbidden\n(Traffic never reaches JVM)"]
+    PathRouter -->|Match /api/admin/**| RejectEdge["Edge Rejection<br/>HTTP 403 Forbidden<br/>(Traffic never reaches JVM)"]
 
     %% Internal Traffic Flow
-    InternalManager -->|Admin REST API Calls\n(POST/GET/DELETE /api/admin/clients)| InternalDNS
+    InternalManager -->|"Admin REST API Calls<br/>(POST/GET/DELETE /api/admin/clients)"| InternalDNS
     InternalDNS --> AdminController
     AdminController --> NearCache
     AdminController --> Postgres

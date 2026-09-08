@@ -229,12 +229,12 @@ When scaling beyond several thousand sessions per hour to enterprise-tier throug
 ```mermaid
 flowchart TD
     subgraph Edge ["Edge Tier (CDN / Anycast)"]
-        CDN["Cloudflare / CloudFront CDN\n(Edge-caches JWKS & Discovery: 304 / 200)"]
+        CDN["Cloudflare / CloudFront CDN<br/>(Edge-caches JWKS & Discovery: 304 / 200)"]
         WAF["AWS WAF / Cloudflare Rate Limiting"]
     end
 
     subgraph Ingress ["Ingress & Load Balancing"]
-        ALB["Application Load Balancer / Envoy Proxy\n(TLS Termination + HTTP/2 Keep-Alive)"]
+        ALB["Application Load Balancer / Envoy Proxy<br/>(TLS Termination + HTTP/2 Keep-Alive)"]
     end
 
     subgraph AppCluster ["Stateless Spring Auth Server Cluster"]
@@ -244,8 +244,8 @@ flowchart TD
     end
 
     subgraph DataCluster ["High-Availability Data Tier"]
-        RedisCluster[("Redis Cluster / AWS ElastiCache\nMulti-AZ with Read Replicas\n(Sharded JTI Replay & Sessions)")]
-        PostgresCluster[("PostgreSQL Aurora Primary / Replica\nACID Client & Grant Registry\n(Java-Only Access)")]
+        RedisCluster[("Redis Cluster / AWS ElastiCache<br/>Multi-AZ with Read Replicas<br/>(Sharded JTI Replay & Sessions)")]
+        PostgresCluster[("PostgreSQL Aurora Primary / Replica<br/>ACID Client & Grant Registry<br/>(Java-Only Access)")]
     end
 
     CDN --> Ingress
