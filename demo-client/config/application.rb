@@ -24,11 +24,11 @@ module DemoClientApp
     # Security & Persistence Improvement: Store client sessions in Redis (via CacheStore)
     # 1. httponly: true -> Stop malicious scripts from accessing session cookies via XSS
     # 2. same_site: :lax -> Prevent CSRF attacks on cross-site requests
-    # 3. secure: Rails.env.production? -> Enforce HTTPS transmission in production
+    # 3. secure: false (for HTTP localhost PoC) or enabled via SECURE_COOKIES env var
     config.session_store :cache_store,
       key: "_demo_client_session",
       httponly: true,
       same_site: :lax,
-      secure: Rails.env.production?
+      secure: ENV["SECURE_COOKIES"] == "true"
   end
 end

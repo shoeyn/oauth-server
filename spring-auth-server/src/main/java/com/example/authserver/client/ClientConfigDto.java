@@ -13,6 +13,7 @@ public record ClientConfigDto(
         Set<String> scopes,
         Boolean requireProofKey,
         Boolean requireAuthorizationConsent,
+        Boolean requirePushedAuthorizationRequests,
         Long accessTokenTimeToLiveMinutes,
         Long refreshTokenTimeToLiveDays,
         String publicKeyPem
