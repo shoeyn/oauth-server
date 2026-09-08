@@ -1,5 +1,6 @@
 package com.example.authserver.config;
 
+import com.example.authserver.security.AdminApiKeyFilter;
 import com.example.authserver.security.SharedRedisSessionFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -10,6 +11,7 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.logout.LogoutFilter;
 
 @Configuration
@@ -21,6 +23,9 @@ public class DefaultSecurityConfig {
 
     @Value("${auth.server.issuer-url:http://localhost:9000}")
     private String issuerUrl;
+
+    @Value("${auth.admin.api-key:secret-admin-key}")
+    private String adminApiKey;
 
     @Bean
     @Order(2)
@@ -47,6 +52,10 @@ public class DefaultSecurityConfig {
             .httpBasic(basic -> basic.disable())
             .exceptionHandling((exceptions) -> exceptions
                 .authenticationEntryPoint(new ExternalLoginAuthenticationEntryPoint(railsLoginUrl, issuerUrl))
+            )
+            .addFilterBefore(
+                new AdminApiKeyFilter(adminApiKey),
+                AuthorizationFilter.class
             )
             .addFilterAfter(
                 new SharedRedisSessionFilter(redisTemplate),
