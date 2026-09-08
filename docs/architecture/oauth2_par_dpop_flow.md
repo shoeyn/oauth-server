@@ -53,7 +53,7 @@ sequenceDiagram
     activate Rails
     Note over Rails: 1. Verify credentials (secure_compare)<br/>2. Whitelist return_to host (localhost:9000)<br/>3. Generate UUIDv4 session id<br/>4. Invalidate prior session keys
     Rails->>Redis: SET session:<uuid> (User claims, TTL: 24h)
-    Rails-->>User: HTTP 302 Redirect to sanitized return_to<br/>Set-Cookie: SHARED_SESSION_ID=<uuid>; HttpOnly; SameSite=Lax
+    Rails-->>User: HTTP 302 Redirect to sanitized return_to<br/>Set-Cookie: SHARED_SESSION_ID=<uuid>, HttpOnly, SameSite=Lax
     deactivate Rails
 
     %% ------------------------------------------------------------------------

@@ -15,24 +15,24 @@ To comply strictly with the organizational policy that **only the Java applicati
 ```mermaid
 flowchart TD
     subgraph ClientManager ["Administrative Frontend Tier (Port 3001)"]
-        NextJS["Next.js Client Manager\n• Pure Web UI / React 19\n• Web Crypto API (In-browser RSA 2048)\n• Zero AWS SDKs / Zero DB Drivers"]
+        NextJS["Next.js Client Manager<br/>• Pure Web UI / React 19<br/>• Web Crypto API (In-browser RSA 2048)<br/>• Zero AWS SDKs / Zero DB Drivers"]
     end
 
     subgraph SpringApp ["Java Application Cluster (Port 9000)"]
-        AdminAPI["ClientAdminController\n(X-Admin-Api-Key Protection)"]
-        L1Maps["L1 In-Memory Near-Cache\n• ConcurrentHashMap<String, RegisteredClient>\n• ConcurrentHashMap<String, RSAPublicKey>\n• Sub-millisecond reads (< 0.002 ms)"]
-        Repo["PostgresRegisteredClientRepository\nHikariCP Connection Pool"]
+        AdminAPI["ClientAdminController<br/>(X-Admin-Api-Key Protection)"]
+        L1Maps["L1 In-Memory Near-Cache<br/>• ConcurrentHashMap<String, RegisteredClient><br/>• ConcurrentHashMap<String, RSAPublicKey><br/>• Sub-millisecond reads (< 0.002 ms)"]
+        Repo["PostgresRegisteredClientRepository<br/>HikariCP Connection Pool"]
     end
 
     subgraph ClusterSync ["Cluster Notification Tier (Port 6379)"]
-        RedisPubSub["Redis Pub/Sub Channel\n'oauth2:clients:reload'\n• Instantaneous cluster cache invalidation"]
+        RedisPubSub["Redis Pub/Sub Channel<br/>'oauth2:clients:reload'<br/>• Instantaneous cluster cache invalidation"]
     end
 
     subgraph DataTier ["Isolated Database Tier (Port 5432)"]
-        Postgres[("PostgreSQL Database 'authserver'\n• oauth2_registered_client\n• oauth2_client_public_key\n• ACID-durable single source of truth")]
+        Postgres[("PostgreSQL Database 'authserver'<br/>• oauth2_registered_client<br/>• oauth2_client_public_key<br/>• ACID-durable single source of truth")]
     end
 
-    NextJS -->|HTTP REST (GET/POST/DELETE /api/admin/clients)| AdminAPI
+    NextJS -->|"HTTP REST (GET/POST/DELETE /api/admin/clients)"| AdminAPI
     AdminAPI --> Repo
     Repo -->|Direct JDBC SQL Only| Postgres
     AdminAPI -->|Publish Invalidation| RedisPubSub
@@ -87,7 +87,7 @@ sequenceDiagram
     participant Cluster as Spring Auth Server Instances
 
     Admin->>Manager: Fill Client Form (ID, Redirects, Scopes)<br/>Click "Generate RSA Key Pair" (Web Crypto API)
-    Note over Admin, Manager: Web Crypto generates 2048-bit RS256 key pair in browser.<br/>Private key downloaded as PEM; public key populated into form.
+    Note over Admin, Manager: Web Crypto generates 2048-bit RS256 key pair in browser.<br/>Private key downloaded as PEM, public key populated into form.
     Admin->>Manager: Click "Save Client"
     activate Manager
 
