@@ -83,10 +83,11 @@ Click the links below to inspect specific end-to-end communication flows:
 
 | Service | Port | Protocol / Path | Purpose |
 |---|---|---|---|
+| **`nginx`** | `9000` | HTTP / TCP | Edge perimeter reverse proxy (exposes public OAuth/OIDC, blocks /api/admin) |
+| **`spring-auth-server`**| `9001` (internal) | HTTP / TCP | RFC-hardened OAuth 2.1 & OIDC Authorization Server backend (internal container :9000) |
 | **`demo-client`** | `8080` | HTTP / TCP | End-user interactive OAuth 2.1 client application |
 | **`rails-app`** | `3000` | HTTP / TCP | External login & Identity Provider (sets `SHARED_SESSION_ID`) |
-| **`client-manager`** | `3001` | HTTP / TCP | Administrative UI for client configuration & Web Crypto key generation |
-| **`spring-auth-server`**| `9000` | HTTP / TCP | RFC-hardened OAuth 2.1 & OIDC Authorization Server |
+| **`client-manager`** | `3001` | HTTP / TCP | Administrative UI for client configuration (connects directly to Spring :9000) |
 | **`postgres`** | `5432` | PostgreSQL / TCP | ACID persistence for registered clients & runtime authorization records |
 | **`localstack`** | `4566` | HTTP / KMS API | Emulated AWS KMS (FIPS 140-2 Level 3 HSM Asymmetric Key Signing) |
 | **`redis`** | `6379` | RESP / TCP | DB 0 (SSO, JTI), DB 1 (Client Tokens), and Pub/Sub cluster invalidation |
