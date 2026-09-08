@@ -77,6 +77,16 @@ Click the links below to inspect specific end-to-end communication flows:
 7. [**Network Perimeter & Reverse Proxy Routing Architecture**](network_perimeter_and_proxy_routing.md)
    - External reverse proxy / ALB path routing specification isolating internal administrative APIs (`/api/admin/**`) from public OAuth 2.1 traffic, with configuration templates for AWS ALB, Nginx, Kubernetes Ingress, and Cloudflare WAF.
 
+8. [**Interface Contracts & Unified Data Dictionary**](contracts_and_data_dictionary.md)
+   - Formal JSON schema specification for the Rails $\leftrightarrow$ Spring Redis SSO session, unified Redis key taxonomy and TTL lifecycle matrix, and PostgreSQL DDL/ERD schema reference.
+
+---
+
+## Developer & Tester Guides
+
+- [**Developer Cookbook & Iteration Guide**](../guides/developer_cookbook.md): Dual-mode execution (Docker vs. local IDE debugging), Admin API `curl` client registration examples, custom JWT claim recipes, and hot-cache reload commands.
+- [**Testing & Troubleshooting Guide**](../guides/testing_and_troubleshooting.md): Test fixture & credential matrix, automated test execution, failure diagnostic workflows, and boilerplate for writing new functional test scenarios.
+
 ---
 
 ## Port & Protocol Reference
