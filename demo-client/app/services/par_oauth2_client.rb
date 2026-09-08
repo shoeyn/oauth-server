@@ -131,7 +131,24 @@ class ParOAuth2Client < OAuth2::Client
       opts[:headers] = { "DPoP" => dpop_proof }
     end
 
-    auth_code.get_token(code, params, opts)
+    begin
+      auth_code.get_token(code, params, opts)
+    rescue OAuth2::Error => e
+      # RFC 9449 Section 8: Server-Provided Nonces
+      # If the server challenges with use_dpop_nonce and provides DPoP-Nonce header, retry once
+      server_nonce = e.response&.headers&.[]("dpop-nonce") || e.response&.headers&.[]("DPoP-Nonce")
+      if server_nonce.present? && dpop_key.present?
+        Rails.logger.info("Captured RFC 9449 DPoP-Nonce '#{server_nonce}'. Retrying code exchange with bound nonce.") if defined?(Rails) && Rails.respond_to?(:logger) && Rails.logger
+        new_assertion = build_client_assertion(token_url)
+        params[:client_assertion] = new_assertion
+        retried_dpop_proof = build_dpop_proof("POST", token_url, nil, dpop_key, server_nonce)
+        params[:headers] = { "DPoP" => retried_dpop_proof }
+        opts[:headers] = { "DPoP" => retried_dpop_proof }
+        auth_code.get_token(code, params, opts)
+      else
+        raise e
+      end
+    end
   end
 
   # Generates an ephemeral asymmetric key for DPoP proof-of-possession (RFC 9449).
@@ -154,8 +171,9 @@ class ParOAuth2Client < OAuth2::Client
   # @param http_url [String] Target request URI
   # @param access_token [String, nil] Raw access token for 'ath' claim binding
   # @param dpop_key [OpenSSL::PKey::EC, OpenSSL::PKey::RSA, String]
+  # @param nonce [String, nil] Server-provided nonce for RFC 9449 replay protection
   # @return [String] Compact serialized DPoP proof JWT
-  def build_dpop_proof(http_method, http_url, access_token = nil, dpop_key = nil)
+  def build_dpop_proof(http_method, http_url, access_token = nil, dpop_key = nil, nonce = nil)
     key = parse_dpop_key(dpop_key)
     raise "Missing DPoP private key" unless key
 
@@ -179,6 +197,8 @@ class ParOAuth2Client < OAuth2::Client
       htu: uri_clean,
       iat: now
     }
+
+    payload[:nonce] = nonce if nonce.present?
 
     if access_token.present?
       digest = OpenSSL::Digest::SHA256.digest(access_token)
@@ -215,8 +235,9 @@ class ParOAuth2Client < OAuth2::Client
   # @param id_token_jwt [String] Raw JWS ID token string
   # @param expected_nonce [String, nil] Expected nonce value from authorization request
   # @param raw_access_token [String, nil] Raw access token for at_hash verification
+  # @param code [String, nil] Authorization code for c_hash verification
   # @return [Hash] Decoded JWT payload claims
-  def decode_and_verify_id_token(id_token_jwt, expected_nonce, raw_access_token = nil)
+  def decode_and_verify_id_token(id_token_jwt, expected_nonce, raw_access_token = nil, code = nil)
     return {} if id_token_jwt.blank?
 
     # Inspect unverified header to extract key ID for JWKS resolution and enforce algorithm pinning
@@ -281,6 +302,15 @@ class ParOAuth2Client < OAuth2::Client
       expected_at_hash = Base64.urlsafe_encode64(digest[0...16], padding: false)
       if payload["at_hash"] != expected_at_hash
         raise "Security Error: ID Token at_hash ('#{payload['at_hash']}') does not match calculated access token hash ('#{expected_at_hash}')"
+      end
+    end
+
+    # Validate authorization code hash (c_hash) binding (OIDC Core 1.0 Section 3.3.2.11)
+    if payload["c_hash"].present? && code.present?
+      code_digest = OpenSSL::Digest::SHA256.digest(code)
+      expected_c_hash = Base64.urlsafe_encode64(code_digest[0...16], padding: false)
+      if payload["c_hash"] != expected_c_hash
+        raise "Security Error: ID Token c_hash ('#{payload['c_hash']}') does not match calculated code hash ('#{expected_c_hash}')"
       end
     end
 

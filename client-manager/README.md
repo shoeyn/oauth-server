@@ -1,4 +1,4 @@
-# OAuth 2.1 Client Configuration Manager (Next.js 15 & Spring Admin API)
+# OAuth 2.1 Client Configuration Manager (Next.js 16 & Spring Admin API)
 
 A modern, responsive administrative web application and REST API for managing registered OAuth 2.1 client configurations via Spring Authorization Server's secure administrative interface, persisted in **PostgreSQL** with instantaneous cluster near-cache synchronization.
 

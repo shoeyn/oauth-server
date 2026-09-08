@@ -92,7 +92,8 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 | **Graceful Rotation**| **Multi-Key JWKS Rotation** | Serves active and previous keys concurrently at `/oauth2/jwks`, enabling zero-downtime key rotation while in-flight tokens remain valid through their TTL. |
 | **RFC 9126** | **Pushed Authorization Requests (PAR)** | All authorization parameters (`client_id`, `state`, `nonce`, `code_challenge`) are pushed directly to `/oauth2/par` over TLS via an authenticated backchannel POST. The browser only receives an opaque, single-use `request_uri`. Stops query leakage and URL manipulation. |
 | **RFC 7523** | **`private_key_jwt` Client Authentication** | Clients authenticate exclusively using RS256-signed JWT assertions (`urn:ietf:params:oauth:client-assertion-type:jwt-bearer`). Static client secrets (`client_secret_basic`, `client_secret_post`) and insecure `none` authentication are **strictly rejected with HTTP 401**. Includes JTI replay cache in Redis and strict `iss`, `sub`, `aud` validation. |
-| **RFC 9449** | **Demonstrating Proof-of-Possession (DPoP)** | The `/oauth2/token` endpoint strictly enforces the `DPoP` HTTP header (requests lacking DPoP are rejected with HTTP 400 `invalid_dpop_proof`). Issued access tokens are sender-constrained by embedding the DPoP key thumbprint in the `cnf.jkt` claim. The token cannot be used without the private DPoP key. |
+| **RFC 9449** | **Demonstrating Proof-of-Possession (DPoP) & Server Nonces** | The `/oauth2/token` endpoint strictly enforces the `DPoP` HTTP header (requests lacking DPoP are rejected with HTTP 400 `invalid_dpop_proof`). Issued access tokens are sender-constrained by embedding the DPoP key thumbprint in the `cnf.jkt` claim. The server enforces single-use 60s Redis nonces (RFC 9449 Section 8) with `HTTP 400 use_dpop_nonce` challenge-response to eliminate clock-skew replay. |
+| **OIDC Core 1.0** | **ID Token Cryptographic Hashes (`at_hash` & `c_hash`)** | The authorization server computes and embeds SHA-256 left-half base64url hashes in the ID Token matching the access token (`at_hash`) and authorization code (`c_hash`). The client cryptographically validates both hashes upon code exchange, stopping code and token substitution attacks. |
 | **RFC 7636** | **PKCE (`S256`)** | Proof Key for Code Exchange is enforced on all authorization requests (`requireProofKey(true)`). Intercepted authorization codes cannot be exchanged without the client's `code_verifier`. |
 | **RFC 9207** | **Authorization Server Issuer Identification** | The authorization response appends `iss=http://localhost:9000` to the callback URL. The client strictly validates the issuer before exchanging the code, completely mitigating OAuth 2.0 Mix-Up Attacks. |
 | **Architecture** | **Server-Determined Scopes** | The demo client omits the `scope` parameter entirely. The Authorization Server predetermines and binds authorized scopes strictly based on registered client configuration (`openid`, `profile`, `email`, `user.read`, `demo.secret_access`), preventing privilege escalation and client-side scope tampering. |
@@ -114,6 +115,9 @@ This section documents the security controls currently active in the platform, a
 - **Multi-Key JWKS Rotation:** Concurrent publishing of active and retired keys at `/oauth2/jwks` eliminates downtime during key lifecycle transitions.
 - **Asymmetric Client Identity:** Shared secrets (`client_secret_basic`, `client_secret_post`) are disabled in favor of `private_key_jwt` with Redis JTI replay prevention.
 - **Sender-Constrained Tokens:** RFC 9449 DPoP binds access tokens to ephemeral client keys, mitigating token theft and replay.
+- **Server-Provided DPoP Nonces (RFC 9449 §8):** Redis-backed single-use nonces (60s TTL) with `HTTP 400 use_dpop_nonce` challenge-response to eliminate clock-skew proof replay attacks.
+- **Cryptographic Token Binding (`at_hash` & `c_hash`):** ID token contains SHA-256 left-half hashes cryptographically bound to access tokens and authorization codes (OIDC Core Section 3.1.3.6).
+- **Discovery Metadata Hardening:** Public OIDC discovery restricts `token_endpoint_auth_methods_supported` strictly to `["private_key_jwt"]`, preventing confusion around shared secrets.
 - **Pushed Authorization Requests (PAR):** Eliminates sensitive query parameters in browser history and server access logs.
 - **Issuer Identification:** RFC 9207 prevents OAuth 2.0 Mix-Up attacks.
 - **Server-Determined Scopes:** Prevents client-side privilege escalation.
@@ -163,7 +167,7 @@ Comprehensive sequence diagrams, topology graphs, and communication flows are do
 | Service | Port | Description | Technology Stack |
 |---|---|---|---|
 | **`postgres`** | `5432` | ACID Store for Authorizations & Clients (Java only) | PostgreSQL 16 Alpine |
-| **`client-manager`**| `3001` | OAuth 2.1 Client Config Manager UI | Next.js 15, React 19, Tailwind CSS, Spring Admin API |
+| **`client-manager`**| `3001` | OAuth 2.1 Client Config Manager UI | Next.js 16, Turbopack, React 19, Tailwind CSS 4, Spring Admin API |
 | **`demo-client`** | `8080` | Interactive OAuth 2.1 client & UI | Ruby 4.0, Puma, Rack, Redis DB 1 |
 | **`rails-app`** | `3000` | External Identity Provider (IdP) | Ruby on Rails 7, Redis DB 0 |
 | **`spring-auth-server`**| `9000` | OAuth 2.1 & OIDC Authorization Server | Spring Boot 4.0.8, Spring Security 7.0.7, Java 25 |

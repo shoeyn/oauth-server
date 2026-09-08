@@ -56,6 +56,23 @@
             <% end %>
           </td>
         </tr>
+        <% if @id_token_claims["at_hash"].present? || @id_token_claims["c_hash"].present? %>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.5rem 0; color: var(--text-muted);">ID Token Hashes (OIDC):</td>
+            <td style="padding: 0.5rem 0;">
+              <% if @id_token_claims["at_hash"].present? %>
+                <span style="display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid #10b981; margin-right: 0.5rem;">
+                  ✓ at_hash Verified (<code><%= @id_token_claims["at_hash"] %></code>)
+                </span>
+              <% end %>
+              <% if @id_token_claims["c_hash"].present? %>
+                <span style="display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid #10b981;">
+                  ✓ c_hash Verified (<code><%= @id_token_claims["c_hash"] %></code>)
+                </span>
+              <% end %>
+            </td>
+          </tr>
+        <% end %>
         <tr style="border-bottom: 1px solid var(--border);">
           <td style="padding: 0.5rem 0; color: var(--text-muted);">Access Token Expires At:</td>
           <td style="padding: 0.5rem 0;">
@@ -93,7 +110,7 @@
 <div class="card">
   <h2>UserInfo Endpoint Claims (GET /userinfo)</h2>
   <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
-    Fetched by the client using <code>Authorization: Bearer &lt;access_token&gt;</code>. Scopes were pre-determined by the authorization server strictly from the registered client configuration (ignoring any client scope requests).
+    Fetched by the client using <code>Authorization: <%= @token_type %> &lt;access_token&gt;</code><%= " with sender-constrained DPoP proof" if @token_type == "DPoP" %>. Scopes were pre-determined by the authorization server strictly from the registered client configuration (ignoring any client scope requests).
   </p>
   <% if @userinfo_claims["secret_clearance"].present? %>
     <div style="background: rgba(67, 56, 202, 0.25); border: 1px solid #6366f1; border-radius: 8px; padding: 0.85rem; margin-bottom: 1rem;">

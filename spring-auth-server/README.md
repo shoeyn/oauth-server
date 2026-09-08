@@ -36,38 +36,45 @@ A hardened, enterprise **OAuth 2.1 Authorization Server** built with **Spring Bo
    - **Real-Time Cluster Hot-Reloading**: [`ClientReloadRedisSubscriber`](src/main/java/com/example/authserver/client/ClientReloadRedisSubscriber.java) listens to Redis channel `oauth2:clients:reload`. Updates refresh in-memory maps across all nodes instantaneously without restarting Spring Boot.
    - For complete architecture details, see [PostgreSQL Persistence & Performance Architecture](../docs/architecture/postgres_persistence_and_performance.md).
 
-6. **Mandatory DPoP Proofs at Token Endpoint (RFC 9449 Section 5)**:
+6. **Mandatory DPoP Proofs & Server-Provided Nonces (RFC 9449 Section 5 & 8)**:
    - `StrictDPoPTokenRequestAuthenticationConverter` strictly requires the `DPoP` HTTP header on `/oauth2/token` requests, returning HTTP 400 `invalid_dpop_proof` if missing.
    - Access tokens are sender-constrained by embedding `cnf.jkt` computed from the client's public DPoP key JWK thumbprint.
+   - **RFC 9449 Section 8 DPoP Nonces**: Implemented in [`DPoPNonceFilter`](src/main/java/com/example/authserver/security/DPoPNonceFilter.java). Requires DPoP proofs to include single-use server nonces stored in Redis (60-second TTL), responding with `HTTP 400 use_dpop_nonce` and `DPoP-Nonce` header to defeat clock-skew proof replay attacks.
 
-7. **Server-Determined Authorization Scopes**:
+7. **OpenID Connect ID Token Integrity Hashes (`at_hash` & `c_hash`)**:
+   - Implemented in [`TokenCustomizerConfig`](src/main/java/com/example/authserver/config/TokenCustomizerConfig.java). Computes SHA-256 left-half base64url-encoded hashes of the Access Token (`at_hash`) and Authorization Code (`c_hash`), cryptographically binding tokens together in compliance with OIDC Core Section 3.1.3.6.
+
+8. **Discovery Metadata Hardening**:
+   - Advertises strictly `["private_key_jwt"]` as supported `token_endpoint_auth_methods_supported`, completely purging all insecure shared-secret authentication mechanisms from `/.well-known/openid-configuration`.
+
+9. **Server-Determined Authorization Scopes**:
    - `OAuth2AuthorizationService` wrapper automatically binds the registered client's authorized scopes (`openid`, `profile`, `email`, `user.read`, `demo.secret_access`) when clients omit scopes.
    - Client-requested scopes are ignored or defaulted to registered client configuration.
 
-8. **RFC 9126: Native Pushed Authorization Requests (PAR)**:
-   - Built-in Spring Security 7 PAR endpoint at `/oauth2/par`.
+10. **RFC 9126: Native Pushed Authorization Requests (PAR)**:
+    - Built-in Spring Security 7 PAR endpoint at `/oauth2/par`.
 
-9. **RFC 9207: Authorization Server Issuer Identification**:
-   - Authorization responses include the `iss` parameter alongside `code` and `state` to mitigate OAuth 2.0 Mix-Up attacks.
+11. **RFC 9207: Authorization Server Issuer Identification**:
+    - Authorization responses include the `iss` parameter alongside `code` and `state` to mitigate OAuth 2.0 Mix-Up attacks.
 
-10. **RFC 7009 & RFC 7662: Token Revocation & Introspection**:
+12. **RFC 7009 & RFC 7662: Token Revocation & Introspection**:
     - Endpoints `/oauth2/revoke` and `/oauth2/introspect` fully supported with `private_key_jwt`.
 
-11. **OpenID Connect Back-Channel Logout 1.0**:
+13. **OpenID Connect Back-Channel Logout 1.0**:
     - `OidcBackChannelLogoutService` assembles and signs `logout_token` JWS with server's RSA key, dispatching it asynchronously with exponential retries to registered client backchannel endpoints.
 
-12. **Single Sign-On (SSO) with External Rails IdP via Shared Redis**:
+14. **Single Sign-On (SSO) with External Rails IdP via Shared Redis**:
     - `SharedRedisSessionFilter` inspects `SHARED_SESSION_ID` cookie, loads user authentication claims from `session:<id>` in Redis DB 0, and establishes a Spring `SecurityContext`.
     - **M2M Performance Bypass (`shouldNotFilter`)**: Bypasses Redis queries on machine-to-machine endpoints (`/oauth2/token`, `/oauth2/par`, `/oauth2/jwks`, `/oauth2/introspect`, `/oauth2/revoke`, `/.well-known/**`).
 
-13. **In-Memory Discovery & JWKS Caching with ETag / HTTP 304**:
+15. **In-Memory Discovery & JWKS Caching with ETag / HTTP 304**:
     - `DiscoveryAndJwksCacheFilter` caches pre-rendered byte arrays for `/.well-known/openid-configuration` and `/oauth2/jwks` with `Cache-Control: public, max-age=3600`.
     - Returns **HTTP 304 Not Modified with 0 body bytes** on conditional `If-None-Match` requests.
 
-14. **Cached Client Assertion `JwtDecoder`**:
+16. **Cached Client Assertion `JwtDecoder`**:
     - Reuses `NimbusJwtDecoder` instances in a `ConcurrentHashMap` keyed by `clientId:keyHash`, eliminating RSA key re-parsing on every client assertion.
 
-15. **Native HTTP/2 Stream Multiplexing (`h2c` / ALPN)**:
+17. **Native HTTP/2 Stream Multiplexing (`h2c` / ALPN)**:
     - Enabled via `server.http2.enabled: true` in `application.yml`, allowing multiple concurrent requests over a single TCP socket.
 
 ---

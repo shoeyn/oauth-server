@@ -18,39 +18,44 @@ A modern, production-grade OAuth 2.1 and OpenID Connect (OIDC) client applicatio
    - Evaluates the unverified JWT header before cryptographic decoding and enforces `alg == "RS256"`.
    - Strictly rejects `alg: none` and symmetric HMAC algorithms (`HS256`), eliminating algorithm confusion vulnerabilities.
 
-4. **RFC 9449: Sender-Constrained DPoP Tokens**:
+4. **RFC 9449: Sender-Constrained DPoP Tokens & Server Nonce Support**:
    - Generates an ephemeral EC/RSA private key per session.
    - Signs `DPoP` proof headers on code exchange and token refresh.
    - Resource requests (e.g. `/userinfo`) send `Authorization: DPoP <token>` accompanied by a matching `DPoP` proof.
+   - **RFC 9449 Section 8 Server-Provided Nonces**: Transparently captures `use_dpop_nonce` error responses from Spring Auth Server and automatically retries requests using the server-issued `DPoP-Nonce` header.
 
-5. **RFC 7636: PKCE (`S256`)**:
+5. **OpenID Connect ID Token Hash Validation (`at_hash` & `c_hash`)**:
+   - Cryptographically computes SHA-256 left-half hashes against the Access Token (`at_hash`) and Authorization Code (`c_hash`).
+   - Ensures cryptographic binding and detects token/code substitution attacks in transit.
+
+6. **RFC 7636: PKCE (`S256`)**:
    - Cryptographic code verifier and SHA-256 code challenge on all authorization flows.
 
-6. **RFC 9207: Authorization Server Issuer Identification**:
+7. **RFC 9207: Authorization Server Issuer Identification**:
    - Validates that the callback contains `iss` matching the configured Authorization Server URL to mitigate Mix-Up attacks.
 
-7. **Server-Determined Scopes**:
+8. **Server-Determined Scopes**:
    - The client requests NO scopes (`scope` parameter omitted). Authorized scopes are pre-determined by the Authorization Server and persisted in PostgreSQL via the Next.js Client Manager and Spring Admin REST API.
 
-8. **RFC 7009 & RFC 7662: Token Revocation & Introspection**:
+9. **RFC 7009 & RFC 7662: Token Revocation & Introspection**:
    - Interactive revocation on `/profile` revokes tokens at the authorization server and flushes the local Redis session.
 
-9. **OpenID Connect Back-Channel Logout 1.0**:
-   - Receives signed `logout_token` JWS at `POST /oidc/backchannel_logout` and evicts active sessions from Redis.
+10. **OpenID Connect Back-Channel Logout 1.0**:
+    - Receives signed `logout_token` JWS at `POST /oidc/backchannel_logout` and evicts active sessions from Redis.
 
-10. **Persistent Redis Token Store (DB 1)**:
+11. **Persistent Redis Token Store (DB 1)**:
     - Tokens and DPoP keys are stored securely in Redis DB 1, surviving server restarts.
 
-11. **High-Speed Ephemeral DPoP Key Generation (EC P-256 / ES256)**:
+12. **High-Speed Ephemeral DPoP Key Generation (EC P-256 / ES256)**:
     - Proof-of-possession asymmetric keys default to Elliptic Curve P-256 (`prime256v1`), generating in **~0.01 ms (4,800x faster than RSA-2048)**, eliminating ~40ms of CPU blocking time per session.
 
-12. **In-Memory Thread-Safe JWKS Cache with Auto-Rotation**:
+13. **In-Memory Thread-Safe JWKS Cache with Auto-Rotation**:
     - Authorization Server public keys are cached in-memory with a 1-hour sliding TTL, resolving token verifications in **< 1 ms** without network overhead. Automatically detects unknown `kid` values and re-fetches `/oauth2/jwks` with rate-limiting protection to support zero-downtime key rotation.
 
-13. **Automated Network Resilience & Retries**:
+14. **Automated Network Resilience & Retries**:
     - Idempotent operations (JWKS retrieval, token introspection, userinfo, token revocation) are protected with automated exponential backoff retries and randomized jitter.
 
-14. **Production Clustered Puma Concurrency Model**:
+15. **Production Clustered Puma Concurrency Model**:
     - Configured via [`config/puma.rb`](config/puma.rb) with clustered workers (`WEB_CONCURRENCY=2`) and **8..16 threads per worker**, enabling high-throughput concurrent auth flows.
 
 ---

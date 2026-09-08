@@ -59,9 +59,18 @@
     <li>
       <span class="check-icon">✓</span>
       <div>
-        <strong>RFC 9449: Demonstrating Proof-of-Possession (DPoP):</strong>
+        <strong>RFC 9449: Demonstrating Proof-of-Possession (DPoP) &amp; Server-Provided Nonces:</strong>
         <div style="font-size: 0.85rem; color: var(--text-muted);">
-          Tokens are sender-constrained at the application layer. Ephemeral asymmetric keys generate signed DPoP proofs for token requests and resource server calls. Even if an access token is intercepted, it is cryptographically unusable without the client's private DPoP key.
+          Tokens are sender-constrained at the application layer. Ephemeral asymmetric keys generate signed DPoP proofs for token requests and resource server calls. The server enforces single-use Redis nonces (RFC 9449 §8) to stop replay attacks within the clock-skew window, and the client transparently handles <code>use_dpop_nonce</code> challenges with automated retries.
+        </div>
+      </div>
+    </li>
+    <li>
+      <span class="check-icon">✓</span>
+      <div>
+        <strong>OpenID Connect ID Token Hash Validation (<code>at_hash</code> &amp; <code>c_hash</code>):</strong>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">
+          The client cryptographically validates SHA-256 left-half hashes in the ID Token matching the Access Token (<code>at_hash</code>) and Authorization Code (<code>c_hash</code>), preventing code and token substitution or injection attacks.
         </div>
       </div>
     </li>

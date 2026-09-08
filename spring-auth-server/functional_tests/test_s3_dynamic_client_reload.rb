@@ -212,6 +212,14 @@ token_req.set_form_data(
 )
 token_res = spring_http.request(token_req)
 
+if token_res.code.to_i == 400 && token_res.body.include?("use_dpop_nonce")
+  server_nonce = token_res["DPoP-Nonce"]
+  token_dpop_payload[:nonce] = server_nonce
+  retried_dpop_jwt = JWT.encode(token_dpop_payload, dpop_key, "ES256", token_dpop_header)
+  token_req["DPoP"] = retried_dpop_jwt
+  token_res = spring_http.request(token_req)
+end
+
 if token_res.code.to_i != 200
   puts "   FAILED: Token exchange failed: HTTP #{token_res.code} (#{token_res.body})"
   exit 1
