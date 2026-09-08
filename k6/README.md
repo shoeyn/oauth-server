@@ -34,8 +34,9 @@ The test script runs two concurrent scenarios simulating realistic enterprise us
 
 2. **Ensure all platform services are running:**
    ```bash
-   # Check service health
-   curl -s http://localhost:9000/actuator/health | grep UP
+   # Check service health (via Nginx perimeter proxy at port 9000, or direct internal port 9001)
+   curl -s http://localhost:9000/healthz | grep UP
+   # or direct internal Spring health: curl -s http://localhost:9001/actuator/health | grep UP
    curl -s http://localhost:3000/health | grep UP
    curl -s http://localhost:8080/health | grep UP
    ```

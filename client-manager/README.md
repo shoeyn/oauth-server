@@ -75,7 +75,18 @@ Deletes the client configuration from PostgreSQL via Spring Admin API.
 
 ### Prerequisites
 - Node.js 18+ and `pnpm`
-- Spring Auth Server running on `localhost:9000`
+- Spring Auth Server running:
+  - **Direct local mode (outside Docker)**: `http://localhost:9000`
+  - **Docker Compose cluster mode**: Connect to internal bastion `http://localhost:9001` (since Nginx on port `9000` intentionally blocks external `/api/admin/*` access).
+
+### Environment Configuration
+Create or update `.env.local`:
+```bash
+PORT=3001
+# In Docker cluster mode, target internal Spring bastion on port 9001:
+SPRING_AUTH_SERVER_URL=http://localhost:9001
+ADMIN_API_KEY=secret-admin-key
+```
 
 ### Start Development Server
 ```bash
