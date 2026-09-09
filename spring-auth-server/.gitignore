@@ -14,8 +14,11 @@
 *.tar.gz
 *.rar
 
-# Maven build directory
+# Maven build directory & wrapper
 target/
+mvnw
+mvnw.cmd
+.mvn/
 pom.xml.tag
 pom.xml.releaseBackup
 pom.xml.versionsBackup
