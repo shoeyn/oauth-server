@@ -189,25 +189,26 @@ Comprehensive sequence diagrams, topology graphs, and communication flows are do
 - **mise** (or Java 25 + Ruby 4.0.6 installed locally), or **Docker & Docker Compose**.
 - Running Redis instance on `localhost:6379`, PostgreSQL on `localhost:5432`, and LocalStack on `localhost:4566`.
 
-### Option A: Running with Docker Compose
-To run the full stack in Docker containers:
+### Option A: Running with Docker Compose (Recommended)
+To build from source and run the full stack in Docker containers:
 ```bash
-docker compose up --build -d postgres redis localstack rails-app spring-auth-server client-manager demo-client
+docker compose up --build -d
 ```
+- Access the **Perimeter Reverse Proxy (Public OAuth Gateway)** at: **`http://localhost:9000`**
 - Access the **Client Config Manager** at: **`http://localhost:3001`**
 - Access the **Demo Client** at: **`http://localhost:8080`**
 
 ### Option B: Running Locally with Mise / Native CLI
 
-1. **Start Redis & LocalStack**:
+1. **Start Supporting Infrastructure Containers (PostgreSQL, Redis, LocalStack)**:
    ```bash
-   docker compose up -d redis localstack
-   bash localstack/seed-demo-client.sh
+   docker compose up -d postgres redis localstack
    ```
 
 2. **Start Rails Login App (Port 3000)**:
    ```bash
    cd rails-app
+   mise exec -- bundle install
    mise exec -- bundle exec rails server -p 3000 -b 0.0.0.0
    ```
 
@@ -221,6 +222,7 @@ docker compose up --build -d postgres redis localstack rails-app spring-auth-ser
 4. **Start Demo Client (Port 8080)**:
    ```bash
    cd demo-client
+   mise exec -- bundle install
    mise exec -- bundle exec puma -b tcp://0.0.0.0:8080
    ```
 
@@ -228,7 +230,7 @@ docker compose up --build -d postgres redis localstack rails-app spring-auth-ser
    ```bash
    cd client-manager
    pnpm install
-   pnpm start -p 3001
+   pnpm dev -p 3001
    ```
 
 ---
