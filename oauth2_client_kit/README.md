@@ -170,3 +170,28 @@ sequenceDiagram
         App-->>User: HTTP 302 Redirect to / (Session Terminated)
     end
 ```
+
+---
+
+## Error Handling & View Overrides
+
+During authentication journeys, if an issue occurs (such as an account lock, consent cancellation, suspended user, or invalid request), errors are returned to the client callback (`/callback?error=...&error_description=...`) adhering to RFC 6749 Section 4.1.2.1.
+
+The library automatically intercepts callback errors and renders clean, accessible error screens with appropriate HTTP statuses (`403 Forbidden` for `access_denied` / `unauthorized_client`, `401 Unauthorized` for authentication requirements, and `400 Bad Request` for request errors).
+
+### View Override Resolution
+
+Consuming applications can customize error views using standard Rails template overrides:
+
+1. **Per-Error Custom Template**: `app/views/oauth2_client_kit/auth/<error_code>.html.erb`  
+   *Example:* Creating `app/views/oauth2_client_kit/auth/access_denied.html.erb` in your host application will automatically handle all `access_denied` errors (e.g. account locked or user cancelled) with custom branding, helpdesk links, or retry workflows.
+2. **Global Error Override**: `app/views/oauth2_client_kit/auth/error.html.erb`  
+   Creating this in your host application overrides the fallback template for all error codes.
+3. **Built-in Gem Default**: `oauth2_client_kit/app/views/oauth2_client_kit/auth/error.html.erb`  
+   If no custom templates are provided by the host app, the gem renders its built-in error card inside the host application's layout showing `@error`, `@error_description`, and action buttons to retry or return home.
+
+Available instance variables in error views:
+- `@error`: The OAuth 2.1 error code (e.g. `access_denied`, `account_suspended`, `invalid_request`).
+- `@error_description`: Detailed explanation from the identity provider.
+- `@error_uri`: (Optional) Diagnostic documentation link from the identity provider.
+

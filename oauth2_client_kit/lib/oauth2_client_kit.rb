@@ -52,7 +52,6 @@ if defined?(Rails)
     end
   end
   require_relative "oauth2_client_kit/rails/controller_methods"
-  require_relative "oauth2_client_kit/rails/auth_controller"
   require_relative "oauth2_client_kit/rails/routes"
   require_relative "oauth2_client_kit/rails/engine"
   require_relative "oauth2_client_kit/rails/railtie"

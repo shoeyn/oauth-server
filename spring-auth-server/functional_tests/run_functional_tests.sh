@@ -30,5 +30,11 @@ mise exec -- bundle exec ruby "$DIR/test_kms_signing.rb"
 
 echo ""
 echo "================================================================================"
+echo "  SUITE 5: Client Error Flow Handling & Per-Error View Overrides"
+echo "================================================================================"
+mise exec -- bundle exec ruby "$DIR/test_oauth_error_journey.rb"
+
+echo ""
+echo "================================================================================"
 echo "  ALL FUNCTIONAL TEST SUITES PASSED SUCCESSFULLY!"
 echo "================================================================================"

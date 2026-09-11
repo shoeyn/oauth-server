@@ -11,7 +11,7 @@ Gem::Specification.new do |spec|
   spec.license       = "MIT"
   spec.required_ruby_version = ">= 3.2.0"
 
-  spec.files = Dir["lib/**/*.rb", "README.md", "oauth2_client_kit.gemspec"]
+  spec.files = Dir["lib/**/*.rb", "app/views/**/*", "README.md", "oauth2_client_kit.gemspec"]
   spec.require_paths = ["lib"]
 
   spec.add_dependency "oauth2", "~> 2.0"
