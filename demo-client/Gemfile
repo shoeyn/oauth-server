@@ -4,8 +4,7 @@ ruby '>= 4.0.0'
 
 gem 'rails', '~> 8.0'
 gem 'puma', '~> 8.0'
-gem 'oauth2', '~> 2.0'
-gem 'jwt', '~> 3.2'
 gem 'rack-cors'
-gem 'redis', '~> 5.1'
 gem 'json', '< 3.0'
+
+gem 'oauth2_client_kit', path: '../oauth2_client_kit'

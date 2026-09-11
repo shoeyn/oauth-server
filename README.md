@@ -9,8 +9,8 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 ```
                                   Browser / User-Agent / Administrator
                  ┌──────────────────────────────────────────────────────────────────┐
-                 │  - Visits Demo Client (http://localhost:8080)                    │
-                 │  - Redirected via PAR request_uri to /oauth2/authorize           │
+                 │  - Visits Thin Client App (http://localhost:8080)                │
+                 │  - Initiates Auth (POST /auth/start)                             │
                  │  - Authenticates at Rails IdP (http://localhost:3000)            │
                  │  - Returns with code & iss to Demo Client callback               │
                  │  - Configures clients via Next.js Manager (http://localhost:3001)│
@@ -19,19 +19,31 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
              Direct Browser     │    Direct Browser │    Client Admin   │
              Redirects          ▼    Redirects      ▼    UI & WebCrypto ▼
 ┌───────────────────────────────┐ ┌─────────────────────────┐ ┌─────────────────────────────────┐
-│     Ruby Demo Client          │ │ Rails Identity Provider │ │   Next.js Client Manager        │
-│   (http://localhost:8080)     │ │ (http://localhost:3000) │ │   (http://localhost:3001)       │
+│       Thin Client App         │ │ Rails Identity Provider │ │   Next.js Client Manager        │
+│   (e.g., demo-client :8080)   │ │ (http://localhost:3000) │ │   (http://localhost:3001)       │
 ├───────────────────────────────┤ ├─────────────────────────┤ ├─────────────────────────────────┤
-│ • Zero Client Scopes          │ │ • User Login UI         │ │ • In-Browser RSA Key Generator  │
-│ • Ephemeral DPoP Key Pair     │ │ • SHARED_SESSION_ID     │ │ • Server-Determined Scopes Config│
-│ • Local Redis Session (DB 1)  │ │ • Writes user to Redis  │ │ • Proxies to Spring Admin API   │
-│ • Back-Channel Logout Receiver│ └────────────┬────────────┘ └────────┬────────────────────────┘
-└───────────────┬───────────────┘              │                       │
-                │                              │                       │ Admin REST API
-   Backchannel  │ Backchannel PAR & Token      │ Shared Session        │ (POST/GET/DELETE /api/admin)
-   Logout Push  │ (DPoP + private_key_jwt)     │ Context               │ (X-Admin-Api-Key)
-   (/oidc/...)  │                              │ (session:<id>)        │
-                 ▼                              ▼                       ▼
+│ • Pure UI (Landing & Profile) │ │ • User Login UI         │ │ • In-Browser RSA Key Generator  │
+│ • Custom Business Session     │ │ • SHARED_SESSION_ID     │ │ • Server-Determined Scopes Config│
+│ • Calls `identity_checkpoint!`│ │ • Writes user to Redis  │ │ • Proxies to Spring Admin API   │
+└──────────────┬────────────────┘ └────────────┬────────────┘ └────────┬────────────────────────┘
+               │ (Mounts & Calls)              │                       │
+               ▼                               │                       │
+┌───────────────────────────────┐              │                       │
+│    oauth2_client_kit Gem      │              │                       │
+├───────────────────────────────┤              │                       │
+│ • RFC 9126 PAR Engine         │              │                       │
+│ • RFC 7523 private_key_jwt    │              │                       │
+│ • RFC 9449 DPoP + Nonce Loop  │              │                       │
+│ • RFC 7636 PKCE S256          │              │                       │
+│ • RFC 7662 Introspection      │              │                       │
+│ • Backchannel Logout Handler  │              │                       │
+│ • Isolated Token Store (DB 1) │              │                       │
+└──────────────┬────────────────┘              │                       │
+               │                               │                       │ Admin REST API
+   Backchannel │ Backchannel PAR, Token,       │ Shared Session        │ (POST/GET/DELETE /api/admin)
+   Logout Push │ Introspect & Revocation       │ Context               │ (X-Admin-Api-Key)
+   (/oidc/...) │ (DPoP + private_key_jwt)      │ (session:<id>)        │
+               ▼                               ▼                       ▼
 ┌───────────────────────────────────────────────────────────────────────────────────────────────┐
 │                    Spring Authorization Server (http://localhost:9000)                        │
 ├───────────────────────────────────────────────────────────────────────────────────────────────┤
@@ -58,7 +70,7 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 │       (localhost:5432)       │ │       (localhost:6379)       │ │       (localhost:4566)       │
 ├──────────────────────────────┤ ├──────────────────────────────┤ ├──────────────────────────────┤
 │ • oauth2_registered_client   │ │ DB 0: Rails SSO & Spring JTI │ │ • Asymmetric RS256 Hardware  │
-│ • oauth2_authorization       │ │ DB 1: Demo Client Sessions   │ │   Signing (RSA_2048)         │
+│ • oauth2_authorization       │ │ DB 1: Isolated Token Store   │ │   Signing (RSA_2048)         │
 │ • oauth2_authorization_consent│ │ Pub/Sub: Cluster Sync       │ │ • Multi-Key JWKS Rotation    │
 │ • oauth2_client_public_key   │ └──────────────────────────────┘ │ • FIPS 140-2 Level 3 HSM     │
 │ • flyway_schema_history      │                                  └──────────────────────────────┘
@@ -375,15 +387,18 @@ k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 │   ├── app/controllers/sessions_controller.rb      # Writes session:<uuid> to Redis
 │   ├── app/views/sessions/new.html.erb             # User login form
 │   └── README.md                                   # Rails IdP architecture & security documentation
-└── demo-client/                    # Modern Ruby OAuth 2.1 Demo Client (Puma + Redis)
+├── oauth2_client_kit/              # Standalone Reusable OAuth 2.1 & OIDC Client Gem
+│   ├── lib/
+│   │   ├── oauth2_client_kit.rb                    # Top-level gem entrypoint & configuration
+│   │   ├── oauth2_client_kit/client.rb             # Core protocol client (PAR, DPoP, private_key_jwt, OIDC)
+│   │   ├── oauth2_client_kit/token_store.rb        # Redis token & session store with BCL eviction
+│   │   └── oauth2_client_kit/rails/                # Rails integration (Engine, Routes, ControllerMethods, AuthController)
+│   └── README.md                                   # Gem documentation & quickstart
+└── demo-client/                    # Thin Demo Rails App (Pure UI & Action Calls to Gem)
     ├── app/
-    │   ├── controllers/auth_controller.rb           # PAR, DPoP, token exchange, refresh, logout
-    │   ├── services/par_oauth2_client.rb            # DPoP proofs, private_key_jwt assertions
-    │   └── views/auth/                              # Index UI with feature checklist, Profile UI
-    ├── functional_tests/                            # Client copy of functional test suite
-    │   ├── run_functional_tests.sh
-    │   ├── test_oauth_security_features.rb
-    │   ├── test_s3_dynamic_client_reload.rb
-    │   └── test_performance_and_resilience.rb
-    └── README.md                                   # Demo client architecture & security features
+    │   ├── controllers/pages_controller.rb         # Thin pages controller (landing, profile, identity_checkpoint!)
+    │   └── views/pages/                            # Clean landing and profile view templates
+    ├── config/initializers/oauth2_client_kit.rb    # Gem configuration initializer
+    ├── config/routes.rb                            # mount_oauth2_client_kit
+    └── README.md                                   # Demo client documentation
 ```

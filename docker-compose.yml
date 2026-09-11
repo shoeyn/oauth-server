@@ -119,7 +119,8 @@ services:
 
   demo-client:
     build:
-      context: ./demo-client
+      context: .
+      dockerfile: demo-client/Dockerfile
     container_name: poc-demo-client
     ports:
       - "8080:8080"

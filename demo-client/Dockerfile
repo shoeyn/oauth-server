@@ -4,10 +4,14 @@ WORKDIR /app
 
 RUN apt-get update -qq && apt-get install -y build-essential libpq-dev git curl && rm -rf /var/lib/apt/lists/*
 
-COPY Gemfile* ./
+# Copy gem library first
+COPY oauth2_client_kit /oauth2_client_kit
+
+WORKDIR /app
+COPY demo-client/Gemfile* ./
 RUN bundle install
 
-COPY . .
+COPY demo-client .
 
 ENV PORT=8080
 ENV RAILS_ENV=production
