@@ -5,7 +5,7 @@ require "base64"
 require "digest"
 
 module OAuth2ClientKit
-  class AuthController < ActionController::Base
+  class AuthController < ::ApplicationController
     include OAuth2ClientKit::ControllerMethods
 
     skip_before_action :verify_authenticity_token, only: [:backchannel_logout], raise: false
@@ -73,8 +73,7 @@ module OAuth2ClientKit
     # GET /callback
     def callback
       if params[:error].present?
-        flash[:error] = "OAuth Error: #{params[:error]} - #{params[:error_description]}"
-        return redirect_to "/"
+        return handle_auth_error(params[:error], params[:error_description], params[:error_uri])
       end
 
       state_param = params[:state]
@@ -270,6 +269,34 @@ module OAuth2ClientKit
         flash[:notice] = "You have been logged out."
         redirect_to "/"
       end
+    end
+
+    private
+
+    # Handles OAuth 2.1 authentication errors:
+    # 1. Specific error template (e.g. app/views/oauth2_client_kit/auth/access_denied.html.erb)
+    # 2. General error fallback template (app/views/oauth2_client_kit/auth/error.html.erb)
+    def handle_auth_error(error_code, error_description = nil, error_uri = nil)
+      @error = error_code.to_s.strip
+      @error_description = error_description.to_s.strip if error_description.present?
+      @error_uri = error_uri.to_s.strip if error_uri.present?
+
+      OAuth2ClientKit.logger.warn("OAuth Callback Error encountered: error=#{@error}, description=#{@error_description}")
+
+      status = case @error
+               when "access_denied", "unauthorized_client"
+                 :forbidden # 403
+               when "login_required", "interaction_required", "account_selection_required"
+                 :unauthorized # 401
+               else
+                 :bad_request # 400
+               end
+
+      sanitized_error = @error.gsub(/[^a-zA-Z0-9_\-]/, "")
+      specific_template = "oauth2_client_kit/auth/#{sanitized_error}"
+
+      template_to_render = lookup_context.exists?(specific_template) ? specific_template : "oauth2_client_kit/auth/error"
+      render template_to_render, status: status
     end
   end
 end

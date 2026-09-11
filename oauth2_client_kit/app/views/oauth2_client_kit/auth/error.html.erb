@@ -1,0 +1,43 @@
+<div class="card" style="border-top: 4px solid var(--error, #ef4444); max-width: 760px; margin: 1rem auto 2rem;">
+  <div style="display: flex; align-items: flex-start; gap: 1.25rem; margin-bottom: 1.5rem;">
+    <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1.5rem;">
+      ⚠️
+    </div>
+    <div style="flex: 1;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+        <h1 style="font-size: 1.5rem; font-weight: 700; color: var(--text, #f8fafc); margin: 0; letter-spacing: -0.02em;">Authentication Failed</h1>
+        <span style="display: inline-block; background: rgba(239, 68, 68, 0.18); border: 1px solid rgba(239, 68, 68, 0.35); color: #fca5a5; font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.65rem; border-radius: 9999px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+          <%= @error || "authentication_error" %>
+        </span>
+      </div>
+      <p style="color: var(--text-muted, #94a3b8); font-size: 0.95rem; margin-top: 0.35rem; margin-bottom: 0; line-height: 1.5;">
+        We could not complete your sign-in request with the authorization server.
+      </p>
+    </div>
+  </div>
+
+  <div style="background: var(--code-bg, #090d16); border: 1px solid var(--border, #334155); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.75rem;">
+    <span style="display: block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted, #64748b); margin-bottom: 0.35rem;">Status Details</span>
+    <div style="color: var(--text, #f8fafc); font-size: 0.925rem; line-height: 1.55; word-break: break-word;">
+      <%= @error_description.presence || "The authentication server declined the authorization request or the session is no longer active." %>
+    </div>
+    <% if @error_uri.present? %>
+      <div style="padding-top: 0.75rem; margin-top: 0.75rem; border-top: 1px solid var(--border, #334155);">
+        <span style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted, #64748b); margin-bottom: 0.25rem; display: block;">Documentation</span>
+        <a href="<%= @error_uri %>" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: underline; font-size: 0.85rem; word-break: break-all;">
+          <%= @error_uri %> &rarr;
+        </a>
+      </div>
+    <% end %>
+  </div>
+
+  <div class="btn-group" style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+    <%= button_to auth_start_path, method: :post, class: "btn" do %>
+      🔄 Try Again
+    <% end %>
+
+    <a href="/" class="btn btn-outline">
+      Return to Home
+    </a>
+  </div>
+</div>
