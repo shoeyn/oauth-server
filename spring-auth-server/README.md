@@ -33,7 +33,7 @@ A hardened, enterprise **OAuth 2.1 Authorization Server** built with **Spring Bo
    - **Distributed Authorizations**: [`JdbcOAuth2AuthorizationService`](src/main/java/com/example/authserver/config/AuthorizationServerConfig.java) stores active authorization codes, refresh tokens, and consent state in PostgreSQL (`oauth2_authorization`, `oauth2_authorization_consent`), enabling seamless multi-pod horizontal scaling and zero session loss on restarts.
    - **Database Evolution via Flyway**: Automated migrations manage schema versioning and B-tree index creation in `db/migration/`.
    - **Java Admin REST API**: External managers invoke authenticated endpoints (`/api/admin/clients`) on the Java service, preserving zero-trust isolation so **only Java communicates with PostgreSQL**.
-   - **Real-Time Cluster Hot-Reloading**: [`ClientReloadRedisSubscriber`](src/main/java/com/example/authserver/client/ClientReloadRedisSubscriber.java) listens to Redis channel `oauth2:clients:reload`. Updates refresh in-memory maps across all nodes instantaneously without restarting Spring Boot.
+   - **Real-Time Cluster Hot-Reloading**: [`ClientReloadRedisSubscriber`](src/main/java/com/example/authserver/client/ClientReloadRedisSubscriber.java) listens to Redis channel `oauth2as:clients:reload`. Updates refresh in-memory maps across all nodes instantaneously without restarting Spring Boot.
    - For complete architecture details, see [PostgreSQL Persistence & Performance Architecture](../docs/architecture/postgres_persistence_and_performance.md).
 
 6. **Mandatory DPoP Proofs & Server-Provided Nonces (RFC 9449 Section 5 & 8)**:

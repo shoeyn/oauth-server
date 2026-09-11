@@ -103,20 +103,13 @@ module OAuth2ClientKit
 
     # Exchanges an authorization code for tokens with PKCE code_verifier,
     # private_key_jwt client assertion, and optional RFC 9449 DPoP proof header.
-    # Uses string keys for body params to be explicit about the oauth2 gem's
-    # authenticator merge behavior (auth_code.get_token converts symbol→string,
-    # but string keys make the intent clear and avoid accidental duplication).
     def exchange_code(code, code_verifier, redirect_uri, dpop_key = nil)
-      assertion = build_client_assertion(token_url)
-
-      params = {
+      params = client_assertion_payload(token_url).merge(
         "grant_type" => "authorization_code",
         "code" => code,
         "redirect_uri" => redirect_uri,
-        "code_verifier" => code_verifier,
-        "client_assertion_type" => "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-        "client_assertion" => assertion
-      }
+        "code_verifier" => code_verifier
+      )
 
       if dpop_key.present?
         dpop_proof = build_dpop_proof("POST", token_url, nil, dpop_key)
@@ -130,7 +123,7 @@ module OAuth2ClientKit
         server_nonce = e.response&.headers&.[]("dpop-nonce") || e.response&.headers&.[]("DPoP-Nonce")
         if server_nonce.present? && dpop_key.present?
           OAuth2ClientKit.logger.info("Captured RFC 9449 DPoP-Nonce '#{server_nonce}'. Retrying code exchange with bound nonce.")
-          params["client_assertion"] = build_client_assertion(token_url)
+          params.merge!(client_assertion_payload(token_url))
           params[:headers] = { "DPoP" => build_dpop_proof("POST", token_url, nil, dpop_key, server_nonce) }
           auth_code.get_token(code, params)
         else
@@ -322,18 +315,9 @@ module OAuth2ClientKit
     end
 
     # Refresh Token Grant (RFC 6749 / OAuth 2.1)
-    # Uses string keys for body params to avoid duplication with the oauth2 gem's
-    # authenticator (which prepends "client_id" as a string key via :request_body scheme).
-    # DPoP header is passed via params[:headers] — a reserved symbol key that
-    # parse_snaky_params_headers extracts and sends as an HTTP header.
     def refresh_access_token(refresh_token_value, dpop_key = nil)
-      assertion = build_client_assertion(token_url)
       token_obj = OAuth2::AccessToken.new(self, "", refresh_token: refresh_token_value)
-
-      params = {
-        "client_assertion_type" => "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-        "client_assertion" => assertion
-      }
+      params = client_assertion_payload(token_url)
 
       if dpop_key.present?
         dpop_proof = build_dpop_proof("POST", token_url, nil, dpop_key)
@@ -347,7 +331,7 @@ module OAuth2ClientKit
         server_nonce = e.response&.headers&.[]("dpop-nonce") || e.response&.headers&.[]("DPoP-Nonce")
         if server_nonce.present? && dpop_key.present?
           OAuth2ClientKit.logger.info("Captured RFC 9449 DPoP-Nonce '#{server_nonce}' on refresh. Retrying token refresh with bound nonce.")
-          params["client_assertion"] = build_client_assertion(token_url)
+          params.merge!(client_assertion_payload(token_url))
           params[:headers] = { "DPoP" => build_dpop_proof("POST", token_url, nil, dpop_key, server_nonce) }
           token_obj.refresh!(params)
         else
@@ -529,6 +513,18 @@ module OAuth2ClientKit
       end
 
       payload
+    end
+
+    # Builds authenticated request body params with string keys for oauth2 gem token operations
+    # (code exchange, refresh token) where client_id is injected by the authenticator strategy.
+    #
+    # @param endpoint_url [String] The audience URL for the client assertion
+    # @return [Hash] Params with client_assertion_type and client_assertion
+    def client_assertion_payload(endpoint_url = token_url)
+      {
+        "client_assertion_type" => "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        "client_assertion" => build_client_assertion(endpoint_url)
+      }
     end
 
     # Builds the common authenticated request body params for token endpoint operations

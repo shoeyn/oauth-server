@@ -25,7 +25,7 @@ flowchart TD
     end
 
     subgraph ClusterSync ["Cluster Notification Tier (Port 6379)"]
-        RedisPubSub["Redis Pub/Sub Channel<br/>'oauth2:clients:reload'<br/>• Instantaneous cluster cache invalidation"]
+        RedisPubSub["Redis Pub/Sub Channel<br/>'oauth2as:clients:reload'<br/>• Instantaneous cluster cache invalidation"]
     end
 
     subgraph DataTier ["Isolated Database Tier (Port 5432)"]
@@ -98,7 +98,7 @@ sequenceDiagram
     PG-->>SpringAdmin: Row persisted (ACID commit)
     Note over SpringAdmin: Refresh local L1 near-cache
 
-    SpringAdmin->>Redis: PUBLISH oauth2:clients:reload {"action":"save", "clientId":"<id>"}
+    SpringAdmin->>Redis: PUBLISH oauth2as:clients:reload {"action":"save", "clientId":"<id>"}
     SpringAdmin-->>Manager: HTTP 201 Created
     deactivate SpringAdmin
 
@@ -130,7 +130,7 @@ sequenceDiagram
     SpringAdmin->>PG: DELETE FROM oauth2_client_public_key WHERE client_id = 'test-client'<br/>DELETE FROM oauth2_registered_client WHERE client_id = 'test-client'
     PG-->>SpringAdmin: Rows deleted
     Note over SpringAdmin: Evict 'test-client' from local L1 near-cache
-    SpringAdmin->>Redis: PUBLISH oauth2:clients:reload {"action":"delete", "clientId":"test-client"}
+    SpringAdmin->>Redis: PUBLISH oauth2as:clients:reload {"action":"delete", "clientId":"test-client"}
     SpringAdmin-->>Manager: HTTP 200 OK
     deactivate SpringAdmin
     Manager-->>Admin: Client deleted

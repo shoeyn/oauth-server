@@ -3,6 +3,7 @@ package com.example.authserver.client;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
@@ -23,7 +24,7 @@ public class ClientReloadRedisSubscriber {
         container.setConnectionFactory(connectionFactory);
 
         MessageListenerAdapter adapter = new MessageListenerAdapter(
-                (org.springframework.data.redis.connection.MessageListener) (message, pattern) -> {
+                (MessageListener) (message, pattern) -> {
                     String channel = new String(message.getChannel());
                     String body = new String(message.getBody());
                     log.info("Received Redis pub/sub reload signal on channel '{}': {}", channel, body);

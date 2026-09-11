@@ -2,6 +2,9 @@
 
 A modern, responsive administrative web application and REST API for managing registered OAuth 2.1 client configurations via Spring Authorization Server's secure administrative interface, persisted in **PostgreSQL** with instantaneous cluster near-cache synchronization.
 
+> [!TIP]
+> **Client Developer Onboarding:** For full instructions on generating client keys, registering client details, and integrating a Rails client application, refer to the [New Client Onboarding & Integration Guide](../docs/guides/new_client_onboarding_guide.md).
+
 ---
 
 ## Architecture Overview
@@ -29,7 +32,7 @@ A modern, responsive administrative web application and REST API for managing re
         +-----------------------------+                  +---------------------------+
         | PostgreSQL (Port 5432)      |                  | Redis (Port 6379)         |
         | - oauth2_registered_client  |                  | Channel:                  |
-        | - oauth2_client_public_key  |                  | oauth2:clients:reload     |
+        | - oauth2_client_public_key  |                  | oauth2as:clients:reload     |
         +-----------------------------+                  +---------------------------+
 ```
 
@@ -51,7 +54,7 @@ A modern, responsive administrative web application and REST API for managing re
    - Guarantees clients cannot self-assign privileged scopes.
 
 4. **Real-Time Cluster Invalidation**:
-   - When a client is created, updated, or deleted, Spring updates PostgreSQL, purges its local L1 near-cache, and broadcasts an invalidation notice across the cluster via Redis Pub/Sub (`oauth2:clients:reload`).
+   - When a client is created, updated, or deleted, Spring updates PostgreSQL, purges its local L1 near-cache, and broadcasts an invalidation notice across the cluster via Redis Pub/Sub (`oauth2as:clients:reload`).
 
 ---
 

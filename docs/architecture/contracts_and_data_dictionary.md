@@ -95,10 +95,10 @@ The platform partitions Redis data structures across logical databases to preven
 
 | Redis DB | Key Pattern / Channel | Type | TTL | Producer | Consumer | Purpose |
 |:---:|---|:---:|:---:|---|---|---|
-| **DB 0** | `session:<uuid>` | `STRING` (JSON) | 7,200s (2 hrs) | Rails IdP | Spring Auth Server | Shared SSO user session state |
-| **DB 0** | `oauth2:dpop:nonce:<nonce>` | `STRING` | 60s | Spring Auth Server | Spring Auth Server | RFC 9449 single-use DPoP replay nonces |
-| **DB 0** | `oauth2:jti:<jti_uuid>` | `STRING` | Assertion TTL | Spring Auth Server | Spring Auth Server | RFC 7523 `private_key_jwt` client assertion replay prevention |
-| **DB 0** | `oauth2:clients:reload` | `PUB/SUB` | Ephemeral | Spring Auth Server (`ClientAdminController`) | All Spring Auth Server Cluster Nodes | Near-cache cluster invalidation broadcast |
+| **DB 0** | `session:<uuid>` | `STRING` (JSON) | 7,200s (2 hrs) | Rails IdP | Spring Auth Server | Shared SSO user session state (cross-app boundary) |
+| **DB 0** | `oauth2as:dpop_nonce:<nonce>` | `STRING` | 60s | Spring Auth Server | Spring Auth Server | RFC 9449 single-use DPoP replay nonces |
+| **DB 0** | `oauth2as:jti:<jti_uuid>` | `STRING` | Assertion TTL (5m) | Spring Auth Server | Spring Auth Server | RFC 7523 `private_key_jwt` client assertion replay prevention |
+| **DB 0** | `oauth2as:clients:reload` | `PUB/SUB` | N/A | Next.js API / Spring Admin | Spring Auth Server Instances | Cluster cache invalidation broadcast for registered clients |
 | **DB 1** | `demo:tokens:<session_id>` | `STRING` (JSON) | 86,400s (24 hrs) | Demo Client (`demo-client`) | Demo Client (`demo-client`) | Persistent storage for Access, ID, and Refresh tokens |
 
 ---

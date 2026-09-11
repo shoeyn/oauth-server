@@ -18,7 +18,10 @@ A high-assurance, production-grade Ruby library and mountable Rails Engine for O
 
 ---
 
-## Installation
+## Installation & Onboarding
+
+> [!TIP]
+> **Complete Step-by-Step Onboarding Guide:** See [`docs/guides/new_client_onboarding_guide.md`](../docs/guides/new_client_onboarding_guide.md) for full instructions on key generation, registering via the Client Configuration Manager, and testing your OAuth 2.1 integration.
 
 Add to your application's `Gemfile`:
 

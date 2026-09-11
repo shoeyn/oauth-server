@@ -2,6 +2,7 @@ package com.example.authserver.config;
 
 import com.example.authserver.security.KmsJwtEncoder;
 import com.example.authserver.security.KmsRsaSigner;
+import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSSigner;
 import com.nimbusds.jose.crypto.RSASSASigner;
 import com.nimbusds.jose.jwk.JWK;
@@ -32,6 +33,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.util.StringUtils;
 import software.amazon.awssdk.services.kms.KmsClient;
@@ -97,6 +99,7 @@ public class KeyConfig {
 
                 return new RSAKey.Builder(publicKey)
                         .keyID("kms-auth-server-key-1")
+                        .algorithm(JWSAlgorithm.RS256)
                         .build();
             } catch (Exception ex) {
                 log.error("Strict Fail-Closed: Failed to retrieve active public key from AWS KMS for {}: {}",
@@ -117,6 +120,7 @@ public class KeyConfig {
             return new RSAKey.Builder(publicKey)
                     .privateKey(privateKey)
                     .keyID("auth-server-key-1")
+                    .algorithm(JWSAlgorithm.RS256)
                     .build();
         }
     }
@@ -178,6 +182,7 @@ public class KeyConfig {
 
                     RSAKey prevRsaKey = new RSAKey.Builder(prevPublicKey)
                             .keyID("kms-auth-server-key-previous")
+                            .algorithm(JWSAlgorithm.RS256)
                             .build();
 
                     jwkList.add(prevRsaKey.toPublicJWK());
@@ -201,8 +206,8 @@ public class KeyConfig {
      */
     @Bean
     public JwtDecoder jwtDecoder(JWKSource<SecurityContext> jwkSource) {
-        org.springframework.security.oauth2.jwt.NimbusJwtDecoder jwtDecoder =
-                (org.springframework.security.oauth2.jwt.NimbusJwtDecoder) OAuth2AuthorizationServerConfiguration.jwtDecoder(jwkSource);
+        NimbusJwtDecoder jwtDecoder =
+                (NimbusJwtDecoder) OAuth2AuthorizationServerConfiguration.jwtDecoder(jwkSource);
 
         OAuth2TokenValidator<Jwt> algorithmValidator = (jwt) -> {
             Object alg = jwt.getHeaders().get("alg");

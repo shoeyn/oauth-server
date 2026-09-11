@@ -96,7 +96,7 @@ public class SessionInfoController {
                     }
                 }
 
-                Authentication userAuth = singleAuthorization.getAttribute(java.security.Principal.class.getName());
+                Authentication userAuth = singleAuthorization.getAttribute(Principal.class.getName());
                 if (userAuth != null && userAuth.getDetails() instanceof Map<?, ?> details) {
                     Object sidObj = details.get("session_id");
                     if (sidObj != null && (resolvedSessionId == null || resolvedSessionId.isBlank())) {

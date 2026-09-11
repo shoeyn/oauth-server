@@ -86,7 +86,7 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 | Domain | Standard / Mechanism | Implementation Details |
 |---|---|---|
 | **Persistence** | **PostgreSQL & Flyway Migrations** | Complete ACID persistence for runtime authorization codes, user consent, refresh tokens, and registered clients via [`JdbcOAuth2AuthorizationService`](spring-auth-server/src/main/java/com/example/authserver/config/AuthorizationServerConfig.java) and [`PostgresRegisteredClientRepository`](spring-auth-server/src/main/java/com/example/authserver/client/PostgresRegisteredClientRepository.java). Conforms strictly to organization policy: **only the Java application connects to PostgreSQL**. |
-| **Performance** | **In-Memory Near-Cache** | Pre-warmed L1 `ConcurrentHashMap` cache serves steady-state authorization checks in ~0.001 ms with **zero database round-trips**. Real-time cluster invalidation via Redis Pub/Sub (`oauth2:clients:reload`). |
+| **Performance** | **In-Memory Near-Cache** | Pre-warmed L1 `ConcurrentHashMap` cache serves steady-state authorization checks in ~0.001 ms with **zero database round-trips**. Real-time cluster invalidation via Redis Pub/Sub (`oauth2as:clients:reload`). |
 | **Protocol** | **OAuth 2.1 (Draft 11)** | Strictly enforces PKCE S256 (`requireProofKey: true`), rejects plain `code_challenge_method`, disallows implicit and resource owner password grants. |
 | **Client Auth** | **RFC 7523 private_key_jwt** | Asymmetric client assertions signed with client RSA/EC private keys. Weak methods (`client_secret_basic`, `client_secret_post`) are rejected. JTI replay caching in Redis. |
 | **Sender Constraints** | **RFC 9449 DPoP** | Mandatory DPoP proof on token requests. Access tokens are cryptographically bound to client keys via `cnf.jkt` claim. |
@@ -116,7 +116,7 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 | **RFC 7009** | **Token Revocation** | Clients revoke tokens via `/oauth2/revoke` authenticated with `private_key_jwt`. Revocation invalidates the authorization and immediately flushes local and distributed sessions. |
 | **RFC 7662** | **Token Introspection** | Resource servers and clients check token validity in real time at `/oauth2/introspect` using `private_key_jwt`. Useful for immediate fraud checks prior to executing sensitive actions. |
 | **OIDC BCL 1.0** | **Back-Channel Logout 1.0** | Spring Authorization Server dispatches a signed JWT `logout_token` asynchronously to the client's backchannel endpoint (`/oidc/backchannel_logout`), terminating the user's session without relying on user-agent redirection. |
-| **Config Mgmt** | **PostgreSQL & In-Memory Near-Cache** | Next.js writes client registrations directly to Spring Authorization Server via authenticated Admin REST API (`X-Admin-Api-Key`). Spring stores clients in PostgreSQL (`oauth2_registered_client`) with strict ACID guarantees. An in-memory L1 cache (`ConcurrentHashMap`) serves runtime authorization checks in ~0.001 ms with zero database round-trips. Real-time cluster cache eviction via Redis Pub/Sub (`oauth2:clients:reload`). |
+| **Config Mgmt** | **PostgreSQL & In-Memory Near-Cache** | Next.js writes client registrations directly to Spring Authorization Server via authenticated Admin REST API (`X-Admin-Api-Key`). Spring stores clients in PostgreSQL (`oauth2_registered_client`) with strict ACID guarantees. An in-memory L1 cache (`ConcurrentHashMap`) serves runtime authorization checks in ~0.001 ms with zero database round-trips. Real-time cluster cache eviction via Redis Pub/Sub (`oauth2as:clients:reload`). |
 
 ---
 
@@ -252,6 +252,20 @@ docker compose up --build -d
 
 ---
 
+## Connecting a New Client Application
+
+To onboard a new application or service (e.g. Rails web app or backend microservice) with this authorization service:
+
+1. **Generate RSA Key Pair**: Create a dedicated 2048-bit RSA key pair (`config/keys/client_private_key.pem`).
+2. **Register in Client Manager**: Provide your Client ID, Redirect URIs, and Public Key PEM via the [Client Manager UI](http://localhost:3001) or Admin REST API (`POST /api/admin/clients`).
+3. **Install Client Library**: Add `gem "oauth2_client_kit"` to your `Gemfile` and run `bundle install`.
+4. **Configure Initializer**: Set up `config/initializers/oauth2_client_kit.rb` with your `client_id`, private key, and issuer URL.
+5. **Mount Routes & Protect Controllers**: Add `mount_oauth2_client_kit` to `config/routes.rb` and `require_authentication!` to your controllers.
+
+> 📖 **Full Step-by-Step Guide:** Read the [New Client Onboarding & Integration Guide](docs/guides/new_client_onboarding_guide.md) for complete copy-paste code snippets, environment variable reference tables, sensitive action checkpoints (`identity_checkpoint!`), and troubleshooting tips.
+
+---
+
 ## Running the Automated Functional Test Suites
 
 A comprehensive, multi-step automated test harness is provided across all subprojects, verifying both core OAuth 2.1 security features and dynamic PostgreSQL client configuration with Redis hot-reloading:
@@ -268,7 +282,7 @@ A comprehensive, multi-step automated test harness is provided across all subpro
 2. **Suite 2: Dynamic PostgreSQL Client Config & Redis Hot-Reload (`test_s3_dynamic_client_reload.rb`)**
    - Next.js REST API & Spring Admin REST API connectivity
    - On-the-fly 2048-bit RSA key pair generation & client creation via `POST /api/clients`
-   - Real-time Redis Pub/Sub notification (`oauth2:clients:reload`) & Spring dynamic near-cache reload
+   - Real-time Redis Pub/Sub notification (`oauth2as:clients:reload`) & Spring dynamic near-cache reload
    - Dynamic client authentication (PAR + PKCE + `private_key_jwt` + DPoP token exchange)
    - Dynamic client deletion via `DELETE /api/clients/:id` & immediate HTTP 401 revocation
 
@@ -320,15 +334,17 @@ k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 
 ### Measured Performance Benchmarks:
 
-| Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS) | Evaluation |
+| Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS + JARM) | Evaluation |
 |---|---|---|---|
 | **Cryptographic Boundary** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 (KMS HSM)** | Maximum hardware protection |
 | **Algorithm Pinning** | Optional | **Strict RS256 enforced (`none` & `HS256` rejected)** | Pinning active |
 | **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime cutover |
-| **Auth Session Success Rate** | `98.79%` | **`98.00%`** | **Passed** (>95% threshold) |
-| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~23,640 sessions/hr** | **~8x above target** ("few thousand/hr") |
-| **Full Session Latency (p95)** | `146 ms` | **`425 ms`** | **Passed** (<1,500 ms threshold) |
-| **Total HTTP Error Rate** | `0.04%` | **`0.08%`** | **99.92% success rate** |
+| **KMS Signatures / Flow** | 0 (Local CPU) | **3 (JARM Auth Code + Access Token + ID Token)** | Full cryptographic auditability |
+| **Auth Session Success Rate** | `98.79%` | **`100.00%`** (167 / 167 completed) | **Flawless (Zero Failures)** |
+| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~20,040 sessions/hr** | **~2x–5.5x above target** ("few thousand/hr") |
+| **Full Session Latency (median)** | `112 ms` | **`437 ms`** (6 hops + 3 KMS calls + DB + Redis) | Sub-450ms median latency |
+| **Full Session Latency (p95)** | `146 ms` | **`586.2 ms`** | **Passed** (<1,500 ms SLA threshold) |
+| **Total HTTP Error Rate** | `0.04%` | **`0.00%`** (0 / 4,232 requests failed) | **100.00% success rate** |
 | **Discovery & JWKS ETag 304 Rate**| `100.00%` | **`100.00%`** (724 / 724) | Zero payload bandwidth |
 
 ---
@@ -351,6 +367,10 @@ k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 │       ├── token_lifecycle_and_logout_flow.md# Revocation, Introspection, and Backchannel Logout flows
 │       ├── postgres_persistence_and_performance.md # Rationale for DB-backed clients & Java isolation
 │       └── performance_and_scalability.md   # Bottleneck audit, 4000x speedup, k6 results, scale roadmap
+│   └── guides/
+│       ├── new_client_onboarding_guide.md   # Step-by-step onboarding for new client applications
+│       ├── developer_cookbook.md            # Dual-mode execution, custom claims, and cache invalidation
+│       └── testing_and_troubleshooting.md   # Security testing and debugging runbooks
 ├── localstack/                     # LocalStack AWS KMS initialization & key provisioning
 │   └── init/02-init-kms.sh         # Provisions RSA_2048 signing keys in KMS with alias
 ├── client-manager/                 # Next.js 15 OAuth 2.1 Client Configuration Manager
@@ -373,7 +393,7 @@ k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 │       ├── java/com/example/authserver/
 │       │   ├── client/
 │       │   │   ├── PostgresRegisteredClientRepository.java # Near-cached PostgreSQL client repository
-│       │   │   ├── ClientReloadRedisSubscriber.java        # Listens to oauth2:clients:reload
+│       │   │   ├── ClientReloadRedisSubscriber.java        # Listens to oauth2as:clients:reload
 │       │   │   └── ClientConfigDto.java                    # Jackson DTO for client configurations
 │       │   ├── config/
 │       │   │   ├── AuthorizationServerConfig.java          # Strict converters, PAR, DPoP, revocation

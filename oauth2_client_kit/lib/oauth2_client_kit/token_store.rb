@@ -39,12 +39,12 @@ module OAuth2ClientKit
     end
 
     # Evicts all tokens and sessions matching sub or sid across Redis (for Back-Channel Logout)
+    # Uses non-blocking SCAN cursor (scan_each) to avoid blocking the Redis server in shared environments.
     def evict_sessions_for!(sub: nil, sid: nil)
       evicted_count = 0
 
-      # Match Rails session keys in DB 1 (e.g. demo_client:_session_id:*)
-      session_keys = @redis.keys("*_session_id:*")
-      session_keys.each do |key|
+      # Match Rails session keys (e.g. demo_client:_session_id:* or _session_id:*)
+      @redis.scan_each(match: "*_session_id:*") do |key|
         raw_val = @redis.get(key)
         if raw_val.present? && ((sid.present? && raw_val.include?(sid)) || (sub.present? && raw_val.include?(sub)))
           @redis.del(key)
@@ -53,9 +53,8 @@ module OAuth2ClientKit
         end
       end
 
-      # Match token keys in DB 1 (e.g. demo_client:token:* or token:*)
-      token_keys = @redis.keys("*token:*")
-      token_keys.each do |key|
+      # Match token keys (e.g. demo_client:token:* or token:*)
+      @redis.scan_each(match: "*token:*") do |key|
         raw_val = @redis.get(key)
         if raw_val.present? && ((sid.present? && raw_val.include?(sid)) || (sub.present? && raw_val.include?(sub)))
           @redis.del(key)

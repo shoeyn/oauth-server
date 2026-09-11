@@ -5,6 +5,7 @@ import com.example.authserver.client.ClientReloadRedisSubscriber;
 import com.example.authserver.client.PostgresRegisteredClientRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -57,7 +58,7 @@ public class ClientAdminController {
         String pem = "";
         if (pubKey != null) {
             try {
-                String b64 = java.util.Base64.getEncoder().encodeToString(pubKey.getEncoded());
+                String b64 = Base64.getEncoder().encodeToString(pubKey.getEncoded());
                 pem = "-----BEGIN PUBLIC KEY-----\n" + b64.replaceAll("(.{64})", "$1\n").trim() + "\n-----END PUBLIC KEY-----";
             } catch (Exception ignored) {}
         }

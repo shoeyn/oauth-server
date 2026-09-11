@@ -1,5 +1,6 @@
 package com.example.authserver.config;
 
+import com.example.authserver.client.PostgresRegisteredClientRepository;
 import com.example.authserver.security.ClientAssertionDecoderFactory;
 import com.example.authserver.security.ClientPreDeterminedScopeAuthorizationRequestConverter;
 import com.example.authserver.security.DPoPNonceFilter;
@@ -8,12 +9,11 @@ import com.example.authserver.security.OidcBackChannelLogoutService;
 import com.example.authserver.security.SharedRedisSessionFilter;
 import com.example.authserver.security.StrictClientAssertionAuthenticationConverter;
 import com.example.authserver.security.StrictDPoPTokenRequestAuthenticationConverter;
-import java.time.Duration;
-import java.util.Collections;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
@@ -28,27 +28,22 @@ import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.oauth2.server.authorization.OAuth2AuthorizationServerConfigurer;
-import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
-import org.springframework.security.oauth2.core.OAuth2Error;
-import org.springframework.security.oauth2.core.OAuth2TokenValidator;
-import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.core.oidc.OidcUserInfo;
-import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
-import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.authentication.JwtClientAssertionAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
+import org.springframework.security.oauth2.server.authorization.oidc.authentication.OidcLogoutAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.oidc.authentication.OidcUserInfoAuthenticationContext;
+import org.springframework.security.oauth2.server.authorization.oidc.web.authentication.OidcLogoutAuthenticationSuccessHandler;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
@@ -67,7 +62,7 @@ public class AuthorizationServerConfig {
     @Order(Ordered.HIGHEST_PRECEDENCE)
     public SecurityFilterChain authorizationServerSecurityFilterChain(
             HttpSecurity http,
-            com.example.authserver.client.PostgresRegisteredClientRepository registeredClientRepository,
+            PostgresRegisteredClientRepository registeredClientRepository,
             OAuth2AuthorizationService authorizationService,
             StringRedisTemplate redisTemplate,
             OidcBackChannelLogoutService oidcBackChannelLogoutService,
@@ -110,14 +105,14 @@ public class AuthorizationServerConfig {
                         .logoutEndpoint(logoutEndpoint -> logoutEndpoint
                             .errorResponseHandler((request, response, exception) -> {
                                 log.warn("OIDC Logout validation failure: {}", exception.getMessage());
-                                response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_BAD_REQUEST);
+                                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
                                 response.setContentType("application/json");
                                 response.getWriter().write("{\"error\":\"invalid_request\",\"error_description\":\"" + exception.getMessage().replace("\"", "'") + "\"}");
                             })
                             .logoutResponseHandler((request, response, authentication) -> {
                                 String sessionId = null;
                                 if (request.getCookies() != null) {
-                                    for (jakarta.servlet.http.Cookie c : request.getCookies()) {
+                                    for (Cookie c : request.getCookies()) {
                                         if ("SHARED_SESSION_ID".equals(c.getName())) {
                                             sessionId = c.getValue();
                                             break;
@@ -128,7 +123,7 @@ public class AuthorizationServerConfig {
                                     redisTemplate.delete("session:" + sessionId);
                                     log.info("Evicted SHARED_SESSION_ID from Redis on OIDC logout: {}", sessionId);
                                 }
-                                jakarta.servlet.http.Cookie clearedCookie = new jakarta.servlet.http.Cookie("SHARED_SESSION_ID", "");
+                                Cookie clearedCookie = new Cookie("SHARED_SESSION_ID", "");
                                 clearedCookie.setPath("/");
                                 clearedCookie.setMaxAge(0);
                                 clearedCookie.setHttpOnly(true);
@@ -137,7 +132,7 @@ public class AuthorizationServerConfig {
                                 // OpenID Connect Back-Channel Logout 1.0:
                                 // Asynchronously dispatch signed logout_token to registered client back-channel endpoint
                                 String logoutClientId = null;
-                                if (authentication instanceof org.springframework.security.oauth2.server.authorization.oidc.authentication.OidcLogoutAuthenticationToken logoutToken) {
+                                if (authentication instanceof OidcLogoutAuthenticationToken logoutToken) {
                                     logoutClientId = logoutToken.getClientId();
                                 }
                                 if (logoutClientId != null && !logoutClientId.isBlank()) {
@@ -149,8 +144,8 @@ public class AuthorizationServerConfig {
                                 }
 
                                 // Delegate to standard OIDC logout success handler for redirect to post_logout_redirect_uri
-                                org.springframework.security.oauth2.server.authorization.oidc.web.authentication.OidcLogoutAuthenticationSuccessHandler defaultHandler =
-                                        new org.springframework.security.oauth2.server.authorization.oidc.web.authentication.OidcLogoutAuthenticationSuccessHandler();
+                                OidcLogoutAuthenticationSuccessHandler defaultHandler =
+                                        new OidcLogoutAuthenticationSuccessHandler();
                                 defaultHandler.onAuthenticationSuccess(request, response, authentication);
                             })
                         )
@@ -177,7 +172,7 @@ public class AuthorizationServerConfig {
                 .contentTypeOptions(Customizer.withDefaults())
                 .frameOptions(frame -> frame.deny())
                 .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"))
-                .referrerPolicy(referrer -> referrer.policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                .referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
             )
             .authorizeHttpRequests((authorize) ->
                 authorize.anyRequest().authenticated()
@@ -205,7 +200,7 @@ public class AuthorizationServerConfig {
     }
 
     private Consumer<List<AuthenticationProvider>> configureClientAssertionAuthentication(
-            com.example.authserver.client.PostgresRegisteredClientRepository registeredClientRepository,
+            PostgresRegisteredClientRepository registeredClientRepository,
             StringRedisTemplate redisTemplate) {
         return (authenticationProviders) -> {
             // Permit only asymmetric private_key_jwt client authentication
