@@ -35,7 +35,7 @@ This document details the introduction of **PostgreSQL** as the canonical, ACID-
 └─────────────────────────────┼────────────────┼───────────────────────────────────┘
                               │                │
             Admin REST API    │                │ Redis Pub/Sub Cluster Sync
-    (X-Admin-Api-Key Auth)    │                │ (Channel: oauth2:clients:reload)
+    (X-Admin-Api-Key Auth)    │                │ (Channel: oauth2as:clients:reload)
                               │                │
 ┌─────────────────────────────┴────────┐ ┌─────┴───────────────────────────────────┐
 │     Next.js Client Manager (3001)    │ │      Redis L2 Cache & Pub/Sub (6379)    │
@@ -142,7 +142,7 @@ sequenceDiagram
     Java->>Java: Validate Scopes, Redirect URIs & RSA Key PEM
     Java->>PG: INSERT INTO oauth2_registered_client & public_key (ACID Commit)
     Java->>Java: Update Local Near-Cache (Immediate reflection on Node 1)
-    Java->>Redis: PUBLISH oauth2:clients:reload {"action":"save","clientId":"..."}
+    Java->>Redis: PUBLISH oauth2as:clients:reload {"action":"save","clientId":"..."}
     Redis-->>Node2: Message Received on Channel
     Node2->>PG: Refresh RegisteredClient & Key into Memory
     Node2->>Node2: Near-Cache Updated (Sub-second reflection on Node 2)
@@ -152,7 +152,7 @@ sequenceDiagram
 ### Invalidation & Propagation Guarantee:
 1. **Atomic Mutation:** A client update or deletion is written transactionally to PostgreSQL.
 2. **Local Cache Eviction:** The node handling the mutation updates its `ConcurrentHashMap` immediately (zero-lag).
-3. **Cluster Broadcast:** A lightweight JSON message is published to Redis Pub/Sub channel `oauth2:clients:reload`.
+3. **Cluster Broadcast:** A lightweight JSON message is published to Redis Pub/Sub channel `oauth2as:clients:reload`.
 4. **Sub-Second Synchronization:** All other cluster nodes receive the event and reload the updated definition from PostgreSQL within milliseconds.
 5. **Zero Downtime:** Client additions, key rotations, and revocations take effect immediately across all nodes without requiring a server restart.
 

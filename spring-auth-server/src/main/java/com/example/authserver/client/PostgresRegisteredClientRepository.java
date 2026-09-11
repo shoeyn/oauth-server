@@ -6,11 +6,15 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
+import org.flywaydb.core.Flyway;
+import org.springframework.context.annotation.DependsOn;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -44,7 +48,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @Primary
-@org.springframework.context.annotation.DependsOn("flyway")
+@DependsOn("flyway")
 public class PostgresRegisteredClientRepository implements RegisteredClientRepository {
 
     public static final String REDIS_CLIENTS_HASH_KEY = "oauth2as:clients:configs";
@@ -53,7 +57,7 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
     private final JdbcRegisteredClientRepository jdbcRepository;
     private final RSAPublicKey fallbackPublicKey;
     private final StringRedisTemplate stringRedisTemplate;
-    private final org.flywaydb.core.Flyway flyway;
+    private final Flyway flyway;
 
     // High-performance thread-safe near-cache
     private final Map<String, RegisteredClient> clientsById = new ConcurrentHashMap<>();
@@ -62,9 +66,9 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
 
     public PostgresRegisteredClientRepository(
             JdbcTemplate jdbcTemplate,
-            @org.springframework.context.annotation.Lazy RSAPublicKey fallbackPublicKey,
+            @Lazy RSAPublicKey fallbackPublicKey,
             StringRedisTemplate stringRedisTemplate,
-            org.flywaydb.core.Flyway flyway) {
+            Flyway flyway) {
         this.jdbcTemplate = jdbcTemplate;
         this.jdbcRepository = new JdbcRegisteredClientRepository(jdbcTemplate);
         this.fallbackPublicKey = fallbackPublicKey;
@@ -192,7 +196,7 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
         // Persist demo-client RSA public key into oauth2_client_public_key table
         if (fallbackPublicKey != null) {
             try {
-                String b64 = java.util.Base64.getEncoder().encodeToString(fallbackPublicKey.getEncoded());
+                String b64 = Base64.getEncoder().encodeToString(fallbackPublicKey.getEncoded());
                 String pem = "-----BEGIN PUBLIC KEY-----\n" + b64.replaceAll("(.{64})", "$1\n").trim() + "\n-----END PUBLIC KEY-----";
                 jdbcTemplate.update(
                         "INSERT INTO oauth2_client_public_key (client_id, public_key_pem, updated_at) " +

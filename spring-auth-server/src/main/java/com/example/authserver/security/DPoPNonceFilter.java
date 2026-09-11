@@ -11,6 +11,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpHeaders;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -48,7 +49,7 @@ public class DPoPNonceFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         // If client attempted basic auth or client_secret_post, let downstream filters reject with invalid_client
-        String authHeader = request.getHeader(org.springframework.http.HttpHeaders.AUTHORIZATION);
+        String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (StringUtils.hasText(authHeader) && authHeader.toLowerCase().startsWith("basic ")) {
             filterChain.doFilter(request, response);
             return;

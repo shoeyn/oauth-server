@@ -3,6 +3,8 @@ package com.example.authserver.config;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.lob.DefaultLobHandler;
+import org.springframework.security.jackson.SecurityJacksonModules;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
@@ -11,6 +13,8 @@ import org.springframework.security.oauth2.server.authorization.OAuth2Authorizat
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 
 /**
  * Scope-propagating wrapper around {@link JdbcOAuth2AuthorizationService}.
@@ -35,14 +39,14 @@ public class ScopePropagatingOAuth2AuthorizationService implements OAuth2Authori
             RegisteredClientRepository registeredClientRepository) {
 
         ClassLoader classLoader = JdbcOAuth2AuthorizationService.class.getClassLoader();
-        tools.jackson.databind.jsontype.BasicPolymorphicTypeValidator ptv =
-                tools.jackson.databind.jsontype.BasicPolymorphicTypeValidator.builder()
+        BasicPolymorphicTypeValidator ptv =
+                BasicPolymorphicTypeValidator.builder()
                         .allowIfBaseType(Object.class)
                         .allowIfSubType(Object.class)
                         .build();
 
-        tools.jackson.databind.json.JsonMapper jsonMapper = tools.jackson.databind.json.JsonMapper.builder()
-                .addModules(org.springframework.security.jackson.SecurityJacksonModules.getModules(classLoader))
+        JsonMapper jsonMapper = JsonMapper.builder()
+                .addModules(SecurityJacksonModules.getModules(classLoader))
                 .polymorphicTypeValidator(ptv)
                 .build();
 
@@ -117,11 +121,11 @@ public class ScopePropagatingOAuth2AuthorizationService implements OAuth2Authori
     private static JdbcOAuth2AuthorizationService buildDelegate(
             JdbcTemplate jdbcTemplate,
             RegisteredClientRepository registeredClientRepository,
-            tools.jackson.databind.json.JsonMapper jsonMapper) {
+            JsonMapper jsonMapper) {
         JdbcOAuth2AuthorizationService svc = new JdbcOAuth2AuthorizationService(jdbcTemplate, registeredClientRepository);
         JdbcOAuth2AuthorizationService.JsonMapperOAuth2AuthorizationRowMapper rowMapper =
                 new JdbcOAuth2AuthorizationService.JsonMapperOAuth2AuthorizationRowMapper(registeredClientRepository, jsonMapper);
-        rowMapper.setLobHandler(new org.springframework.jdbc.support.lob.DefaultLobHandler());
+        rowMapper.setLobHandler(new DefaultLobHandler());
         svc.setAuthorizationRowMapper(rowMapper);
         svc.setAuthorizationParametersMapper(
                 new JdbcOAuth2AuthorizationService.JsonMapperOAuth2AuthorizationParametersMapper(jsonMapper));

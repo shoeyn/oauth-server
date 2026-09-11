@@ -1,17 +1,30 @@
 package com.example.authserver.config;
 
 import com.example.authserver.security.AuthenticatedUser;
+import com.nimbusds.jose.jwk.JWK;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.Principal;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.core.oidc.endpoint.OidcParameterNames;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode;
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenContext;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
 
 @Configuration
@@ -28,10 +41,9 @@ public class TokenCustomizerConfig {
             }
 
             if (userData == null) {
-                org.springframework.security.oauth2.server.authorization.OAuth2Authorization authorization =
-                        context.get(org.springframework.security.oauth2.server.authorization.OAuth2Authorization.class);
+                OAuth2Authorization authorization = context.get(OAuth2Authorization.class);
                 if (authorization != null) {
-                    Authentication userAuth = authorization.getAttribute(java.security.Principal.class.getName());
+                    Authentication userAuth = authorization.getAttribute(Principal.class.getName());
                     if (userAuth != null) {
                         userData = extractUserData(userAuth.getDetails());
                         principal = userAuth;
@@ -45,16 +57,15 @@ public class TokenCustomizerConfig {
                 // When a DPoP proof is supplied during code exchange or token refresh,
                 // cryptographically bind the access token to the client's public key by embedding the confirmation 'cnf'
                 // claim containing the JWK thumbprint ('jkt'). This transforms the token into a sender-constrained DPoP token.
-                org.springframework.security.oauth2.jwt.Jwt dPoPProof =
-                        context.get(org.springframework.security.oauth2.server.authorization.token.OAuth2TokenContext.DPOP_PROOF_KEY);
+                Jwt dPoPProof = context.get(OAuth2TokenContext.DPOP_PROOF_KEY);
                 if (dPoPProof != null) {
                     @SuppressWarnings("unchecked")
-                    java.util.Map<String, Object> jwkHeader = (java.util.Map<String, Object>) dPoPProof.getHeaders().get("jwk");
+                    Map<String, Object> jwkHeader = (Map<String, Object>) dPoPProof.getHeaders().get("jwk");
                     if (jwkHeader != null) {
                         try {
-                            com.nimbusds.jose.jwk.JWK jwk = com.nimbusds.jose.jwk.JWK.parse(jwkHeader);
+                            JWK jwk = JWK.parse(jwkHeader);
                             String jkt = jwk.computeThumbprint().toString();
-                            java.util.Map<String, Object> cnf = new java.util.LinkedHashMap<>();
+                            Map<String, Object> cnf = new LinkedHashMap<>();
                             cnf.put("jkt", jkt);
                             context.getClaims().claim("cnf", cnf);
                         } catch (Exception ignored) {
@@ -96,11 +107,9 @@ public class TokenCustomizerConfig {
 
                 // OpenID Connect Core 1.0 Section 3.1.3.6: Access Token Hash (at_hash)
                 // Binding: leftmost 128 bits of SHA-256 of access token value, base64url encoded
-                org.springframework.security.oauth2.server.authorization.OAuth2Authorization authorization =
-                        context.get(org.springframework.security.oauth2.server.authorization.OAuth2Authorization.class);
+                OAuth2Authorization authorization = context.get(OAuth2Authorization.class);
                 if (authorization != null) {
-                    org.springframework.security.oauth2.server.authorization.OAuth2Authorization.Token<org.springframework.security.oauth2.core.OAuth2AccessToken> accessTokenHolder =
-                            authorization.getAccessToken();
+                    OAuth2Authorization.Token<OAuth2AccessToken> accessTokenHolder = authorization.getAccessToken();
                     if (accessTokenHolder != null && accessTokenHolder.getToken() != null) {
                         String atHash = computeOidcHash(accessTokenHolder.getToken().getTokenValue());
                         if (atHash != null) {
@@ -110,8 +119,8 @@ public class TokenCustomizerConfig {
 
                     // OpenID Connect Core 1.0 Section 3.3.2.11: Code Hash (c_hash)
                     // Binding: leftmost 128 bits of SHA-256 of authorization code value, base64url encoded
-                    org.springframework.security.oauth2.server.authorization.OAuth2Authorization.Token<org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode> codeHolder =
-                            authorization.getToken(org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode.class);
+                    OAuth2Authorization.Token<OAuth2AuthorizationCode> codeHolder =
+                            authorization.getToken(OAuth2AuthorizationCode.class);
                     if (codeHolder != null && codeHolder.getToken() != null) {
                         String cHash = computeOidcHash(codeHolder.getToken().getTokenValue());
                         if (cHash != null) {
@@ -137,10 +146,10 @@ public class TokenCustomizerConfig {
             return null;
         }
         try {
-            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(value.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
-            byte[] leftmost128 = java.util.Arrays.copyOf(digest, 16);
-            return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(leftmost128);
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(value.getBytes(StandardCharsets.US_ASCII));
+            byte[] leftmost128 = Arrays.copyOf(digest, 16);
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(leftmost128);
         } catch (Exception e) {
             return null;
         }
@@ -150,7 +159,7 @@ public class TokenCustomizerConfig {
     private UserData extractUserData(Object details) {
         if (details instanceof AuthenticatedUser u) {
             return new UserData(u.email(), u.name(), u.roles(), u.authenticatedAt());
-        } else if (details instanceof java.util.Map<?, ?> m) {
+        } else if (details instanceof Map<?, ?> m) {
             String email = m.get("email") != null ? m.get("email").toString() : null;
             String name = m.get("name") != null ? m.get("name").toString() : null;
             List<String> roles = m.get("roles") instanceof List<?> r ? (List<String>) r : List.of();

@@ -80,35 +80,38 @@ With **AWS KMS HSM asymmetric signing (RSA_2048)**, **graceful multi-key JWKS ro
 ```
   █ THRESHOLDS 
 
-    auth_session_success_rate .......: ✓ 'rate>0.95' rate=98.00%
-    auth_session_total_duration_ms ..: ✓ 'p(95)<1500' p(95)=425.4 ms
+    auth_session_success_rate .......: ✓ 'rate>0.95' rate=100.00%
+    auth_session_total_duration_ms ..: ✓ 'p(95)<1500' p(95)=586.2 ms
     discovery_etag_304_rate .........: ✓ 'rate>0.90' rate=100.00%
     jwks_etag_304_rate ..............: ✓ 'rate>0.90' rate=100.00%
-    http_req_failed .................: ✓ 'rate<0.05' rate=0.08%
+    http_req_failed .................: ✓ 'rate<0.05' rate=0.00%
 
   █ KEY PERFORMANCE INDICATORS 
 
-    • Total HTTP Requests:             4,496 requests in 30 seconds (147.3 req/sec sustained)
-    • Equivalent Hourly Throughput:    ~539,500 HTTP requests / hour
-    • Full OAuth Sessions Completed:   197 full sessions in 30s (~6.6 sessions/sec)
-    • Equivalent Auth Session Rate:    ~23,640 full auth sessions / hour (Target was a few thousand/hr)
-    • End-to-End Session Latency:      p(50) = 250 ms | p(90) = 396 ms | p(95) = 425 ms | max = 503 ms
+    • Total HTTP Requests:             4,232 requests in 30 seconds (137.8 req/sec sustained)
+    • Equivalent Hourly Throughput:    ~507,800 HTTP requests / hour
+    • Full OAuth Sessions Completed:   167 full sessions in 30s (~5.57 sessions/sec)
+    • Equivalent Auth Session Rate:    ~20,040 full auth sessions / hour (Target was a few thousand/hr)
+    • End-to-End Session Latency:      p(50) = 437 ms | avg = 414.8 ms | p(90) = 536 ms | p(95) = 586.2 ms | max = 663 ms
     • Public Discovery / JWKS 304:     100.00% (724 out of 724 requests returned 304 Not Modified)
-    • Overall HTTP Failure Rate:       0.08% (4 out of 4,496 requests)
-    • Cryptographic Boundary:          All access, ID, and logout tokens signed within AWS KMS
+    • Overall HTTP Failure Rate:       0.00% (0 out of 4,232 requests failed)
+    • Cryptographic Signatures / Flow: 3 (JARM Auth Code + Access Token + ID Token)
+    • Cryptographic Boundary:          FIPS 140-2 Level 3 / AWS KMS HSM (Zero private keys in JVM memory)
 ```
 
 ### 2. In-Memory Software Signing vs. AWS KMS Hardware Signing
 
-| Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS) | Evaluation |
+| Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS + JARM) | Evaluation |
 |---|---|---|---|
 | **Cryptographic Boundary** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 (KMS HSM)** | Maximum hardware protection |
 | **Algorithm Pinning** | Optional | **Strict RS256 enforced (`none` & `HS256` rejected)** | Pinning active |
 | **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime cutover |
-| **Auth Session Success Rate** | `98.79%` | **`98.00%`** | **Passed** (>95% threshold) |
-| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~23,640 sessions/hr** | **~8x above target** ("few thousand/hr") |
-| **Full Session Latency (p95)** | `146 ms` | **`425 ms`** | **Passed** (<1,500 ms threshold) |
-| **Total HTTP Error Rate** | `0.04%` | **`0.08%`** | **99.92% success rate** |
+| **KMS Signatures / Flow** | 0 (Local CPU) | **3 (JARM Auth Code + Access Token + ID Token)** | Cryptographic non-repudiation |
+| **Auth Session Success Rate** | `98.79%` | **`100.00%`** (167 / 167 completed) | **Flawless (Zero Failures)** |
+| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~20,040 sessions/hr** | **~2x–5.5x above target** ("few thousand/hr") |
+| **Full Session Latency (median)** | `112 ms` | **`437 ms`** (6 hops + 3 KMS calls + DB + Redis) | Sub-450ms median latency |
+| **Full Session Latency (p95)** | `146 ms` | **`586.2 ms`** | **Passed** (<1,500 ms threshold) |
+| **Total HTTP Error Rate** | `0.04%` | **`0.00%`** (0 / 4,232 requests failed) | **100.00% success rate** |
 | **Discovery & JWKS ETag 304 Rate**| `100.00%` | **`100.00%`** (724 / 724) | Zero payload bandwidth |
 
 ---

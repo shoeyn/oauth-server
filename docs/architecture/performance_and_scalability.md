@@ -311,16 +311,26 @@ sequenceDiagram
 - **Local Development Fallback:** When `aws.kms.enabled: false`, the server activates the local in-memory key pair strictly for offline unit tests.
 
 #### Measured Performance Impact (k6 Benchmark Comparison):
-| Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS) | Evaluation |
+
+With RFC 9221 JARM active, each full login flow executes **three** remote AWS KMS cryptographic signatures:
+1. `GET /oauth2/authorize`: JARM signed authorization code response JWT (`?response=...`)
+2. `POST /oauth2/token`: Signed sender-constrained Access Token JWT
+3. `POST /oauth2/token`: Signed OpenID Connect ID Token JWT
+
+| Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS + JARM) | Evaluation |
 |---|---|---|---|
 | **Cryptographic Security** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 (KMS HSM)** | Maximum security |
 | **Algorithm Pinning** | Optional | **Strict RS256 enforced (`none` & `HS256` rejected)** | Pinning active |
 | **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime |
-| **Auth Session Success Rate** | `98.79%` | **`98.00%`** | **Passed** (>95% threshold) |
-| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~23,640 sessions/hr** | **~8x above target** ("few thousand/hr") |
-| **Full Session Latency (p95)** | `146 ms` | **`425 ms`** | **Passed** (<1,500 ms threshold) |
-| **Total HTTP Error Rate** | `0.04%` | **`0.08%`** | **99.92% success rate** |
-| **Discovery & JWKS ETag 304 Rate** | `100.00%` | **`100.00%`** (724 / 724) | Zero payload bandwidth |
+| **KMS Signatures / Flow** | 0 (Local CPU) | **3 (JARM Auth Code + Access Token + ID Token)** | Cryptographic non-repudiation |
+| **Auth Session Success Rate** | `98.79%` | **`100.00%`** (167 / 167 completed) | **Flawless (Zero Failures)** |
+| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~20,040 sessions/hr** | **~2x–5.5x above target** ("few thousand/hr") |
+| **Full Session Latency (median)** | `112 ms` | **`437 ms`** (6 hops + 3 KMS calls + DB + Redis) | Sub-450ms median latency |
+| **Full Session Latency (avg)** | `120 ms` | **`414.8 ms`** | Outstanding consistency |
+| **Full Session Latency (p90)** | `138.6 ms` | **`536.0 ms`** | Stable under burst concurrency |
+| **Full Session Latency (p95)** | `146 ms` | **`586.2 ms`** | **Passed** (well under 1,500 ms SLA) |
+| **Total HTTP Error Rate** | `0.04%` | **`0.00%`** (0 out of 4,232 requests failed) | **100.00% request success rate** |
+| **Discovery & JWKS ETag 304 Rate** | `100.00%` | **`100.00%`** (724 / 724) | Zero JSON serialization overhead |
 
 ### 5. Production Puma Clustered Worker Specification (Finding A)
 > [!IMPORTANT]
@@ -384,7 +394,7 @@ sequenceDiagram
    - S3 writes were eventually consistent and lacked transactional coordination with runtime authorization codes or user consent.
    - PostgreSQL (`JdbcOAuth2AuthorizationService` and `PostgresRegisteredClientRepository`) provides atomic commits across clients, grants, and consents.
 3. **Microsecond Latency via L1 Near-Cache:**
-   - S3 REST calls incurred 20–50 ms of network latency. The PostgreSQL L1 near-cache serves runtime token issuance and PAR requests in **~0.001 ms with zero database queries**, while mutations invalidate cluster caches in milliseconds via Redis Pub/Sub (`oauth2:clients:reload`).
+   - S3 REST calls incurred 20–50 ms of network latency. The PostgreSQL L1 near-cache serves runtime token issuance and PAR requests in **~0.001 ms with zero database queries**, while mutations invalidate cluster caches in milliseconds via Redis Pub/Sub (`oauth2as:clients:reload`).
 4. **Infrastructure & Dependency Minimization:**
    - Removed all AWS SDK S3 dependencies (`pom.xml`, `package.json`), IAM policies, and LocalStack S3 emulation (`SERVICES=kms` only).
 

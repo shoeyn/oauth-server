@@ -2,6 +2,9 @@
 
 This guide provides practical instructions for engineers iterating on the Spring Authorization Server, adding custom claims, provisioning OAuth clients via API, and debugging services locally in an IDE.
 
+> [!TIP]
+> **Looking to connect a new application to this service?** See the step-by-step [New Client Onboarding & Integration Guide](new_client_onboarding_guide.md) for instructions on generating keys, registering in the Client Manager, and configuring `oauth2_client_kit` in Rails.
+
 ---
 
 ## 1. Dual-Mode Execution (Docker vs. Local IDE Debugging)
@@ -123,6 +126,6 @@ When a client configuration is updated directly in PostgreSQL without the Admin 
 You can trigger an immediate cluster-wide near-cache refresh by publishing an event to Redis:
 
 ```bash
-docker compose exec redis redis-cli PUBLISH oauth2:clients:reload '{"action":"reload"}'
+docker compose exec redis redis-cli PUBLISH oauth2as:clients:reload '{"action":"reload"}'
 ```
 Every active Spring Authorization Server node listening on the channel will purge its `ConcurrentHashMap` L1 cache and reload all clients from PostgreSQL in `< 5 ms`.

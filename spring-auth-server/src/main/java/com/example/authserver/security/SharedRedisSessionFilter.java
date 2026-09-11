@@ -5,7 +5,9 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -88,7 +90,7 @@ public class SharedRedisSessionFilter extends OncePerRequestFilter {
                     authorities.add(FactorGrantedAuthority.fromAuthority(FactorGrantedAuthority.PASSWORD_AUTHORITY));
 
                     // Store user details as standard Map to guarantee safe Jackson serialization in JdbcOAuth2AuthorizationService
-                    Map<String, Object> userDetails = new java.util.HashMap<>();
+                    Map<String, Object> userDetails = new HashMap<>();
                     userDetails.put("username", user.username());
                     userDetails.put("session_id", sessionUuid.toString());
                     if (user.email() != null) userDetails.put("email", user.email());
@@ -122,12 +124,12 @@ public class SharedRedisSessionFilter extends OncePerRequestFilter {
             // Shared Redis session is missing, expired, or was revoked (fraud revocation / global logout).
             // Invalidate residual SecurityContext and Tomcat HttpSession so user CANNOT remain authenticated!
             SecurityContextHolder.clearContext();
-            jakarta.servlet.http.HttpSession httpSession = request.getSession(false);
+            HttpSession httpSession = request.getSession(false);
             if (httpSession != null) {
                 httpSession.invalidate();
             }
             if (sessionId != null) {
-                jakarta.servlet.http.Cookie clearedCookie = new jakarta.servlet.http.Cookie(COOKIE_NAME, "");
+                Cookie clearedCookie = new Cookie(COOKIE_NAME, "");
                 clearedCookie.setPath("/");
                 clearedCookie.setMaxAge(0);
                 clearedCookie.setHttpOnly(true);
@@ -152,7 +154,7 @@ public class SharedRedisSessionFilter extends OncePerRequestFilter {
         return null;
     }
 
-    // Security Improvement: Use native java.util.UUID parser to validate session ID format before issuing Redis queries
+    // Security Improvement: Use native UUID parser to validate session ID format before issuing Redis queries
     private UUID parseUuid(String value) {
         if (value == null || value.length() != 36) {
             return null;

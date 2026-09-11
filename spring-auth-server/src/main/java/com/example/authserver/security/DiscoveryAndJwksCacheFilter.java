@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -153,7 +154,7 @@ public class DiscoveryAndJwksCacheFilter extends OncePerRequestFilter {
             byte[] digest = md.digest(data);
             return "\"" + HexFormat.of().formatHex(digest).substring(0, 32) + "\"";
         } catch (Exception e) {
-            return "\"" + Integer.toHexString(java.util.Arrays.hashCode(data)) + "\"";
+            return "\"" + Integer.toHexString(Arrays.hashCode(data)) + "\"";
         }
     }
 }
