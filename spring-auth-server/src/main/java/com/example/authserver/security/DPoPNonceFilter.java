@@ -34,7 +34,7 @@ public class DPoPNonceFilter extends OncePerRequestFilter {
 
     private final StringRedisTemplate redisTemplate;
 
-    private static final String NONCE_PREFIX = "dpop_nonce:";
+    private static final String NONCE_PREFIX = "oauth2as:dpop_nonce:";
     private static final Duration NONCE_TTL = Duration.ofSeconds(60);
 
     @Override

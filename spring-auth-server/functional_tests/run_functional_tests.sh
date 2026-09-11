@@ -36,5 +36,11 @@ mise exec -- bundle exec ruby "$DIR/test_oauth_error_journey.rb"
 
 echo ""
 echo "================================================================================"
+echo "  SUITE 6: RFC 9221 (JARM) Enforcement & Cryptographic Security"
+echo "================================================================================"
+mise exec -- bundle exec ruby "$DIR/test_jarm_security.rb"
+
+echo ""
+echo "================================================================================"
 echo "  ALL FUNCTIONAL TEST SUITES PASSED SUCCESSFULLY!"
 echo "================================================================================"

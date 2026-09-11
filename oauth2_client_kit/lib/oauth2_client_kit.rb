@@ -19,6 +19,9 @@ module OAuth2ClientKit
     end
 
     def client
+      raise ArgumentError, "OAuth2ClientKit client_id is not configured. Please configure config.client_id in your initializer." if config.client_id.nil? || config.client_id.to_s.strip.empty?
+      raise ArgumentError, "OAuth2ClientKit private_key is not configured. Please configure config.private_key or config.private_key_path in your initializer." if config.resolved_private_key_pem.nil? || config.resolved_private_key_pem.to_s.strip.empty?
+
       @client ||= Client.new(
         config.client_id,
         config.resolved_private_key_pem,

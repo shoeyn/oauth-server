@@ -1,22 +1,20 @@
 package com.example.authserver.security;
 
-import com.nimbusds.jose.JOSEObjectType;
-import com.nimbusds.jose.JWSAlgorithm;
-import com.nimbusds.jose.JWSHeader;
-import com.nimbusds.jose.JWSSigner;
-import com.nimbusds.jose.jwk.RSAKey;
-import com.nimbusds.jwt.JWTClaimsSet;
-import com.nimbusds.jwt.SignedJWT;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriUtils;
@@ -31,8 +29,7 @@ import org.springframework.web.util.UriUtils;
 @RequiredArgsConstructor
 public class OidcBackChannelLogoutService {
 
-    private final RSAKey serverRsaKey;
-    private final JWSSigner jwsSigner;
+    private final JwtEncoder jwtEncoder;
 
     @Value("${auth.server.issuer-url:http://localhost:9000}")
     private String issuerUrl;
@@ -43,17 +40,23 @@ public class OidcBackChannelLogoutService {
     private final RestClient restClient = RestClient.builder().build();
 
     public void dispatchLogout(String clientLogoutUri, String clientId, String sub, String sid) {
+        if (clientId == null || clientId.isBlank()) {
+            log.warn("Skipping back-channel logout: clientId is required but was null/blank (sub={})", sub);
+            return;
+        }
+
         String targetUri = (clientLogoutUri != null && !clientLogoutUri.isBlank())
                 ? clientLogoutUri
                 : defaultBackchannelLogoutUrl;
 
         try {
-            long now = Instant.now().getEpochSecond();
-            JWTClaimsSet.Builder claimsBuilder = new JWTClaimsSet.Builder()
+            Instant now = Instant.now();
+            JwtClaimsSet.Builder claimsBuilder = JwtClaimsSet.builder()
                     .issuer(issuerUrl)
-                    .audience(clientId != null ? clientId : "demo-client")
-                    .issueTime(new Date(now * 1000))
-                    .jwtID(UUID.randomUUID().toString())
+                    .audience(List.of(clientId))
+                    .issuedAt(now)
+                    .expiresAt(now.plusSeconds(120))
+                    .id(UUID.randomUUID().toString())
                     // OIDC Back-Channel Logout 1.0 Section 2.4:
                     // MUST contain the "events" claim with "http://schemas.openid.net/event/backchannel-logout"
                     .claim("events", Map.of("http://schemas.openid.net/event/backchannel-logout", Map.of()));
@@ -67,16 +70,10 @@ public class OidcBackChannelLogoutService {
 
             // OIDC Back-Channel Logout 1.0 Section 2.4:
             // MUST NOT contain a "nonce" claim to avoid token confusion attacks with ID tokens
-            JWTClaimsSet claims = claimsBuilder.build();
+            JwtClaimsSet claims = claimsBuilder.build();
+            JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).build();
 
-            JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.RS256)
-                    .keyID(serverRsaKey.getKeyID())
-                    .type(new JOSEObjectType("JWT"))
-                    .build();
-
-            SignedJWT signedJWT = new SignedJWT(header, claims);
-            signedJWT.sign(jwsSigner);
-            String logoutToken = signedJWT.serialize();
+            String logoutToken = jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
 
             // Asynchronous non-blocking dispatch with exponential backoff retries
             java.util.concurrent.CompletableFuture.runAsync(() -> {

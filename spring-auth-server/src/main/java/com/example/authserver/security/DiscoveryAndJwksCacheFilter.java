@@ -120,6 +120,18 @@ public class DiscoveryAndJwksCacheFilter extends OncePerRequestFilter {
                 "\"introspection_endpoint_auth_methods_supported\"\\s*:\\s*\\[[^\\]]+\\]",
                 "\"introspection_endpoint_auth_methods_supported\": [\"private_key_jwt\"]"
             );
+            // RFC 9221: Advertise JARM response modes supported
+            if (json.contains("\"response_modes_supported\"")) {
+                json = json.replaceAll(
+                    "\"response_modes_supported\"\\s*:\\s*\\[[^\\]]+\\]",
+                    "\"response_modes_supported\": [\"jwt\", \"query.jwt\"]"
+                );
+            } else {
+                json = json.replaceFirst(
+                    "\\{",
+                    "{\"response_modes_supported\": [\"jwt\", \"query.jwt\"], "
+                );
+            }
             return json.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception e) {
             return rawJsonBytes;

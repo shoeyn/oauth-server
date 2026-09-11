@@ -3,7 +3,7 @@
 require "oauth2_client_kit"
 
 OAuth2ClientKit.configure do |config|
-  config.client_id = "demo-client"
+  config.client_id = ENV.fetch("CLIENT_ID", "demo-client")
   config.private_key_path = ENV.fetch("CLIENT_PRIVATE_KEY_PATH", Rails.root.join("keys/client_private_key.pem").to_s)
   config.issuer_url = ENV.fetch("AUTH_SERVER_URL", "http://localhost:9000")
   config.internal_issuer_url = ENV.fetch("AUTH_SERVER_URL_INTERNAL", config.issuer_url)

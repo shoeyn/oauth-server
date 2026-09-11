@@ -10,7 +10,7 @@ module DemoClientApp
   class Application < Rails::Application
     config.load_defaults 7.1
     config.api_only = false
-    config.secret_key_base = ENV.fetch("SECRET_KEY_BASE", "demo-client-secret-key-base-1234567890abcdef1234567890abcdef")
+    config.secret_key_base = ENV.fetch("SECRET_KEY_BASE", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
     config.autoload_paths += %W(#{config.root}/app/services)
     # Persistence Improvement: Store all cache entries (tokens, OAuth flow states) in Redis
     config.cache_store = :redis_cache_store, {

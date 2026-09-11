@@ -41,6 +41,15 @@
     <li>
       <span class="check-icon">✓</span>
       <div>
+        <strong>RFC 9221: JWT-Secured Authorization Response Mode (JARM):</strong>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">
+          All front-channel authorization responses (including authorization codes, issuer identity, state, and error responses) are returned as cryptographically signed JWS JWTs (<code>?response=&lt;jwt&gt;</code>) signed using AWS KMS RS256. Plaintext callback parameters are strictly rejected, eliminating response parameter injection, authorization code tampering, and forged phishing error messages.
+        </div>
+      </div>
+    </li>
+    <li>
+      <span class="check-icon">✓</span>
+      <div>
         <strong>RFC 9126: Pushed Authorization Requests (PAR):</strong>
         <div style="font-size: 0.85rem; color: var(--text-muted);">
           All authorization parameters (PKCE challenge, state, nonce) are pushed directly via an authenticated backchannel POST to <code>/oauth2/par</code>. Only an opaque, short-lived <code>request_uri</code> is passed through the browser, stopping URL query leakage, browser history snooping, and parameter tampering.

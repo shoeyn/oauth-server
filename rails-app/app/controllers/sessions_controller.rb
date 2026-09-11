@@ -6,11 +6,23 @@ require "active_support/security_utils"
 
 class SessionsController < ApplicationController
   # Whitelist of allowed redirect targets for the return_to parameter to prevent Open Redirect attacks
-  ALLOWED_RETURN_HOSTS = [
-    "localhost:9000",
-    "127.0.0.1:9000",
-    "spring-auth-server:9000"
-  ].freeze
+  # Configured dynamically via environment variables with safe defaults
+  def self.allowed_return_hosts
+    @allowed_return_hosts ||= begin
+      hosts = Set.new(["localhost:9000", "127.0.0.1:9000", "spring-auth-server:9000"])
+      if ENV["AUTH_SERVER_URL"].present?
+        uri = URI.parse(ENV["AUTH_SERVER_URL"]) rescue nil
+        hosts << "#{uri.host}:#{uri.port}" if uri&.host
+        hosts << uri.host if uri&.host
+      end
+      if ENV["SPRING_AUTH_SERVER_URL"].present?
+        uri = URI.parse(ENV["SPRING_AUTH_SERVER_URL"]) rescue nil
+        hosts << "#{uri.host}:#{uri.port}" if uri&.host
+        hosts << uri.host if uri&.host
+      end
+      hosts.freeze
+    end
+  end
 
   def new
     @return_to = sanitize_return_to(params[:return_to])
@@ -45,6 +57,9 @@ class SessionsController < ApplicationController
       failure_redirect_uri = resolve_client_failure_redirect(params[:return_to], error_code, error_desc)
       if failure_redirect_uri.present?
         return redirect_to failure_redirect_uri, allow_other_host: true, status: :see_other
+      else
+        flash[:error] = "Authentication error: #{error_desc} (No return_to destination provided)"
+        return render :new, status: :unprocessable_entity
       end
     end
 
@@ -131,9 +146,10 @@ class SessionsController < ApplicationController
 
     begin
       parsed = URI.parse(target_url.to_s.strip)
+      allowed = self.class.allowed_return_hosts
       if parsed.host.nil?
         target_url.start_with?("/") ? target_url : "http://localhost:9000"
-      elsif ALLOWED_RETURN_HOSTS.include?(parsed.host) || ALLOWED_RETURN_HOSTS.include?("#{parsed.host}:#{parsed.port}")
+      elsif allowed.include?(parsed.host) || allowed.include?("#{parsed.host}:#{parsed.port}")
         target_url
       else
         Rails.logger.warn("Blocked untrusted return_to redirect: #{target_url}")
@@ -149,58 +165,19 @@ class SessionsController < ApplicationController
     session_id.is_a?(String) && session_id.match?(/\A[0-9a-fA-F\-]{36}\z/)
   end
 
-  # Resolves client failure URL according to RFC 6749 Section 4.1.2.1:
-  # Extracts redirect_uri and state from the return_to authorization request URI
-  # (whether passed as direct query params or via PAR request_uri stored in PostgreSQL / session).
+  # Resolves client failure redirect:
+  # Redirects back to the Authorization Server (return_to) with RFC 6749 error parameters
+  # so that the Authorization Server issues an RFC 9221 KMS-signed JARM error JWT to the client callback.
   def resolve_client_failure_redirect(return_to_url, error_code, error_description)
     return nil if return_to_url.blank?
 
     begin
-      parsed_uri = URI.parse(return_to_url.to_s.strip)
-      query_params = URI.decode_www_form(parsed_uri.query || "").to_h
-
-      redirect_uri = query_params["redirect_uri"]
-      state = query_params["state"]
-
-      # If direct parameters missing (e.g. PAR request_uri flow), attempt to lookup authorization from Postgres DB
-      if redirect_uri.blank? && query_params["request_uri"].present?
-        par_uri = query_params["request_uri"]
-        # In Spring Authorization Server, PAR request_uri maps to state in oauth2_authorization table
-        # Format: urn:ietf:params:oauth:request_uri:<state_token>
-        state_token = par_uri.sub("urn:ietf:params:oauth:request_uri:", "")
-        db_record = ActiveRecord::Base.connection.select_one(
-          ActiveRecord::Base.sanitize_sql_array([
-            "SELECT attributes FROM oauth2_authorization WHERE state LIKE ? LIMIT 1",
-            "#{state_token}%"
-          ])
-        )
-
-        if db_record && db_record["attributes"].present?
-          attrs_json = db_record["attributes"]
-          # Extract redirectUri and state from stored OAuth2AuthorizationRequest JSON
-          if attrs_json =~ /"redirectUri":"([^"]+)"/
-            redirect_uri = $1
-          end
-          if attrs_json =~ /"state":"([^"]+)"/
-            state = $1
-          end
-        end
-      end
-
-      # Fallback to default registered demo client callback if cannot extract dynamically
-      redirect_uri ||= "http://localhost:8080/callback"
-
-      callback_uri = URI.parse(redirect_uri)
-      existing_params = URI.decode_www_form(callback_uri.query || "").to_h
-      existing_params["error"] = error_code
-      existing_params["error_description"] = error_description
-      existing_params["state"] = state if state.present?
-
-      callback_uri.query = URI.encode_www_form(existing_params)
-      callback_uri.to_s
+      target = URI.parse(return_to_url.to_s.strip)
+      separator = target.query.present? ? "&" : "?"
+      "#{target}#{separator}error=#{ERB::Util.url_encode(error_code)}&error_description=#{ERB::Util.url_encode(error_description)}"
     rescue => e
-      Rails.logger.warn("Failed to resolve client failure redirect: #{e.message}")
-      "http://localhost:8080/callback?error=#{error_code}&error_description=#{ERB::Util.url_encode(error_description)}"
+      Rails.logger.warn("Failed to construct IdP failure redirect: #{e.message}")
+      nil
     end
   end
 end

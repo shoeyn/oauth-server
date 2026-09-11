@@ -47,7 +47,7 @@ import org.springframework.stereotype.Component;
 @org.springframework.context.annotation.DependsOn("flyway")
 public class PostgresRegisteredClientRepository implements RegisteredClientRepository {
 
-    public static final String REDIS_CLIENTS_HASH_KEY = "oauth2:clients:configs";
+    public static final String REDIS_CLIENTS_HASH_KEY = "oauth2as:clients:configs";
 
     private final JdbcTemplate jdbcTemplate;
     private final JdbcRegisteredClientRepository jdbcRepository;
@@ -137,10 +137,6 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
                 }
             });
 
-            // Ensure fallback key for demo-client if missing in database
-            if (fallbackPublicKey != null && !newPublicKeysByClientId.containsKey("demo-client")) {
-                newPublicKeysByClientId.put("demo-client", fallbackPublicKey);
-            }
 
             clientsById.clear();
             clientsById.putAll(newClientsById);

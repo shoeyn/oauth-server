@@ -4,7 +4,7 @@ module OAuth2ClientKit
   module Routing
     module RouteSetExtension
       def mount_oauth2_client_kit(at: "")
-        post "#{at}/auth/start", to: "oauth2_client_kit/auth#start", as: :auth_start
+        match "#{at}/auth/start", to: "oauth2_client_kit/auth#start", via: [:get, :post], as: :auth_start
         get "#{at}/callback", to: "oauth2_client_kit/auth#callback", as: :auth_callback
         post "#{at}/auth/refresh", to: "oauth2_client_kit/auth#refresh", as: :auth_refresh
         post "#{at}/auth/revoke", to: "oauth2_client_kit/auth#revoke", as: :auth_revoke

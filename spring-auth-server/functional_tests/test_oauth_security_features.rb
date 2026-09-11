@@ -102,7 +102,11 @@ puts "2b. Direct /oauth2/authorize without request_uri: HTTP #{direct_auth_resp.
 if direct_auth_resp.code.to_i == 302
   err_loc = URI(direct_auth_resp["location"])
   err_params = URI.decode_www_form(err_loc.query).to_h
-  puts "    Redirected to callback with RFC 6749 error: error=#{err_params['error']}"
+  if err_params["response"]
+    payload, _ = JWT.decode(err_params["response"], nil, false)
+    err_params = payload
+  end
+  puts "    Redirected to callback with RFC 9221/6749 error: error=#{err_params['error']}"
   puts "    Error Description: #{err_params['error_description']}"
   unless err_params["error"] == "invalid_request" && err_params["error_description"].include?("strictly requires Pushed Authorization Requests")
     abort "   FAILED: Expected error=invalid_request regarding PAR requirement"
@@ -110,24 +114,32 @@ if direct_auth_resp.code.to_i == 302
 elsif direct_auth_resp.code.to_i == 400
   puts "    Rejected with direct HTTP 400 Bad Request"
 else
-  abort "   FAILED: Expected HTTP 302 (RFC 6749 error callback) or HTTP 400, got #{direct_auth_resp.code}"
+  abort "   FAILED: Expected HTTP 302 (RFC 6749/9221 error callback) or HTTP 400, got #{direct_auth_resp.code}"
 end
 puts "    PASSED: Strict PAR Enforcement active (Direct authorization without request_uri strictly rejected)"
 
 # ------------------------------------------------------------------------------
-# STEP 4: Authorization Request & RFC 9207 Issuer Identification
+# STEP 4: Authorization Request & RFC 9207 / RFC 9221 Issuer Identification & JARM
 # ------------------------------------------------------------------------------
 auth_req = Net::HTTP::Get.new(auth_url.request_uri)
 auth_req["Cookie"] = shared_cookie
 auth_resp = spring_http.request(auth_req)
 callback_url = URI(auth_resp["location"])
 cb_params = URI.decode_www_form(callback_url.query).to_h
-auth_code = cb_params["code"]
 
-puts "\n>> [FEATURE 1: RFC 9207 - Authorization Server Issuer Identification]"
-puts "   Authorization callback parameters: iss=#{cb_params['iss']}, code=#{auth_code[0..8]}..."
-if cb_params["iss"] == "http://localhost:9000"
-  puts "   RESULT: PASSED (Protects against OAuth 2.0 Mix-Up Attacks)"
+if cb_params["response"]
+  payload, _ = JWT.decode(cb_params["response"], nil, false)
+  auth_code = payload["code"]
+  iss = payload["iss"]
+else
+  auth_code = cb_params["code"]
+  iss = cb_params["iss"]
+end
+
+puts "\n>> [FEATURE 1: RFC 9207 & RFC 9221 - Authorization Server Issuer Identification & JARM]"
+puts "   Authorization callback parameters: iss=#{iss}, code=#{auth_code[0..8]}..."
+if iss == "http://localhost:9000"
+  puts "   RESULT: PASSED (Protects against OAuth 2.0 Mix-Up Attacks and Parameter Tampering)"
 else
   abort "   RESULT: FAILED - missing or incorrect 'iss' parameter"
 end
