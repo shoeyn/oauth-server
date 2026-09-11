@@ -12,7 +12,7 @@ import org.springframework.data.redis.listener.adapter.MessageListenerAdapter;
 @Configuration(proxyBeanMethods = false)
 public class ClientReloadRedisSubscriber {
 
-    public static final String RELOAD_TOPIC = "oauth2:clients:reload";
+    public static final String RELOAD_TOPIC = "oauth2as:clients:reload";
 
     @Bean
     public RedisMessageListenerContainer redisMessageListenerContainer(

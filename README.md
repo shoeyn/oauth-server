@@ -12,7 +12,7 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
                  │  - Visits Thin Client App (http://localhost:8080)                │
                  │  - Initiates Auth (POST /auth/start)                             │
                  │  - Authenticates at Rails IdP (http://localhost:3000)            │
-                 │  - Returns with code & iss to Demo Client callback               │
+                 │  - Returns with signed JARM JWT (?response=...) to callback      │
                  │  - Configures clients via Next.js Manager (http://localhost:3001)│
                  └──────────────┬───────────────────┬───────────────────┬───────────┘
                                 │                   │                   │
@@ -31,6 +31,7 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 ┌───────────────────────────────┐              │                       │
 │    oauth2_client_kit Gem      │              │                       │
 ├───────────────────────────────┤              │                       │
+│ • RFC 9221 JARM Verifier      │              │                       │
 │ • RFC 9126 PAR Engine         │              │                       │
 │ • RFC 7523 private_key_jwt    │              │                       │
 │ • RFC 9449 DPoP + Nonce Loop  │              │                       │
@@ -47,6 +48,7 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 ┌───────────────────────────────────────────────────────────────────────────────────────────────┐
 │                    Spring Authorization Server (http://localhost:9000)                        │
 ├───────────────────────────────────────────────────────────────────────────────────────────────┤
+│ • RFC 9221: JWT-Secured Authorization Response Mode (JARM, KMS RS256 signed responses)       │
 │ • RFC 9126: Native Pushed Authorization Requests (PAR)                                        │
 │ • RFC 7523: Strict private_key_jwt Authentication (weak methods off)                          │
 │ • RFC 9449: Strictly Enforced DPoP Tokens (Sender-Constrained cnf.jkt)                        │
@@ -93,6 +95,7 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 | **Algorithm Pinning** | **Strict RS256 Verification** | Eliminates algorithm confusion attacks (`alg: none`, symmetric HMAC `HS256`). Enforced at both authorization server and client. |
 | **Key Rotation** | **Graceful Multi-Key JWKS** | Zero-downtime rotation. Active key signs new tokens; active + previous keys published concurrently at `/oauth2/jwks`. |
 | **Mix-Up Defense** | **RFC 9207 Issuer Identification** | Authorization server appends `iss` parameter to callback redirects. Client validates `iss` matches trusted authorization server. |
+| **Response Security** | **RFC 9221 JARM Enforcement** | Cryptographically signs all front-channel authorization responses (success codes and failure errors) as JWS JWTs (`?response=<jwt>`) using AWS KMS RS256. Plaintext callback query parameters are strictly rejected. |
 | **Scope Policy** | **Server-Determined Scopes** | Authorization server binds scopes strictly from registered client configuration. Client scope parameters are ignored. |
 | **Logout** | **OIDC Back-Channel Logout 1.0** | Asynchronous HTTP POST of signed `logout_token` with 3-attempt exponential backoff retry. |
 | **SSO Bridge** | **Shared Redis Session** | Rails IdP writes authenticated session to Redis (`session:<uuid>`). Spring Auth Server authenticates users via `SHARED_SESSION_ID` cookie. |
@@ -103,6 +106,7 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 | **RFC 8725** | **Strict Algorithm Pinning (RS256)** | Authorization server and client strictly enforce `RS256`, rejecting `none`, symmetric HMAC (`HS256`), and unapproved algorithms to eliminate JWT signature confusion attacks. |
 | **Graceful Rotation**| **Multi-Key JWKS Rotation** | Serves active and previous keys concurrently at `/oauth2/jwks`, enabling zero-downtime key rotation while in-flight tokens remain valid through their TTL. |
 | **RFC 9126** | **Pushed Authorization Requests (PAR)** | All authorization parameters (`client_id`, `state`, `nonce`, `code_challenge`) are pushed directly to `/oauth2/par` over TLS via an authenticated backchannel POST. The browser only receives an opaque, single-use `request_uri`. Stops query leakage and URL manipulation. |
+| **RFC 9221** | **JWT-Secured Authorization Response Mode (JARM)** | Strictly enforced on all front-channel authorization callbacks. The authorization server signs response payloads (`code`, `iss`, `aud`, `state`, or `error`, `error_description`) into an RS256 JWS JWT signed by AWS KMS hardware keys. Plaintext query parameters are strictly rejected, stopping parameter tampering, authorization code injection, and phishing via forged error descriptions. |
 | **RFC 7523** | **`private_key_jwt` Client Authentication** | Clients authenticate exclusively using RS256-signed JWT assertions (`urn:ietf:params:oauth:client-assertion-type:jwt-bearer`). Static client secrets (`client_secret_basic`, `client_secret_post`) and insecure `none` authentication are **strictly rejected with HTTP 401**. Includes JTI replay cache in Redis and strict `iss`, `sub`, `aud` validation. |
 | **RFC 9449** | **Demonstrating Proof-of-Possession (DPoP) & Server Nonces** | The `/oauth2/token` endpoint strictly enforces the `DPoP` HTTP header (requests lacking DPoP are rejected with HTTP 400 `invalid_dpop_proof`). Issued access tokens are sender-constrained by embedding the DPoP key thumbprint in the `cnf.jkt` claim. The server enforces single-use 60s Redis nonces (RFC 9449 Section 8) with `HTTP 400 use_dpop_nonce` challenge-response to eliminate clock-skew replay. |
 | **OIDC Core 1.0** | **ID Token Cryptographic Hashes (`at_hash` & `c_hash`)** | The authorization server computes and embeds SHA-256 left-half base64url hashes in the ID Token matching the access token (`at_hash`) and authorization code (`c_hash`). The client cryptographically validates both hashes upon code exchange, stopping code and token substitution attacks. |
@@ -131,6 +135,7 @@ This section documents the security controls currently active in the platform, a
 - **Cryptographic Token Binding (`at_hash` & `c_hash`):** ID token contains SHA-256 left-half hashes cryptographically bound to access tokens and authorization codes (OIDC Core Section 3.1.3.6).
 - **Discovery Metadata Hardening:** Public OIDC discovery restricts `token_endpoint_auth_methods_supported` strictly to `["private_key_jwt"]`, preventing confusion around shared secrets.
 - **Pushed Authorization Requests (PAR):** Eliminates sensitive query parameters in browser history and server access logs.
+- **Strict RFC 9221 JARM Enforcement:** All front-channel authorization responses and error responses are cryptographically signed with RS256 by AWS KMS. Plaintext callback parameters are strictly rejected, preventing authorization code injection, state tampering, and forged phishing error messages.
 - **Issuer Identification:** RFC 9207 prevents OAuth 2.0 Mix-Up attacks.
 - **Server-Determined Scopes:** Prevents client-side privilege escalation.
 - **Hardened Browser Security:** Strict `HttpOnly`, `SameSite: Lax`, and `Secure` cookie attributes; session identifiers are never exposed in URLs (CWE-598).

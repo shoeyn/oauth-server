@@ -175,7 +175,12 @@ auth_req = Net::HTTP::Get.new("/oauth2/authorize?client_id=#{TEST_CLIENT_ID}&req
 auth_req["Cookie"] = shared_session_cookie
 auth_res = spring_http.request(auth_req)
 callback_location = URI(auth_res["location"])
-auth_code = URI.decode_www_form(callback_location.query).to_h["code"]
+cb_params = URI.decode_www_form(callback_location.query).to_h
+auth_code = if cb_params["response"]
+              JWT.decode(cb_params["response"], nil, false)[0]["code"]
+            else
+              cb_params["code"]
+            end
 puts "   SUCCESS: Obtained authorization code: #{auth_code[0..20]}..."
 
 # DPoP proof for Token endpoint

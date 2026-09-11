@@ -54,27 +54,32 @@ A hardened, enterprise **OAuth 2.1 Authorization Server** built with **Spring Bo
 10. **RFC 9126: Native Pushed Authorization Requests (PAR)**:
     - Built-in Spring Security 7 PAR endpoint at `/oauth2/par`.
 
-11. **RFC 9207: Authorization Server Issuer Identification**:
-    - Authorization responses include the `iss` parameter alongside `code` and `state` to mitigate OAuth 2.0 Mix-Up attacks.
+11. **RFC 9221: JWT-Secured Authorization Response Mode (JARM)**:
+    - Implemented in `AuthorizationServerConfig`: all front-channel authorization responses (`authorizationResponseHandler`) and error responses (`errorResponseHandler`) are cryptographically signed with RS256 using AWS KMS (`KmsJwtEncoder`).
+    - Responses are redirected to `redirect_uri?response=<jarmJwt>`, protecting `code`, `iss`, `aud`, `state`, `error`, and `error_description` from URL query parameter manipulation and phishing injection attacks.
+    - Advertises `"response_modes_supported": ["jwt", "query.jwt"]` in `/.well-known/openid-configuration`.
 
-12. **RFC 7009 & RFC 7662: Token Revocation & Introspection**:
+12. **RFC 9207: Authorization Server Issuer Identification**:
+    - Authorization responses include the `iss` parameter alongside `code` and `state` (encapsulated within the JARM JWT) to mitigate OAuth 2.0 Mix-Up attacks.
+
+13. **RFC 7009 & RFC 7662: Token Revocation & Introspection**:
     - Endpoints `/oauth2/revoke` and `/oauth2/introspect` fully supported with `private_key_jwt`.
 
-13. **OpenID Connect Back-Channel Logout 1.0**:
+14. **OpenID Connect Back-Channel Logout 1.0**:
     - `OidcBackChannelLogoutService` assembles and signs `logout_token` JWS with server's RSA key, dispatching it asynchronously with exponential retries to registered client backchannel endpoints.
 
-14. **Single Sign-On (SSO) with External Rails IdP via Shared Redis**:
+15. **Single Sign-On (SSO) with External Rails IdP via Shared Redis**:
     - `SharedRedisSessionFilter` inspects `SHARED_SESSION_ID` cookie, loads user authentication claims from `session:<id>` in Redis DB 0, and establishes a Spring `SecurityContext`.
     - **M2M Performance Bypass (`shouldNotFilter`)**: Bypasses Redis queries on machine-to-machine endpoints (`/oauth2/token`, `/oauth2/par`, `/oauth2/jwks`, `/oauth2/introspect`, `/oauth2/revoke`, `/.well-known/**`).
 
-15. **In-Memory Discovery & JWKS Caching with ETag / HTTP 304**:
+16. **In-Memory Discovery & JWKS Caching with ETag / HTTP 304**:
     - `DiscoveryAndJwksCacheFilter` caches pre-rendered byte arrays for `/.well-known/openid-configuration` and `/oauth2/jwks` with `Cache-Control: public, max-age=3600`.
     - Returns **HTTP 304 Not Modified with 0 body bytes** on conditional `If-None-Match` requests.
 
-16. **Cached Client Assertion `JwtDecoder`**:
+17. **Cached Client Assertion `JwtDecoder`**:
     - Reuses `NimbusJwtDecoder` instances in a `ConcurrentHashMap` keyed by `clientId:keyHash`, eliminating RSA key re-parsing on every client assertion.
 
-17. **Native HTTP/2 Stream Multiplexing (`h2c` / ALPN)**:
+18. **Native HTTP/2 Stream Multiplexing (`h2c` / ALPN)**:
     - Enabled via `server.http2.enabled: true` in `application.yml`, allowing multiple concurrent requests over a single TCP socket.
 
 ---
@@ -98,11 +103,13 @@ docker compose up -d spring-auth-server
 
 ## Running the Automated Functional Test Suite
 
-The test suite executes all 4 suites:
+The test suite executes all 6 suites:
 1. **OAuth 2.1 & OIDC Advanced Security Features** (PAR, DPoP, PKCE, Issuer ID, Revocation, Introspection, Back-Channel Logout)
 2. **Dynamic Client Configuration & Near-Cache Hot-Reload** (Admin REST API, PostgreSQL persistence, real-time reload, dynamic client token exchange, and revocation)
 3. **Performance, In-Memory Caching & Resilience** (ETag 304 validation, EC vs RSA DPoP benchmark, in-memory JWKS cache hit, retries)
 4. **AWS KMS Cryptographic Signing & Security Verification** (KMS HSM signing, strict algorithm pinning, multi-key JWKS rotation)
+5. **Client Error Flow Handling & Per-Error View Overrides** (Spring JARM error signing, custom host template overrides, IdP simulated error flow)
+6. **RFC 9221 (JARM) Enforcement & Cryptographic Security** (Strict JARM enforcement, KMS signature verification, negative attacks defense: plaintext rejection, tampering rejection, forgery rejection, client isolation)
 
 ```bash
 bash functional_tests/run_functional_tests.sh

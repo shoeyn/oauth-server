@@ -6,6 +6,7 @@ A high-assurance, production-grade Ruby library and mountable Rails Engine for O
 
 ## Features & Standards Compliance
 
+- **RFC 9221 JWT-Secured Authorization Response Mode (JARM):** Enforces cryptographic JWS signing (RS256) of all front-channel authorization responses (codes, issuer identity, state, and error responses). Plaintext callback parameters are strictly rejected, preventing parameter injection, code tampering, and phishing via forged error descriptions.
 - **RFC 9126 Pushed Authorization Requests (PAR):** Backchannel parameter submission keeping parameters out of browser logs.
 - **RFC 7523 Asymmetric Client Authentication:** RS256 `private_key_jwt` assertions eliminating static client secrets.
 - **RFC 9449 DPoP Sender-Constrained Tokens:** Cryptographically binds access tokens to client keys with automated RFC 9449 §8 server nonce retry loops.
@@ -173,11 +174,61 @@ sequenceDiagram
 
 ---
 
+## RFC 9221: JWT-Secured Authorization Response Mode (JARM)
+
+`oauth2_client_kit` strictly enforces RFC 9221 JARM across all authorization callbacks. Both successful code exchanges and authorization error notifications are returned as cryptographically signed JWS JWTs (`?response=<jwt>`) signed by the Authorization Server's AWS KMS hardware key (RS256).
+
+### Attack Surface Mitigation
+
+1. **Anti-Tampering:** Attacker cannot alter `code`, `state`, `iss`, or `error` parameters in the browser URL.
+2. **Anti-Phishing / Error Forgery Defense:** In standard OAuth 2.0 (RFC 6749), error descriptions are plain query parameters (`?error=access_denied&error_description=...`). An attacker could forge phishing messages or inject arbitrary text making the client application display misleading instructions (e.g. *"Your account is suspended, send 1 BTC to address XYZ to unlock"*). With RFC 9221 JARM, the error payload is signed with AWS KMS RS256, mathematically guaranteeing authenticity.
+3. **Strict Plaintext Rejection:** Any callback received without a signed `response` parameter (e.g., `?code=...` or `?error=...`) is immediately rejected as an unauthenticated, untrusted request.
+
+### JARM Authorization & Error Flow Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User / Browser
+    participant Client as Host Rails App (oauth2_client_kit)
+    participant AS as Spring Authorization Server (AWS KMS)
+    participant IdP as Identity Provider
+
+    User->>Client: 1. Start Login (POST /auth/start)
+    Client->>AS: 2. Backchannel PAR (response_mode=jwt, PKCE, private_key_jwt)
+    AS-->>Client: 3. Return opaque request_uri
+    Client-->>User: 4. Redirect to /oauth2/authorize?client_id=...&request_uri=...
+    User->>IdP: 5. Authenticate at IdP
+    alt Authentication Success
+        IdP-->>AS: User authenticated
+        AS->>AS: Generate KMS RS256 JWS (code, iss, aud, exp, state)
+        AS-->>User: HTTP 302 /callback?response=<JARM_JWT>
+        User->>Client: GET /callback?response=<JARM_JWT>
+        Client->>Client: Verify KMS RS256 signature against AS JWKS
+        Client->>AS: Backchannel Token Exchange (DPoP + private_key_jwt)
+        AS-->>Client: Tokens Issued (DPoP sender-constrained)
+        Client-->>User: HTTP 302 /profile (Authenticated)
+    else Authentication Failure (e.g. locked user, access denied)
+        IdP-->>AS: Redirect back with error=access_denied&error_description=...
+        AS->>AS: Generate KMS RS256 JWS (error, error_description, iss, aud, exp, state)
+        AS-->>User: HTTP 302 /callback?response=<JARM_ERROR_JWT>
+        User->>Client: GET /callback?response=<JARM_ERROR_JWT>
+        Client->>Client: Verify KMS RS256 signature against AS JWKS
+        Client-->>User: HTTP 403 / 400 Render Host Custom Error View
+    else Plaintext Callback Attack
+        User->>Client: GET /callback?code=forged_code (or ?error=forged_msg)
+        Client->>Client: Check params[:response] -> MISSING
+        Client-->>User: HTTP 302 / 400 Reject unauthenticated plaintext parameters
+    end
+```
+
+---
+
 ## Error Handling & View Overrides
 
-During authentication journeys, if an issue occurs (such as an account lock, consent cancellation, suspended user, or invalid request), errors are returned to the client callback (`/callback?error=...&error_description=...`) adhering to RFC 6749 Section 4.1.2.1.
+During authentication journeys, if an issue occurs (such as an account lock, consent cancellation, suspended user, or invalid request), errors are cryptographically signed by the Authorization Server and returned to the client callback as an RFC 9221 JARM token (`/callback?response=<jwt>`).
 
-The library automatically intercepts callback errors and renders clean, accessible error screens with appropriate HTTP statuses (`403 Forbidden` for `access_denied` / `unauthorized_client`, `401 Unauthorized` for authentication requirements, and `400 Bad Request` for request errors).
+The library automatically validates the JARM signature, decodes the verified error claims, and renders clean, accessible error screens with appropriate HTTP statuses (`403 Forbidden` for `access_denied` / `unauthorized_client`, `401 Unauthorized` for authentication requirements, and `400 Bad Request` for request errors).
 
 ### View Override Resolution
 
@@ -192,6 +243,6 @@ Consuming applications can customize error views using standard Rails template o
 
 Available instance variables in error views:
 - `@error`: The OAuth 2.1 error code (e.g. `access_denied`, `account_suspended`, `invalid_request`).
-- `@error_description`: Detailed explanation from the identity provider.
+- `@error_description`: Cryptographically verified explanation from the identity provider.
 - `@error_uri`: (Optional) Diagnostic documentation link from the identity provider.
 

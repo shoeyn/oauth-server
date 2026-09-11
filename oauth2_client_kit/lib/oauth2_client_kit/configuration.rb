@@ -16,13 +16,13 @@ module OAuth2ClientKit
                   :after_logout_path
 
     def initialize
-      @client_id = "demo-client"
+      @client_id = ENV["CLIENT_ID"] || ENV["OAUTH2_CLIENT_ID"]
       @issuer_url = ENV.fetch("AUTH_SERVER_URL", "http://localhost:9000")
       internal_env = ENV["AUTH_SERVER_URL_INTERNAL"]
       @internal_issuer_url = internal_env && !internal_env.empty? ? internal_env : @issuer_url
       @redis_url = ENV.fetch("REDIS_URL", "redis://localhost:6379/1")
       @token_cache_ttl = 30 * 24 * 60 * 60 # 30 days
-      @admin_api_key = ENV.fetch("ADMIN_API_KEY", "secret-admin-key")
+      @admin_api_key = ENV["ADMIN_API_KEY"]
       @after_login_path = "/profile"
       @after_logout_path = "/"
     end
@@ -33,8 +33,7 @@ module OAuth2ClientKit
       elsif private_key_path.present? && File.exist?(private_key_path)
         File.read(private_key_path)
       else
-        default_path = File.join(Dir.pwd, "keys/client_private_key.pem")
-        File.exist?(default_path) ? File.read(default_path) : nil
+        nil
       end
     end
   end

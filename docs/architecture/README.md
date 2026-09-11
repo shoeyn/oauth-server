@@ -57,7 +57,7 @@ flowchart TB
 Click the links below to inspect specific end-to-end communication flows:
 
 1. [**OAuth 2.1 Authorization Code Flow with PAR, DPoP & Rails SSO**](oauth2_par_dpop_flow.md)
-   - Step-by-step breakdown of RFC 9126 PAR backchannel submission, RFC 7523 client assertion verification, Rails IdP SSO session creation, RFC 9207 issuer identification, and RFC 9449 sender-constrained DPoP token minting.
+   - Step-by-step breakdown of RFC 9126 PAR backchannel submission, RFC 7523 client assertion verification, Rails IdP SSO session creation, RFC 9221 JARM response signing (AWS KMS RS256), RFC 9207 issuer identification, and RFC 9449 sender-constrained DPoP token minting.
 
 2. [**Client Configuration, Persistence & Near-Caching Flow**](client_config_and_caching_flow.md)
    - Deep dive into the **PostgreSQL Persistence $\rightarrow$ L1 JVM Near-Cache $\rightarrow$ Redis Pub/Sub Cluster Invalidation** hierarchy, demonstrating sub-millisecond lookups and secure HTTP Admin API integration without direct DB exposure.

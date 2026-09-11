@@ -14,6 +14,7 @@ A modern, production-grade Rails client application demonstrating zero-trust cli
                         ▼
 ┌───────────────────────────────────────────────┐
 │       oauth2_client_kit Standalone Gem        │
+│  • RFC 9221 JARM Verifier & Enforcement       │
 │  • Pushed Authorization Requests (RFC 9126)   │
 │  • Asymmetric Client Auth (RFC 7523)          │
 │  • DPoP Sender Constraints (RFC 9449)         │
@@ -26,7 +27,11 @@ A modern, production-grade Rails client application demonstrating zero-trust cli
 
 ## Security Features & Standards (Handled by `oauth2_client_kit`)
 
-1. **RFC 9126: Pushed Authorization Requests (PAR)**:
+1. **RFC 9221: JWT-Secured Authorization Response Mode (JARM)**:
+   - Enforces cryptographic JWS signing (RS256) of all front-channel authorization responses (codes, issuer identity, state, and error responses).
+   - Plaintext callback parameters (`?code=...`, `?error=...`) are strictly rejected, preventing authorization code injection, parameter tampering, and phishing via forged error descriptions.
+
+2. **RFC 9126: Pushed Authorization Requests (PAR)**:
    - Initiates authorization requests by pushing parameters directly to `/oauth2/par` over an authenticated backchannel POST with `private_key_jwt`.
    - Obtains an opaque, single-use `request_uri`, keeping scopes, state, and code challenges out of browser history and proxy access logs.
 

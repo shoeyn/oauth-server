@@ -10,6 +10,20 @@ module OAuth2ClientKit
 
     skip_before_action :verify_authenticity_token, only: [:backchannel_logout], raise: false
 
+    # Gracefully handle stale or mismatched CSRF tokens on initiating authentication
+    # (e.g. server was rebooted, secret_key_base synced, or page was open before restart).
+    # Rather than crashing with an ActionController::InvalidAuthenticityToken error page,
+    # reset the session and continue the OAuth login flow seamlessly.
+    rescue_from ActionController::InvalidAuthenticityToken do |exception|
+      if action_name == "start"
+        logger.info("[OAuth2ClientKit] Stale CSRF token on auth start. Resetting session and initiating fresh login.")
+        reset_session
+        start
+      else
+        raise exception
+      end
+    end
+
     # POST /auth/start
     def start
       flow = params[:flow] == "direct" ? :direct : :par
@@ -46,6 +60,7 @@ module OAuth2ClientKit
       client = OAuth2ClientKit.client
       auth_params = {
         response_type: "code",
+        response_mode: "jwt",
         client_id: client.id,
         redirect_uri: redirect_uri,
         state: state,
@@ -72,11 +87,31 @@ module OAuth2ClientKit
 
     # GET /callback
     def callback
-      if params[:error].present?
-        return handle_auth_error(params[:error], params[:error_description], params[:error_uri])
+      client = OAuth2ClientKit.client
+
+      # Strict RFC 9221 JARM Enforcement:
+      # All authorization responses must be cryptographically signed JWS (response parameter).
+      # Unsigned plaintext query parameters (?code=... or ?error=...) are strictly rejected to prevent message forgery.
+      unless params[:response].present?
+        OAuth2ClientKit.logger.warn("Rejected authorization callback: Missing signed JARM 'response' parameter. Insecure plaintext responses are prohibited.")
+        flash[:error] = "Security Error: RFC 9221 JARM is strictly enforced. Unsigned plain authorization response rejected."
+        return redirect_to "/"
       end
 
-      state_param = params[:state]
+      jarm_claims = begin
+        client.decode_and_verify_jarm_response(params[:response])
+      rescue => e
+        OAuth2ClientKit.logger.error("JARM Verification Failed: #{e.message}")
+        flash[:error] = "Security Error: Cryptographic JARM verification failed (#{e.message})"
+        return redirect_to "/"
+      end
+
+      # Handle cryptographically signed errors from Authorization Server
+      if jarm_claims["error"].present?
+        return handle_auth_error(jarm_claims["error"], jarm_claims["error_description"], jarm_claims["error_uri"])
+      end
+
+      state_param = jarm_claims["state"]
       cached_flow = Rails.cache.read("oauth_flow:#{state_param}") if defined?(Rails) && Rails.respond_to?(:cache) && Rails.cache && state_param.present?
       Rails.cache.delete("oauth_flow:#{state_param}") if defined?(Rails) && Rails.respond_to?(:cache) && Rails.cache && state_param.present?
 
@@ -88,17 +123,15 @@ module OAuth2ClientKit
         return redirect_to "/"
       end
 
-      code = params[:code]
+      code = jarm_claims["code"]
       if code.blank?
-        flash[:error] = "OAuth Error: No authorization code received."
+        flash[:error] = "OAuth Error: No authorization code received in JARM response."
         return redirect_to "/"
       end
 
-      client = OAuth2ClientKit.client
-
-      # RFC 9207 Issuer Identification validation
-      if params[:iss].present? && params[:iss] != client.public_issuer_url
-        flash[:error] = "Security Error: Authorization Server Issuer Identification mismatch (RFC 9207). Expected #{client.public_issuer_url}, got #{params[:iss]}."
+      # RFC 9207 Issuer Identification validation inside JARM claims
+      if jarm_claims["iss"].present? && jarm_claims["iss"] != client.public_issuer_url
+        flash[:error] = "Security Error: Authorization Server Issuer Identification mismatch (RFC 9207). Expected #{client.public_issuer_url}, got #{jarm_claims['iss']}."
         return redirect_to "/"
       end
 
@@ -234,7 +267,11 @@ module OAuth2ClientKit
           if response.status == 403
             flash[:notice] = "🛡️ Perimeter Isolation Verified: The edge reverse proxy (Nginx) correctly rejected public access to /api/admin/revoke-session with HTTP 403 Forbidden. Administrative operations are isolated from external clients."
           elsif response.status == 200
-            flash[:notice] = "⚠️ Simulated Fraud Alert: Authorization Server has revoked your authorization session! Test Introspection or Refresh now to observe immediate rejection."
+            token_key = session[:token_key]
+            OAuth2ClientKit.token_store.delete(token_key) if token_key.present?
+            reset_session
+            flash[:notice] = "⚠️ Simulated Fraud Alert: Authorization session terminated globally! Both Auth Server SSO session and client tokens have been revoked."
+            redirect_to "/" and return
           else
             flash[:error] = "Administrative revocation returned HTTP #{response.status}: #{response.body}"
           end
@@ -255,8 +292,17 @@ module OAuth2ClientKit
       id_token_hint = session[:raw_id_token] || token_data[:raw_id_token]
       client = OAuth2ClientKit.client
 
-      client.revoke_token(raw_access_token, "access_token") if raw_access_token.present?
-      client.revoke_token(raw_refresh_token, "refresh_token") if raw_refresh_token.present?
+      begin
+        client.revoke_token(raw_access_token, "access_token") if raw_access_token.present?
+      rescue StandardError => e
+        OAuth2ClientKit.logger.warn("Access token revocation ignored during logout: #{e.message}")
+      end
+
+      begin
+        client.revoke_token(raw_refresh_token, "refresh_token") if raw_refresh_token.present?
+      rescue StandardError => e
+        OAuth2ClientKit.logger.warn("Refresh token revocation ignored during logout: #{e.message}")
+      end
 
       OAuth2ClientKit.token_store.delete(token_key) if token_key.present?
       reset_session

@@ -67,56 +67,71 @@ public class SharedRedisSessionFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
 
-        Authentication currentAuth = SecurityContextHolder.getContext().getAuthentication();
-        boolean needsAuth = currentAuth == null || !currentAuth.isAuthenticated() || currentAuth instanceof AnonymousAuthenticationToken;
+        String sessionId = extractSessionId(request);
+        UUID sessionUuid = parseUuid(sessionId);
+        boolean sessionEstablished = false;
 
-        if (needsAuth) {
-            String sessionId = extractSessionId(request);
-            UUID sessionUuid = parseUuid(sessionId);
+        // Security Improvement: Validate session ID format using native Java UUID parser before issuing Redis lookup
+        if (sessionUuid != null) {
+            String redisKey = REDIS_PREFIX + sessionUuid;
+            String sessionJson = redisTemplate.opsForValue().get(redisKey);
 
-            // Security Improvement: Validate session ID format using native Java UUID parser before issuing Redis lookup
-            if (sessionUuid != null) {
-                String redisKey = REDIS_PREFIX + sessionUuid;
-                String sessionJson = redisTemplate.opsForValue().get(redisKey);
+            if (sessionJson != null && !sessionJson.isBlank()) {
+                try {
+                    AuthenticatedUser user = objectMapper.readValue(sessionJson, AuthenticatedUser.class);
+                    List<GrantedAuthority> authorities = user.roles().stream()
+                            .map(role -> role.startsWith("ROLE_") ? role : "ROLE_" + role)
+                            .map(SimpleGrantedAuthority::new)
+                            .collect(Collectors.toList());
 
-                if (sessionJson != null && !sessionJson.isBlank()) {
-                    try {
-                        AuthenticatedUser user = objectMapper.readValue(sessionJson, AuthenticatedUser.class);
-                        List<GrantedAuthority> authorities = user.roles().stream()
-                                .map(role -> role.startsWith("ROLE_") ? role : "ROLE_" + role)
-                                .map(SimpleGrantedAuthority::new)
-                                .collect(Collectors.toList());
+                    // Spring Security 7 multifactor / auth_time tracking for OIDC id_token
+                    authorities.add(FactorGrantedAuthority.fromAuthority(FactorGrantedAuthority.PASSWORD_AUTHORITY));
 
-                        // Spring Security 7 multifactor / auth_time tracking for OIDC id_token
-                        authorities.add(FactorGrantedAuthority.fromAuthority(FactorGrantedAuthority.PASSWORD_AUTHORITY));
+                    // Store user details as standard Map to guarantee safe Jackson serialization in JdbcOAuth2AuthorizationService
+                    Map<String, Object> userDetails = new java.util.HashMap<>();
+                    userDetails.put("username", user.username());
+                    userDetails.put("session_id", sessionUuid.toString());
+                    if (user.email() != null) userDetails.put("email", user.email());
+                    if (user.name() != null) userDetails.put("name", user.name());
+                    if (user.roles() != null) userDetails.put("roles", user.roles());
+                    if (user.authenticatedAt() != null) userDetails.put("authenticated_at", user.authenticatedAt());
 
-                        // Store user details as standard Map to guarantee safe Jackson serialization in JdbcOAuth2AuthorizationService
-                        Map<String, Object> userDetails = new java.util.HashMap<>();
-                        userDetails.put("username", user.username());
-                        if (user.email() != null) userDetails.put("email", user.email());
-                        if (user.name() != null) userDetails.put("name", user.name());
-                        if (user.roles() != null) userDetails.put("roles", user.roles());
-                        if (user.authenticatedAt() != null) userDetails.put("authenticated_at", user.authenticatedAt());
+                    UsernamePasswordAuthenticationToken auth =
+                            new UsernamePasswordAuthenticationToken(user.username(), null, authorities);
+                    auth.setDetails(userDetails);
 
-                        UsernamePasswordAuthenticationToken auth =
-                                new UsernamePasswordAuthenticationToken(user.username(), null, authorities);
-                        auth.setDetails(userDetails);
+                    SecurityContext context = SecurityContextHolder.createEmptyContext();
+                    context.setAuthentication(auth);
+                    SecurityContextHolder.setContext(context);
+                    securityContextRepository.saveContext(context, request, response);
 
-                        SecurityContext context = SecurityContextHolder.createEmptyContext();
-                        context.setAuthentication(auth);
-                        SecurityContextHolder.setContext(context);
-                        securityContextRepository.saveContext(context, request, response);
-
-                        log.info("Established SecurityContext from shared Redis session for user: {}", user.username());
-                    } catch (Exception e) {
-                        log.error("Failed to parse user JSON from Redis key {}: {}", redisKey, e.getMessage());
-                    }
-                } else {
-                    log.debug("No session found in Redis for key {}", redisKey);
+                    sessionEstablished = true;
+                    log.info("Established SecurityContext from shared Redis session for user: {}", user.username());
+                } catch (Exception e) {
+                    log.error("Failed to parse user JSON from Redis key {}: {}", redisKey, e.getMessage());
                 }
-            } else if (sessionId != null) {
-                // Security Improvement: Log rejected malformed session identifiers
-                log.warn("Rejected malformed SHARED_SESSION_ID cookie format: {}", sessionId);
+            } else {
+                log.debug("No session found in Redis for key {}", redisKey);
+            }
+        } else if (sessionId != null) {
+            // Security Improvement: Log rejected malformed session identifiers
+            log.warn("Rejected malformed SHARED_SESSION_ID cookie format: {}", sessionId);
+        }
+
+        if (!sessionEstablished) {
+            // Shared Redis session is missing, expired, or was revoked (fraud revocation / global logout).
+            // Invalidate residual SecurityContext and Tomcat HttpSession so user CANNOT remain authenticated!
+            SecurityContextHolder.clearContext();
+            jakarta.servlet.http.HttpSession httpSession = request.getSession(false);
+            if (httpSession != null) {
+                httpSession.invalidate();
+            }
+            if (sessionId != null) {
+                jakarta.servlet.http.Cookie clearedCookie = new jakarta.servlet.http.Cookie(COOKIE_NAME, "");
+                clearedCookie.setPath("/");
+                clearedCookie.setMaxAge(0);
+                clearedCookie.setHttpOnly(true);
+                response.addCookie(clearedCookie);
             }
         }
 

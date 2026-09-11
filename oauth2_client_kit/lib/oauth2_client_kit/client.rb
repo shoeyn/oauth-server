@@ -85,13 +85,7 @@ module OAuth2ClientKit
     # Submits authorization parameters directly over the authenticated backchannel
     # using RFC 9126 Pushed Authorization Requests (PAR).
     def push_authorization_request(auth_params)
-      assertion = build_client_assertion(@par_url)
-
-      request_body = auth_params.merge(
-        client_id: id,
-        client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-        client_assertion: assertion
-      )
+      request_body = auth_params.merge(client_assertion_params(@par_url))
 
       response = connection.post(@par_url) do |req|
         req.headers["Content-Type"] = "application/x-www-form-urlencoded"
@@ -109,39 +103,36 @@ module OAuth2ClientKit
 
     # Exchanges an authorization code for tokens with PKCE code_verifier,
     # private_key_jwt client assertion, and optional RFC 9449 DPoP proof header.
+    # Uses string keys for body params to be explicit about the oauth2 gem's
+    # authenticator merge behavior (auth_code.get_token converts symbol→string,
+    # but string keys make the intent clear and avoid accidental duplication).
     def exchange_code(code, code_verifier, redirect_uri, dpop_key = nil)
       assertion = build_client_assertion(token_url)
 
       params = {
-        grant_type: "authorization_code",
-        code: code,
-        redirect_uri: redirect_uri,
-        code_verifier: code_verifier,
-        client_id: id,
-        client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-        client_assertion: assertion
+        "grant_type" => "authorization_code",
+        "code" => code,
+        "redirect_uri" => redirect_uri,
+        "code_verifier" => code_verifier,
+        "client_assertion_type" => "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        "client_assertion" => assertion
       }
 
-      opts = {}
       if dpop_key.present?
         dpop_proof = build_dpop_proof("POST", token_url, nil, dpop_key)
         params[:headers] = { "DPoP" => dpop_proof }
-        opts[:headers] = { "DPoP" => dpop_proof }
       end
 
       begin
-        auth_code.get_token(code, params, opts)
+        auth_code.get_token(code, params)
       rescue OAuth2::Error => e
         # RFC 9449 Section 8: Server-Provided Nonces
         server_nonce = e.response&.headers&.[]("dpop-nonce") || e.response&.headers&.[]("DPoP-Nonce")
         if server_nonce.present? && dpop_key.present?
           OAuth2ClientKit.logger.info("Captured RFC 9449 DPoP-Nonce '#{server_nonce}'. Retrying code exchange with bound nonce.")
-          new_assertion = build_client_assertion(token_url)
-          params[:client_assertion] = new_assertion
-          retried_dpop_proof = build_dpop_proof("POST", token_url, nil, dpop_key, server_nonce)
-          params[:headers] = { "DPoP" => retried_dpop_proof }
-          opts[:headers] = { "DPoP" => retried_dpop_proof }
-          auth_code.get_token(code, params, opts)
+          params["client_assertion"] = build_client_assertion(token_url)
+          params[:headers] = { "DPoP" => build_dpop_proof("POST", token_url, nil, dpop_key, server_nonce) }
+          auth_code.get_token(code, params)
         else
           raise e
         end
@@ -210,52 +201,10 @@ module OAuth2ClientKit
     def decode_and_verify_id_token(id_token_jwt, expected_nonce, raw_access_token = nil, code = nil)
       return {} if id_token_jwt.blank?
 
-      header = (JWT.decode(id_token_jwt, nil, false)[1] rescue {}) || {}
-      alg = header["alg"]
-      if alg.blank? || alg.downcase == "none" || alg != "RS256"
-        raise "Security Error: Strict Algorithm Pinning: Only 'RS256' algorithm is permitted. Rejected algorithm '#{alg}'."
-      end
-
-      kid = header["kid"]
-      jwk_set = fetch_jwks(kid)
-
-      unless jwk_set.present?
-        raise "Security Error: Cryptographic failure. Unable to fetch valid JWKS from Authorization Server (#{@internal_issuer_url}/oauth2/jwks). Refusing to process unverified ID Token."
-      end
-
-      decoded = JWT.decode(id_token_jwt, nil, true, {
-        algorithms: ["RS256"],
-        jwks: jwk_set,
-        iss: @public_issuer_url,
-        verify_iss: true,
-        aud: id,
-        verify_aud: true
-      })
-
-      payload = decoded[0]
-      now = Time.now.to_i
-      leeway = 60
+      payload = verify_signed_jwt(id_token_jwt, token_type: "ID Token")
 
       if expected_nonce.present? && payload["nonce"] != expected_nonce
         raise "Security Error: ID Token nonce ('#{payload['nonce']}') does not match expected nonce ('#{expected_nonce}')"
-      end
-
-      if payload["iss"] != @public_issuer_url
-        raise "Security Error: ID Token issuer ('#{payload['iss']}') does not match expected issuer ('#{@public_issuer_url}')"
-      end
-
-      aud = payload["aud"]
-      valid_aud = aud == id || (aud.is_a?(Array) && aud.include?(id))
-      unless valid_aud
-        raise "Security Error: ID Token audience ('#{aud}') does not include client_id ('#{id}')"
-      end
-
-      if payload["exp"].to_i < (now - leeway)
-        raise "Security Error: ID Token has expired at #{Time.at(payload['exp'].to_i)}"
-      end
-
-      if payload["iat"].present? && payload["iat"].to_i > (now + leeway)
-        raise "Security Error: ID Token issued in the future at #{Time.at(payload['iat'].to_i)}"
       end
 
       if payload["at_hash"].present? && raw_access_token.present?
@@ -272,6 +221,22 @@ module OAuth2ClientKit
         if payload["c_hash"] != expected_c_hash
           raise "Security Error: ID Token c_hash ('#{payload['c_hash']}') does not match calculated code hash ('#{expected_c_hash}')"
         end
+      end
+
+      payload
+    end
+
+    # Validates and cryptographically verifies an RFC 9221 JWT-Secured Authorization Response (JARM).
+    # Ensures non-repudiation and prevents response parameter tampering, code injection, and forged error messages.
+    def decode_and_verify_jarm_response(jarm_jwt, expected_state = nil)
+      if jarm_jwt.blank?
+        raise "Security Error: Missing JARM response parameter"
+      end
+
+      payload = verify_signed_jwt(jarm_jwt, token_type: "JARM response")
+
+      if expected_state.present? && payload["state"] != expected_state
+        raise "Security Error: JARM state parameter mismatch. Possible CSRF attack."
       end
 
       payload
@@ -357,24 +322,38 @@ module OAuth2ClientKit
     end
 
     # Refresh Token Grant (RFC 6749 / OAuth 2.1)
+    # Uses string keys for body params to avoid duplication with the oauth2 gem's
+    # authenticator (which prepends "client_id" as a string key via :request_body scheme).
+    # DPoP header is passed via params[:headers] — a reserved symbol key that
+    # parse_snaky_params_headers extracts and sends as an HTTP header.
     def refresh_access_token(refresh_token_value, dpop_key = nil)
       assertion = build_client_assertion(token_url)
       token_obj = OAuth2::AccessToken.new(self, "", refresh_token: refresh_token_value)
 
       params = {
-        client_id: id,
-        client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-        client_assertion: assertion
+        "client_assertion_type" => "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        "client_assertion" => assertion
       }
 
-      opts = {}
       if dpop_key.present?
         dpop_proof = build_dpop_proof("POST", token_url, nil, dpop_key)
         params[:headers] = { "DPoP" => dpop_proof }
-        opts[:headers] = { "DPoP" => dpop_proof }
       end
 
-      token_obj.refresh!(params, opts)
+      begin
+        token_obj.refresh!(params)
+      rescue OAuth2::Error => e
+        # RFC 9449 Section 8: Server-Provided Nonces
+        server_nonce = e.response&.headers&.[]("dpop-nonce") || e.response&.headers&.[]("DPoP-Nonce")
+        if server_nonce.present? && dpop_key.present?
+          OAuth2ClientKit.logger.info("Captured RFC 9449 DPoP-Nonce '#{server_nonce}' on refresh. Retrying token refresh with bound nonce.")
+          params["client_assertion"] = build_client_assertion(token_url)
+          params[:headers] = { "DPoP" => build_dpop_proof("POST", token_url, nil, dpop_key, server_nonce) }
+          token_obj.refresh!(params)
+        else
+          raise e
+        end
+      end
     end
 
     # RFC 7662 Token Introspection
@@ -382,15 +361,10 @@ module OAuth2ClientKit
       return { "active" => false } if token_value.blank?
 
       introspect_url = "#{@internal_issuer_url}/oauth2/introspect"
-      assertion = build_client_assertion(introspect_url)
-
-      request_body = {
+      request_body = client_assertion_params(introspect_url).merge(
         token: token_value,
-        token_type_hint: token_type_hint,
-        client_id: id,
-        client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-        client_assertion: assertion
-      }
+        token_type_hint: token_type_hint
+      )
 
       response = with_retries(operation_name: "Token Introspection") do
         connection.post(introspect_url) do |req|
@@ -438,15 +412,10 @@ module OAuth2ClientKit
       return false if token_value.blank?
 
       revoke_url = "#{@internal_issuer_url}/oauth2/revoke"
-      assertion = build_client_assertion(revoke_url)
-
-      request_body = {
+      request_body = client_assertion_params(revoke_url).merge(
         token: token_value,
-        token_type_hint: token_type_hint,
-        client_id: id,
-        client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-        client_assertion: assertion
-      }
+        token_type_hint: token_type_hint
+      )
 
       response = with_retries(operation_name: "Token Revocation") do
         connection.post(revoke_url) do |req|
@@ -462,33 +431,7 @@ module OAuth2ClientKit
     def verify_logout_token(logout_token_jwt)
       return nil if logout_token_jwt.blank?
 
-      kid = nil
-      begin
-        headers = JWT.decode(logout_token_jwt, nil, false)[1]
-        kid = headers["kid"]
-        alg = headers["alg"]
-        if alg.blank? || alg.downcase == "none" || alg != "RS256"
-          raise "Security Error: Strict Algorithm Pinning: Only 'RS256' algorithm is permitted for logout tokens. Rejected algorithm '#{alg}'."
-        end
-      rescue => e
-        raise e if e.message.include?("Strict Algorithm Pinning")
-      end
-
-      jwk_set = fetch_jwks(kid)
-      unless jwk_set.present?
-        raise "Security Error: Unable to fetch AS JWKS to verify logout_token signature"
-      end
-
-      decoded = JWT.decode(logout_token_jwt, nil, true, {
-        algorithms: ["RS256"],
-        jwks: jwk_set,
-        iss: @public_issuer_url,
-        verify_iss: true,
-        aud: id,
-        verify_aud: true
-      })
-
-      payload = decoded[0]
+      payload = verify_signed_jwt(logout_token_jwt, token_type: "logout token")
 
       events = payload["events"] || {}
       unless events.key?("http://schemas.openid.net/event/backchannel-logout")
@@ -526,6 +469,79 @@ module OAuth2ClientKit
       end
 
       JSON.parse(response.body) rescue {}
+    end
+
+    private
+
+    # Shared JWT signature verification pipeline used by all signed-token validators
+    # (ID Token, JARM response, logout token). Handles:
+    # - RS256 algorithm pinning (rejects alg=none and non-RS256)
+    # - JWKS resolution with kid-based cache invalidation
+    # - Full signature verification via JWT.decode
+    # - Standard claims validation: iss, aud, exp, iat
+    #
+    # @param jwt_string [String] Raw JWT to verify
+    # @param token_type [String] Human-readable label for error messages (e.g. "ID Token", "JARM response")
+    # @return [Hash] Decoded JWT payload
+    def verify_signed_jwt(jwt_string, token_type: "JWT")
+      header = (JWT.decode(jwt_string, nil, false)[1] rescue {}) || {}
+      alg = header["alg"]
+      if alg.blank? || alg.downcase == "none" || alg != "RS256"
+        raise "Security Error: Strict Algorithm Pinning: #{token_type} must use 'RS256'. Rejected algorithm '#{alg}'."
+      end
+
+      kid = header["kid"]
+      jwk_set = fetch_jwks(kid)
+
+      unless jwk_set.present?
+        raise "Security Error: Unable to fetch JWKS from Authorization Server (#{@internal_issuer_url}/oauth2/jwks) to verify #{token_type}."
+      end
+
+      decoded = JWT.decode(jwt_string, nil, true, {
+        algorithms: ["RS256"],
+        jwks: jwk_set,
+        iss: @public_issuer_url,
+        verify_iss: true,
+        aud: id,
+        verify_aud: true
+      })
+
+      payload = decoded[0]
+      now = Time.now.to_i
+      leeway = 60
+
+      if payload["iss"] != @public_issuer_url
+        raise "Security Error: #{token_type} issuer ('#{payload['iss']}') mismatch. Expected '#{@public_issuer_url}'."
+      end
+
+      aud = payload["aud"]
+      valid_aud = aud == id || (aud.is_a?(Array) && aud.include?(id))
+      unless valid_aud
+        raise "Security Error: #{token_type} audience ('#{aud}') does not match client_id ('#{id}')."
+      end
+
+      if payload["exp"].to_i < (now - leeway)
+        raise "Security Error: #{token_type} has expired at #{Time.at(payload['exp'].to_i)}."
+      end
+
+      if payload["iat"].present? && payload["iat"].to_i > (now + leeway)
+        raise "Security Error: #{token_type} issued in the future at #{Time.at(payload['iat'].to_i)}."
+      end
+
+      payload
+    end
+
+    # Builds the common authenticated request body params for token endpoint operations
+    # (introspection, revocation) that use direct Faraday calls with private_key_jwt.
+    #
+    # @param endpoint_url [String] The audience URL for the client assertion
+    # @return [Hash] Base params with client_id, client_assertion_type, and client_assertion
+    def client_assertion_params(endpoint_url)
+      {
+        client_id: id,
+        client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        client_assertion: build_client_assertion(endpoint_url)
+      }
     end
   end
 end

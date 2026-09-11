@@ -1,6 +1,7 @@
 package com.example.authserver.controller;
 
 import com.example.authserver.client.ClientConfigDto;
+import com.example.authserver.client.ClientReloadRedisSubscriber;
 import com.example.authserver.client.PostgresRegisteredClientRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -135,7 +136,7 @@ public class ClientAdminController {
 
         // Broadcast cluster reload event via Redis Pub/Sub
         try {
-            redisTemplate.convertAndSend("oauth2:clients:reload",
+            redisTemplate.convertAndSend(ClientReloadRedisSubscriber.RELOAD_TOPIC,
                     String.format("{\"action\":\"save\",\"clientId\":\"%s\"}", dto.clientId()));
         } catch (Exception e) {
             log.warn("Failed to publish Redis reload event for client '{}': {}", dto.clientId(), e.getMessage());
@@ -163,7 +164,7 @@ public class ClientAdminController {
 
         // Broadcast cluster reload event via Redis Pub/Sub
         try {
-            redisTemplate.convertAndSend("oauth2:clients:reload",
+            redisTemplate.convertAndSend(ClientReloadRedisSubscriber.RELOAD_TOPIC,
                     String.format("{\"action\":\"delete\",\"clientId\":\"%s\"}", clientId));
         } catch (Exception e) {
             log.warn("Failed to publish Redis reload event for deleted client '{}': {}", clientId, e.getMessage());
