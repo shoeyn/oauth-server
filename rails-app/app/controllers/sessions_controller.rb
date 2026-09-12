@@ -86,12 +86,12 @@ class SessionsController < ApplicationController
     # Invalidate previous session in Redis to prevent session fixation attacks
     old_session_id = cookies[:SHARED_SESSION_ID]
     if old_session_id.present? && valid_session_id?(old_session_id)
-      redis_client.del("session:#{old_session_id}")
+      redis_client.del(redis_session_key(old_session_id))
     end
 
     # Issue cryptographically secure UUIDv4 session identifier and persist to Redis
     session_id = SecureRandom.uuid
-    redis_client.set("session:#{session_id}", user_payload.to_json, ex: 7200)
+    redis_client.set(redis_session_key(session_id), user_payload.to_json, ex: 7200)
 
     # Issue hardened session cookie:
     # - HttpOnly: Prevents client-side script access (mitigates XSS cookie theft)
@@ -103,7 +103,7 @@ class SessionsController < ApplicationController
       expires: 2.hours.from_now,
       same_site: :lax,
       httponly: true,
-      secure: request.ssl?
+      secure: ENV.fetch("REQUIRE_SECURE_COOKIES", request.ssl?.to_s) == "true"
     }
 
     # Session identifier is transmitted exclusively via cookie, never in URL query strings (CWE-598)
@@ -117,13 +117,17 @@ class SessionsController < ApplicationController
   def destroy
     session_id = cookies[:SHARED_SESSION_ID]
     if session_id.present? && valid_session_id?(session_id)
-      redis_client.del("session:#{session_id}")
+      redis_client.del(redis_session_key(session_id))
       cookies.delete(:SHARED_SESSION_ID, path: "/")
     end
     redirect_to "/login", notice: "Logged out"
   end
 
   private
+
+  def redis_session_key(session_id)
+    "#{ENV.fetch("REDIS_PREFIX", "session:")}#{session_id}"
+  end
 
   # Thread-safe persistent Redis connection
   def self.redis_client
@@ -142,21 +146,22 @@ class SessionsController < ApplicationController
 
   # Validates return_to parameter against trusted hosts to prevent open redirects
   def sanitize_return_to(target_url)
-    return "http://localhost:9000" if target_url.blank?
+    fallback_url = ENV.fetch("AUTH_SERVER_URL", "http://localhost:9000")
+    return fallback_url if target_url.blank?
 
     begin
       parsed = URI.parse(target_url.to_s.strip)
       allowed = self.class.allowed_return_hosts
       if parsed.host.nil?
-        target_url.start_with?("/") ? target_url : "http://localhost:9000"
+        target_url.start_with?("/") ? target_url : fallback_url
       elsif allowed.include?(parsed.host) || allowed.include?("#{parsed.host}:#{parsed.port}")
         target_url
       else
         Rails.logger.warn("Blocked untrusted return_to redirect: #{target_url}")
-        "http://localhost:9000"
+        fallback_url
       end
     rescue URI::InvalidURIError
-      "http://localhost:9000"
+      fallback_url
     end
   end
 

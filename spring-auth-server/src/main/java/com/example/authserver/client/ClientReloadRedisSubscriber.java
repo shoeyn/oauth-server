@@ -1,6 +1,7 @@
 package com.example.authserver.client;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.MessageListener;
@@ -13,12 +14,11 @@ import org.springframework.data.redis.listener.adapter.MessageListenerAdapter;
 @Configuration(proxyBeanMethods = false)
 public class ClientReloadRedisSubscriber {
 
-    public static final String RELOAD_TOPIC = "oauth2as:clients:reload";
-
     @Bean
     public RedisMessageListenerContainer redisMessageListenerContainer(
             RedisConnectionFactory connectionFactory,
-            PostgresRegisteredClientRepository registeredClientRepository) {
+            PostgresRegisteredClientRepository registeredClientRepository,
+            @Value("${spring.data.redis.channel.reload:auth_server:clients:reload}") String reloadTopic) {
 
         RedisMessageListenerContainer container = new RedisMessageListenerContainer();
         container.setConnectionFactory(connectionFactory);
@@ -32,8 +32,8 @@ public class ClientReloadRedisSubscriber {
                 }
         );
 
-        container.addMessageListener(adapter, new ChannelTopic(RELOAD_TOPIC));
-        log.info("Subscribed to Redis pub/sub channel '{}' for dynamic client re-registration", RELOAD_TOPIC);
+        container.addMessageListener(adapter, new ChannelTopic(reloadTopic));
+        log.info("Subscribed to Redis pub/sub channel '{}' for dynamic client re-registration", reloadTopic);
         return container;
     }
 }

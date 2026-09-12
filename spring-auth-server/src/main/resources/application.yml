@@ -1,17 +1,3 @@
-server:
-  port: 9000
-  shutdown: graceful
-  forward-headers-strategy: framework
-  http2:
-    enabled: true
-  tomcat:
-    threads:
-      max: 200
-      min-spare: 20
-    max-connections: 8192
-    accept-count: 200
-    connection-timeout: 20000
-
 spring:
   application:
     name: spring-auth-server
@@ -36,6 +22,25 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       timeout: 2000ms
+      namespace: ${REDIS_NAMESPACE:session:}
+
+server:
+  port: 9000
+  shutdown: graceful
+  forward-headers-strategy: framework
+  http2:
+    enabled: true
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 20
+    max-connections: 8192
+    accept-count: 200
+    connection-timeout: 20000
+  servlet:
+    session:
+      cookie:
+        secure: ${REQUIRE_SECURE_COOKIES:false}
 
 auth:
   rails:

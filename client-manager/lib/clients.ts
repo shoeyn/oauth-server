@@ -2,10 +2,26 @@ import { ClientConfig } from "./types";
 
 const SPRING_AUTH_SERVER_URL = process.env.SPRING_AUTH_SERVER_URL || "http://localhost:9000";
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "secret-admin-key";
+const FETCH_TIMEOUT_MS = 5000;
+
+async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(id);
+  }
+}
 
 export async function listClients(): Promise<ClientConfig[]> {
   try {
-    const res = await fetch(`${SPRING_AUTH_SERVER_URL}/api/admin/clients`, {
+    const res = await fetchWithTimeout(`${SPRING_AUTH_SERVER_URL}/api/admin/clients`, {
       headers: {
         "X-Admin-Api-Key": ADMIN_API_KEY,
       },
@@ -26,7 +42,7 @@ export async function listClients(): Promise<ClientConfig[]> {
 
 export async function getClient(clientId: string): Promise<ClientConfig | null> {
   try {
-    const res = await fetch(`${SPRING_AUTH_SERVER_URL}/api/admin/clients/${encodeURIComponent(clientId)}`, {
+    const res = await fetchWithTimeout(`${SPRING_AUTH_SERVER_URL}/api/admin/clients/${encodeURIComponent(clientId)}`, {
       headers: {
         "X-Admin-Api-Key": ADMIN_API_KEY,
       },
@@ -50,7 +66,7 @@ export async function getClient(clientId: string): Promise<ClientConfig | null> 
 }
 
 export async function saveClient(client: ClientConfig): Promise<void> {
-  const res = await fetch(`${SPRING_AUTH_SERVER_URL}/api/admin/clients`, {
+  const res = await fetchWithTimeout(`${SPRING_AUTH_SERVER_URL}/api/admin/clients`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -66,7 +82,7 @@ export async function saveClient(client: ClientConfig): Promise<void> {
 }
 
 export async function deleteClient(clientId: string): Promise<void> {
-  const res = await fetch(`${SPRING_AUTH_SERVER_URL}/api/admin/clients/${encodeURIComponent(clientId)}`, {
+  const res = await fetchWithTimeout(`${SPRING_AUTH_SERVER_URL}/api/admin/clients/${encodeURIComponent(clientId)}`, {
     method: "DELETE",
     headers: {
       "X-Admin-Api-Key": ADMIN_API_KEY,

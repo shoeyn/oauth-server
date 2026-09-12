@@ -36,7 +36,7 @@ module OAuth2ClientKit
       @private_key = private_key_pem.is_a?(OpenSSL::PKey::RSA) ? private_key_pem : OpenSSL::PKey::RSA.new(private_key_pem)
       @par_url = options.delete(:par_url) || "#{@internal_issuer_url}/oauth2/par"
 
-      conn_opts = (options[:connection_opts] || {}).dup
+      conn_opts = { request: { timeout: 5, open_timeout: 2 } }.merge(options[:connection_opts] || {})
       conn_opts[:headers] = {
         "Connection" => "keep-alive",
         "Keep-Alive" => "timeout=30, max=1000"
@@ -85,7 +85,8 @@ module OAuth2ClientKit
     # Submits authorization parameters directly over the authenticated backchannel
     # using RFC 9126 Pushed Authorization Requests (PAR).
     def push_authorization_request(auth_params)
-      request_body = auth_params.merge(client_assertion_params(@par_url))
+      public_par_url = "#{@public_issuer_url}/oauth2/par"
+      request_body = auth_params.merge(client_assertion_params(public_par_url))
 
       response = connection.post(@par_url) do |req|
         req.headers["Content-Type"] = "application/x-www-form-urlencoded"
@@ -101,10 +102,9 @@ module OAuth2ClientKit
       parsed["request_uri"] || raise("No request_uri returned from PAR endpoint")
     end
 
-    # Exchanges an authorization code for tokens with PKCE code_verifier,
-    # private_key_jwt client assertion, and optional RFC 9449 DPoP proof header.
     def exchange_code(code, code_verifier, redirect_uri, dpop_key = nil)
-      params = client_assertion_payload(token_url).merge(
+      public_token_url = "#{@public_issuer_url}/oauth2/token"
+      params = client_assertion_payload(public_token_url).merge(
         "grant_type" => "authorization_code",
         "code" => code,
         "redirect_uri" => redirect_uri,
@@ -123,7 +123,7 @@ module OAuth2ClientKit
         server_nonce = e.response&.headers&.[]("dpop-nonce") || e.response&.headers&.[]("DPoP-Nonce")
         if server_nonce.present? && dpop_key.present?
           OAuth2ClientKit.logger.info("Captured RFC 9449 DPoP-Nonce '#{server_nonce}'. Retrying code exchange with bound nonce.")
-          params.merge!(client_assertion_payload(token_url))
+          params.merge!(client_assertion_payload(public_token_url))
           params[:headers] = { "DPoP" => build_dpop_proof("POST", token_url, nil, dpop_key, server_nonce) }
           auth_code.get_token(code, params)
         else
@@ -317,7 +317,8 @@ module OAuth2ClientKit
     # Refresh Token Grant (RFC 6749 / OAuth 2.1)
     def refresh_access_token(refresh_token_value, dpop_key = nil)
       token_obj = OAuth2::AccessToken.new(self, "", refresh_token: refresh_token_value)
-      params = client_assertion_payload(token_url)
+      public_token_url = "#{@public_issuer_url}/oauth2/token"
+      params = client_assertion_payload(public_token_url)
 
       if dpop_key.present?
         dpop_proof = build_dpop_proof("POST", token_url, nil, dpop_key)
@@ -331,7 +332,7 @@ module OAuth2ClientKit
         server_nonce = e.response&.headers&.[]("dpop-nonce") || e.response&.headers&.[]("DPoP-Nonce")
         if server_nonce.present? && dpop_key.present?
           OAuth2ClientKit.logger.info("Captured RFC 9449 DPoP-Nonce '#{server_nonce}' on refresh. Retrying token refresh with bound nonce.")
-          params.merge!(client_assertion_payload(token_url))
+          params.merge!(client_assertion_payload(public_token_url))
           params[:headers] = { "DPoP" => build_dpop_proof("POST", token_url, nil, dpop_key, server_nonce) }
           token_obj.refresh!(params)
         else
@@ -345,7 +346,8 @@ module OAuth2ClientKit
       return { "active" => false } if token_value.blank?
 
       introspect_url = "#{@internal_issuer_url}/oauth2/introspect"
-      request_body = client_assertion_params(introspect_url).merge(
+      public_introspect_url = "#{@public_issuer_url}/oauth2/introspect"
+      request_body = client_assertion_params(public_introspect_url).merge(
         token: token_value,
         token_type_hint: token_type_hint
       )
@@ -396,7 +398,8 @@ module OAuth2ClientKit
       return false if token_value.blank?
 
       revoke_url = "#{@internal_issuer_url}/oauth2/revoke"
-      request_body = client_assertion_params(revoke_url).merge(
+      public_revoke_url = "#{@public_issuer_url}/oauth2/revoke"
+      request_body = client_assertion_params(public_revoke_url).merge(
         token: token_value,
         token_type_hint: token_type_hint
       )
