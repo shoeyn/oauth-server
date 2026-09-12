@@ -32,20 +32,21 @@ import tools.jackson.databind.json.JsonMapper;
 public class SharedRedisSessionFilter extends OncePerRequestFilter {
 
     public static final String COOKIE_NAME = "SHARED_SESSION_ID";
-    public static final String REDIS_PREFIX = "session:";
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final SecurityContextRepository securityContextRepository;
+    private final String redisPrefix;
 
-    public SharedRedisSessionFilter(StringRedisTemplate redisTemplate) {
-        this(redisTemplate, JsonMapper.shared());
+    public SharedRedisSessionFilter(StringRedisTemplate redisTemplate, String redisPrefix) {
+        this(redisTemplate, JsonMapper.shared(), redisPrefix);
     }
 
-    public SharedRedisSessionFilter(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
+    public SharedRedisSessionFilter(StringRedisTemplate redisTemplate, ObjectMapper objectMapper, String redisPrefix) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper != null ? objectMapper : JsonMapper.shared();
         this.securityContextRepository = new HttpSessionSecurityContextRepository();
+        this.redisPrefix = redisPrefix;
     }
 
     /**
@@ -75,7 +76,7 @@ public class SharedRedisSessionFilter extends OncePerRequestFilter {
 
         // Security Improvement: Validate session ID format using native Java UUID parser before issuing Redis lookup
         if (sessionUuid != null) {
-            String redisKey = REDIS_PREFIX + sessionUuid;
+            String redisKey = redisPrefix + sessionUuid;
             String sessionJson = redisTemplate.opsForValue().get(redisKey);
 
             if (sessionJson != null && !sessionJson.isBlank()) {

@@ -17,7 +17,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 public class CorsConfig {
 
-    @Value("${auth.cors.allowed-origins:*}")
+    @Value("${auth.cors.allowed-origins:http://localhost:3000}")
     private String allowedOrigins;
 
     @Bean
@@ -34,13 +34,12 @@ public class CorsConfig {
             config.setAllowedOrigins(origins);
         }
 
-        config.setAllowedMethods(List.of("GET", "POST", "OPTIONS", "DELETE"));
+        config.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
         config.setAllowedHeaders(List.of(
                 "Authorization",
                 "DPoP",
                 "Content-Type",
                 "If-None-Match",
-                "X-Admin-Api-Key",
                 "X-Requested-With",
                 "Accept"
         ));
@@ -49,7 +48,10 @@ public class CorsConfig {
         config.setAllowCredentials(false);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
+        source.registerCorsConfiguration("/oauth2/**", config);
+        source.registerCorsConfiguration("/.well-known/**", config);
+        source.registerCorsConfiguration("/userinfo", config);
+        // Exclude /api/admin/** entirely from CORS to mitigate Cross-Origin admin attacks
         return source;
     }
 }

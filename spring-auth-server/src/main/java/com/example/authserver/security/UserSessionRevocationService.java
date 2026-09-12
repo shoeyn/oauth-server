@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 
 /**
  * Service orchestrating user session and authorization token revocation across PostgreSQL and Redis.
@@ -22,6 +23,8 @@ public class UserSessionRevocationService {
     private final OAuth2AuthorizationService authorizationService;
     private final StringRedisTemplate redisTemplate;
     private final JdbcTemplate jdbcTemplate;
+    @Value("${spring.data.redis.namespace:session:}")
+    private String redisPrefix;
 
     public record RevocationResult(int purgedAuthorizations, boolean sessionEvicted) {}
 
@@ -49,7 +52,7 @@ public class UserSessionRevocationService {
         if (resolvedUsername != null && !resolvedUsername.isBlank()) {
             final String usernameFragment = "\"username\":\"" + resolvedUsername + "\"";
             try (Cursor<String> cursor = redisTemplate.scan(
-                    ScanOptions.scanOptions().match("session:*").count(100).build())) {
+                    ScanOptions.scanOptions().match(redisPrefix + "*").count(100).build())) {
                 while (cursor.hasNext()) {
                     String sKey = cursor.next();
                     String sessionJson = redisTemplate.opsForValue().get(sKey);
@@ -68,7 +71,7 @@ public class UserSessionRevocationService {
         if (resolvedSessionId != null && !resolvedSessionId.isBlank()) {
             try {
                 UUID parsedUuid = UUID.fromString(resolvedSessionId.trim());
-                Boolean deleted = redisTemplate.delete("session:" + parsedUuid);
+                Boolean deleted = redisTemplate.delete(redisPrefix + parsedUuid);
                 if (Boolean.TRUE.equals(deleted)) {
                     sessionEvicted = true;
                 }

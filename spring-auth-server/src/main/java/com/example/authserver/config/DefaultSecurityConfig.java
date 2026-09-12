@@ -32,7 +32,8 @@ public class DefaultSecurityConfig {
     @Order(2)
     public SecurityFilterChain defaultSecurityFilterChain(
             HttpSecurity http,
-            StringRedisTemplate redisTemplate) throws Exception {
+            StringRedisTemplate redisTemplate,
+            @Value("${spring.data.redis.namespace:session:}") String redisPrefix) throws Exception {
 
         http
             .cors(Customizer.withDefaults())
@@ -59,7 +60,7 @@ public class DefaultSecurityConfig {
                 AuthorizationFilter.class
             )
             .addFilterAfter(
-                new SharedRedisSessionFilter(redisTemplate),
+                new SharedRedisSessionFilter(redisTemplate, redisPrefix),
                 LogoutFilter.class
             );
 

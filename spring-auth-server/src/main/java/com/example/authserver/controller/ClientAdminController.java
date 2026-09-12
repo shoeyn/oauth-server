@@ -43,6 +43,9 @@ public class ClientAdminController {
     @Value("${auth.admin.api-key:secret-admin-key}")
     private String adminApiKey;
 
+    @Value("${spring.data.redis.channel.reload:auth_server:clients:reload}")
+    private String reloadTopic;
+
     private boolean isAuthorized(String apiKeyHeader) {
         if (apiKeyHeader == null || apiKeyHeader.isBlank()) {
             return false;
@@ -137,7 +140,7 @@ public class ClientAdminController {
 
         // Broadcast cluster reload event via Redis Pub/Sub
         try {
-            redisTemplate.convertAndSend(ClientReloadRedisSubscriber.RELOAD_TOPIC,
+            redisTemplate.convertAndSend(reloadTopic,
                     String.format("{\"action\":\"save\",\"clientId\":\"%s\"}", dto.clientId()));
         } catch (Exception e) {
             log.warn("Failed to publish Redis reload event for client '{}': {}", dto.clientId(), e.getMessage());
@@ -165,7 +168,7 @@ public class ClientAdminController {
 
         // Broadcast cluster reload event via Redis Pub/Sub
         try {
-            redisTemplate.convertAndSend(ClientReloadRedisSubscriber.RELOAD_TOPIC,
+            redisTemplate.convertAndSend(reloadTopic,
                     String.format("{\"action\":\"delete\",\"clientId\":\"%s\"}", clientId));
         } catch (Exception e) {
             log.warn("Failed to publish Redis reload event for deleted client '{}': {}", clientId, e.getMessage());

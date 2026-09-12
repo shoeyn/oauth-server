@@ -4,7 +4,6 @@ import com.example.authserver.client.PostgresRegisteredClientRepository;
 import com.example.authserver.security.ClientAssertionDecoderFactory;
 import com.example.authserver.security.ClientPreDeterminedScopeAuthorizationRequestConverter;
 import com.example.authserver.security.DPoPNonceFilter;
-import com.example.authserver.security.DiscoveryAndJwksCacheFilter;
 import com.example.authserver.security.OidcBackChannelLogoutService;
 import com.example.authserver.security.SharedRedisSessionFilter;
 import com.example.authserver.security.StrictClientAssertionAuthenticationConverter;
@@ -66,7 +65,8 @@ public class AuthorizationServerConfig {
             OAuth2AuthorizationService authorizationService,
             StringRedisTemplate redisTemplate,
             OidcBackChannelLogoutService oidcBackChannelLogoutService,
-            JwtEncoder jwtEncoder) throws Exception {
+            JwtEncoder jwtEncoder,
+            @Value("${spring.data.redis.namespace:session:}") String redisPrefix) throws Exception {
 
         OAuth2AuthorizationServerConfigurer authorizationServerConfigurer =
                 new OAuth2AuthorizationServerConfigurer();
@@ -92,6 +92,14 @@ public class AuthorizationServerConfig {
                         .errorResponseHandler(new JarmErrorResponseHandler(jwtEncoder, issuerUrl, registeredClientRepository, authorizationService))
                     )
                     .oidc(oidc -> oidc
+                        .providerConfigurationEndpoint(config -> config
+                            .providerConfigurationCustomizer(builder -> {
+                                builder.claim("token_endpoint_auth_methods_supported", List.of("private_key_jwt"));
+                                builder.claim("revocation_endpoint_auth_methods_supported", List.of("private_key_jwt"));
+                                builder.claim("introspection_endpoint_auth_methods_supported", List.of("private_key_jwt"));
+                                builder.claim("response_modes_supported", List.of("jwt", "query.jwt"));
+                            })
+                        )
                         .userInfoEndpoint(userInfo -> userInfo
                             .userInfoMapper(createOidcUserInfoMapper())
                             .errorResponseHandler((request, response, exception) -> {
@@ -120,7 +128,7 @@ public class AuthorizationServerConfig {
                                     }
                                 }
                                 if (sessionId != null && !sessionId.isBlank()) {
-                                    redisTemplate.delete("session:" + sessionId);
+                                    redisTemplate.delete(redisPrefix + sessionId);
                                     log.info("Evicted SHARED_SESSION_ID from Redis on OIDC logout: {}", sessionId);
                                 }
                                 Cookie clearedCookie = new Cookie("SHARED_SESSION_ID", "");
@@ -149,6 +157,14 @@ public class AuthorizationServerConfig {
                                 defaultHandler.onAuthenticationSuccess(request, response, authentication);
                             })
                         )
+                    )
+                    .authorizationServerMetadataEndpoint(metadata -> metadata
+                        .authorizationServerMetadataCustomizer(builder -> {
+                            builder.claim("token_endpoint_auth_methods_supported", List.of("private_key_jwt"));
+                            builder.claim("revocation_endpoint_auth_methods_supported", List.of("private_key_jwt"));
+                            builder.claim("introspection_endpoint_auth_methods_supported", List.of("private_key_jwt"));
+                            builder.claim("response_modes_supported", List.of("jwt", "query.jwt"));
+                        })
                     )
                     // Enforce RFC 7523 private_key_jwt client authentication exclusively.
                     // Shared-secret mechanisms (client_secret_basic, client_secret_post) are rejected.
@@ -181,18 +197,13 @@ public class AuthorizationServerConfig {
             .exceptionHandling((exceptions) -> exceptions
                 .authenticationEntryPoint(new ExternalLoginAuthenticationEntryPoint(railsLoginUrl, issuerUrl))
             )
-            // HTTP conditional caching filter (ETag/304) for high-frequency discovery and JWKS endpoints
+            // RFC 9449 Section 8: Server-Provided DPoP-Nonce replay protection filter
             .addFilterBefore(
-                new DiscoveryAndJwksCacheFilter(),
+                new DPoPNonceFilter(redisTemplate),
                 SecurityContextHolderFilter.class
             )
-            // RFC 9449 Section 8: Server-Provided DPoP-Nonce replay protection filter
             .addFilterAfter(
-                new DPoPNonceFilter(redisTemplate),
-                DiscoveryAndJwksCacheFilter.class
-            )
-            .addFilterAfter(
-                new SharedRedisSessionFilter(redisTemplate),
+                new SharedRedisSessionFilter(redisTemplate, redisPrefix),
                 LogoutFilter.class
             );
 
