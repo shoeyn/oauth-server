@@ -2,25 +2,13 @@
 
 A modern, production-grade Rails client application demonstrating zero-trust client security mechanisms. All underlying OAuth 2.1, OIDC, and cryptographic protocol logic is packaged and consumed from the reusable **[`oauth2_client_kit`](../oauth2_client_kit)** library. This client application consists solely of user-facing views (landing page, authenticated profile) and calls to library methods.
 
-```
-┌───────────────────────────────────────────────┐
-│     Demo Client Application (This Repo)       │
-│  • Landing Page (app/views/pages/index)       │
-│  • User Profile (app/views/pages/profile)     │
-│  • Client Redis Session (DB 1, namespace)     │
-│  • Sensitive Action trigger (identity check)  │
-└───────────────────────┬───────────────────────┘
-                        │ mounts & calls
-                        ▼
-┌───────────────────────────────────────────────┐
-│       oauth2_client_kit Standalone Gem        │
-│  • RFC 9221 JARM Verifier & Enforcement       │
-│  • Pushed Authorization Requests (RFC 9126)   │
-│  • Asymmetric Client Auth (RFC 7523)          │
-│  • DPoP Sender Constraints (RFC 9449)         │
-│  • Pre-flight Introspection Checkpoints       │
-│  • Backchannel Logout Receiver (OIDC BCL 1.0) │
-└───────────────────────────────────────────────┘
+```mermaid
+graph TD
+    DemoClient["Demo Client Application (This Repo)<br/>• Landing Page (app/views/pages/index)<br/>• User Profile (app/views/pages/profile)<br/>• Client Redis Session (DB 1, namespace)<br/>• Sensitive Action trigger (identity check)"]
+    
+    Gem["oauth2_client_kit Standalone Gem<br/>• RFC 9221 JARM Verifier & Enforcement<br/>• Pushed Authorization Requests (RFC 9126)<br/>• Asymmetric Client Auth (RFC 7523)<br/>• DPoP Sender Constraints (RFC 9449)<br/>• Token Introspection & Revocation<br/>• OIDC Backchannel Logout (RFC 1.0)"]
+    
+    DemoClient -- "mounts & calls" --> Gem
 ```
 
 ---

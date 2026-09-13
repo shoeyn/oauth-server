@@ -16,3 +16,6 @@ Thumbs.db
 # Environment files
 .env
 .env*.local
+
+# Coverage reports
+coverage/

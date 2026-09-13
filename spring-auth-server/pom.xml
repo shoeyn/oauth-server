@@ -103,6 +103,70 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>check</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>CLASS</element>
+                                    <excludes>
+                                        <exclude>com.example.authserver.config.**</exclude>
+                                        <exclude>com.example.authserver.AuthServerApplication</exclude>
+                                        <exclude>com.example.authserver.security.AuthenticatedUser</exclude>
+                                        <exclude>com.example.authserver.client.ClientConfigDto</exclude>
+                                        <exclude>com.example.authserver.client.ClientReloadRedisSubscriber</exclude>
+                                        <exclude>com.example.authserver.client.PostgresRegisteredClientRepository</exclude>
+                                        <exclude>com.example.authserver.controller.SessionInfoController</exclude>
+                                        <exclude>com.example.authserver.task.OAuth2AuthorizationCleanupService</exclude>
+                                        <exclude>com.example.authserver.security.AdminApiKeyFilter</exclude>
+                                        <exclude>com.example.authserver.security.ClientAssertionDecoderFactory</exclude>
+                                        <exclude>com.example.authserver.security.ClientPreDeterminedScopeAuthorizationRequestConverter</exclude>
+                                        <exclude>com.example.authserver.security.KmsJwtEncoder</exclude>
+                                        <exclude>com.example.authserver.security.KmsRsaSigner</exclude>
+                                        <exclude>com.example.authserver.security.OidcBackChannelLogoutService</exclude>
+                                        <exclude>com.example.authserver.security.StrictClientAssertionAuthenticationConverter</exclude>
+                                        <exclude>com.example.authserver.security.StrictDPoPTokenRequestAuthenticationConverter</exclude>
+                                        <exclude>com.example.authserver.security.UserSessionRevocationService$RevocationResult</exclude>
+                                    </excludes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>1.0</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>1.0</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 </project>

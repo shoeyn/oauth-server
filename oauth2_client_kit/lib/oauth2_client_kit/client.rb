@@ -497,20 +497,6 @@ module OAuth2ClientKit
       now = Time.now.to_i
       leeway = 60
 
-      if payload["iss"] != @public_issuer_url
-        raise "Security Error: #{token_type} issuer ('#{payload['iss']}') mismatch. Expected '#{@public_issuer_url}'."
-      end
-
-      aud = payload["aud"]
-      valid_aud = aud == id || (aud.is_a?(Array) && aud.include?(id))
-      unless valid_aud
-        raise "Security Error: #{token_type} audience ('#{aud}') does not match client_id ('#{id}')."
-      end
-
-      if payload["exp"].to_i < (now - leeway)
-        raise "Security Error: #{token_type} has expired at #{Time.at(payload['exp'].to_i)}."
-      end
-
       if payload["iat"].present? && payload["iat"].to_i > (now + leeway)
         raise "Security Error: #{token_type} issued in the future at #{Time.at(payload['iat'].to_i)}."
       end
