@@ -8,39 +8,25 @@ This document details the introduction of **PostgreSQL** as the canonical, ACID-
 > **Implementation Status: Fully Implemented & Production-Active**
 > PostgreSQL ACID persistence, Flyway schema migrations, Java-only network isolation, Spring Admin REST API (`/api/admin/clients`), and the L1 JVM near-cache are fully implemented across all components. AWS S3 has been completely deprecated and purged from the repository.
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                         ISOLATED PRIVATE DATA TIER                               │
-│                                                                                  │
-│                      ┌──────────────────────────────┐                            │
-│                      │     PostgreSQL Database      │                            │
-│                      │   (Docker: poc-postgres)     │                            │
-│                      └──────────────▲───────────────┘                            │
-│                                     │  (Port 5432 - Java Only)                   │
-│                                     │  HikariCP Connection Pool                  │
-└─────────────────────────────────────┼────────────────────────────────────────────┘
-                                      │
-┌─────────────────────────────────────┼────────────────────────────────────────────┐
-│                             JAVA APPLICATION CLUSTER                             │
-│                                     │                                            │
-│                      ┌──────────────┴───────────────┐                            │
-│                      │  Spring Authorization Server │                            │
-│                      │     (Java 25 / Spring 7)     │                            │
-│                      │                              │                            │
-│                      │  ┌────────────────────────┐  │                            │
-│                      │  │ In-Memory Near-Cache   │  │ <--- Sub-millisecond reads │
-│                      │  │ (ConcurrentHashMap L1) │  │      (0.001 ms latency)    │
-│                      │  └────────────────────────┘  │                            │
-│                      └──────▲────────────────▲──────┘                            │
-└─────────────────────────────┼────────────────┼───────────────────────────────────┘
-                              │                │
-            Admin REST API    │                │ Redis Pub/Sub Cluster Sync
-    (X-Admin-Api-Key Auth)    │                │ (Channel: oauth2as:clients:reload)
-                              │                │
-┌─────────────────────────────┴────────┐ ┌─────┴───────────────────────────────────┐
-│     Next.js Client Manager (3001)    │ │      Redis L2 Cache & Pub/Sub (6379)    │
-│   (Zero DB Drivers / Zero AWS SDKs)  │ │   (Shared SSO Session, Hot Invalidation)│
-└──────────────────────────────────────┘ └─────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph Data_Tier["ISOLATED PRIVATE DATA TIER"]
+        Postgres[("PostgreSQL Database<br/>(Docker: poc-postgres)")]
+    end
+    
+    subgraph Java_Cluster["JAVA APPLICATION CLUSTER"]
+        subgraph Spring["Spring Authorization Server<br/>(Java 25 / Spring 7)"]
+            NearCache["In-Memory Near-Cache<br/>(ConcurrentHashMap L1)<br/>Sub-millisecond reads (0.001 ms)"]
+        end
+    end
+    
+    Spring -- "Port 5432 - Java Only<br/>HikariCP Connection Pool" --> Postgres
+    
+    ClientManager["Next.js Client Manager (3001)<br/>(Zero DB Drivers / Zero AWS SDKs)"]
+    Redis[("Redis L2 Cache & Pub/Sub (6379)<br/>(Shared SSO Session, Hot Invalidation)")]
+    
+    ClientManager -- "Admin REST API<br/>(X-Admin-Api-Key Auth)" --> Spring
+    Redis -- "Redis Pub/Sub Cluster Sync<br/>(Channel: oauth2as:clients:reload)" --> Spring
 ```
 
 ---

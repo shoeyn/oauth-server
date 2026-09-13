@@ -9,31 +9,19 @@ A modern, responsive administrative web application and REST API for managing re
 
 ## Architecture Overview
 
-```
-+------------------------------------------------------------------------------------+
-| Next.js Client Manager (http://localhost:3001)                                      |
-| - Interactive Dashboard & Client Management                                        |
-| - In-Browser 2048-bit RSA Key Pair Generator (Web Crypto API)                      |
-| - Server-Determined Scopes & Token TTL Settings                                    |
-| - REST API (/api/clients, /api/clients/[id])                                       |
-+------------------------------------------+-----------------------------------------+
-                                           | HTTP REST (GET/POST/DELETE)
-                                           | Header: X-Admin-Api-Key
-                                           v
-+------------------------------------------------------------------------------------+
-| Spring Authorization Server (http://localhost:9000)                                |
-| - ClientAdminController: Authenticated REST interface for client provisioning      |
-| - PostgresRegisteredClientRepository: Persists clients & RSA keys in PostgreSQL   |
-| - L1 In-Memory Near-Cache: Microsecond lookups (< 0.002 ms)                         |
-| - ClientReloadRedisSubscriber: Invalidates cluster near-caches via Redis Pub/Sub   |
-+---------------------+------------------------------------------------+--------------+
-                      | JDBC Pool (HikariCP)                           | Redis PUBLISH
-                      v                                                v
-        +-----------------------------+                  +---------------------------+
-        | PostgreSQL (Port 5432)      |                  | Redis (Port 6379)         |
-        | - oauth2_registered_client  |                  | Channel:                  |
-        | - oauth2_client_public_key  |                  | oauth2as:clients:reload     |
-        +-----------------------------+                  +---------------------------+
+```mermaid
+graph TD
+    ClientManager["Next.js Client Manager (http://localhost:3001)<br/>• Interactive Dashboard & Client Management<br/>• In-Browser 2048-bit RSA Key Pair Generator (Web Crypto API)<br/>• Server-Determined Scopes & Token TTL Settings<br/>• REST API (/api/clients, /api/clients/[id])"]
+    
+    SpringAS["Spring Authorization Server (http://localhost:9000)<br/>• ClientAdminController: Authenticated REST interface<br/>• PostgresRegisteredClientRepository: Persists clients & RSA keys<br/>• L1 In-Memory Near-Cache: Microsecond lookups<br/>• ClientReloadRedisSubscriber: Pub/Sub cache invalidation"]
+    
+    Postgres[("PostgreSQL Database (Port 5432)<br/>• oauth2_registered_client<br/>• oauth2_client_public_key")]
+    
+    Redis[("Redis Server (Port 6379)<br/>Channel: oauth2as:clients:reload")]
+    
+    ClientManager -- "HTTP REST (GET/POST/DELETE)<br/>Header: X-Admin-Api-Key" --> SpringAS
+    SpringAS -- "JDBC Pool (HikariCP)" --> Postgres
+    SpringAS -- "Redis PUBLISH" --> Redis
 ```
 
 ---

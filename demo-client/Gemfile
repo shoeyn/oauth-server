@@ -1,6 +1,6 @@
 source 'https://rubygems.org'
 
-ruby '>= 4.0.0'
+ruby '>= 3.3.0'
 
 gem 'rails', '~> 8.0'
 gem 'puma', '~> 8.0'
@@ -8,3 +8,7 @@ gem 'rack-cors'
 gem 'json', '< 3.0'
 
 gem 'oauth2_client_kit', path: '../oauth2_client_kit'
+group :development, :test do
+  gem 'rspec-rails'
+  gem 'simplecov', require: false
+end

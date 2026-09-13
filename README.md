@@ -4,79 +4,77 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 
 ---
 
+## Table of Contents
+
+- [High-Level Architecture & Standards Compliance](#high-level-architecture-standards-compliance)
+- [Standards Compliance & Core Architecture](#standards-compliance-core-architecture)
+- [Security Inclusions, Posture & Production Readiness Roadmap](#security-inclusions-posture-production-readiness-roadmap)
+  - [1. Active Security Inclusions (Implemented in Codebase)](#1-active-security-inclusions-implemented-in-codebase)
+  - [2. Production Readiness Roadmap](#2-production-readiness-roadmap)
+- [Architectural Diagrams & Communication Flows](#architectural-diagrams-communication-flows)
+  - [Developer & Tester Guides](#developer-tester-guides)
+- [Services & Ports](#services-ports)
+- [Quick Start & Running Services](#quick-start-running-services)
+  - [Prerequisites](#prerequisites)
+  - [Option A: Running with Docker Compose (Recommended)](#option-a-running-with-docker-compose-recommended)
+  - [Option B: Running Locally with Mise / Native CLI](#option-b-running-locally-with-mise-native-cli)
+- [Connecting a New Client Application](#connecting-a-new-client-application)
+- [Running the Automated Functional Test Suites](#running-the-automated-functional-test-suites)
+  - [Run Functional Tests from any component directory:](#run-functional-tests-from-any-component-directory)
+- [Performance & Concurrency Load Testing (k6)](#performance-concurrency-load-testing-k6)
+  - [Run k6 Load Test:](#run-k6-load-test)
+  - [Measured Performance Benchmarks:](#measured-performance-benchmarks)
+- [Project Structure](#project-structure)
+
+---
+
 ## High-Level Architecture & Standards Compliance
 
-```
-                                  Browser / User-Agent / Administrator
-                 ┌──────────────────────────────────────────────────────────────────┐
-                 │  - Visits Thin Client App (http://localhost:8080)                │
-                 │  - Initiates Auth (POST /auth/start)                             │
-                 │  - Authenticates at Rails IdP (http://localhost:3000)            │
-                 │  - Returns with signed JARM JWT (?response=...) to callback      │
-                 │  - Configures clients via Next.js Manager (http://localhost:3001)│
-                 └──────────────┬───────────────────┬───────────────────┬───────────┘
-                                │                   │                   │
-             Direct Browser     │    Direct Browser │    Client Admin   │
-             Redirects          ▼    Redirects      ▼    UI & WebCrypto ▼
-┌───────────────────────────────┐ ┌─────────────────────────┐ ┌─────────────────────────────────┐
-│       Thin Client App         │ │ Rails Identity Provider │ │   Next.js Client Manager        │
-│   (e.g., demo-client :8080)   │ │ (http://localhost:3000) │ │   (http://localhost:3001)       │
-├───────────────────────────────┤ ├─────────────────────────┤ ├─────────────────────────────────┤
-│ • Pure UI (Landing & Profile) │ │ • User Login UI         │ │ • In-Browser RSA Key Generator  │
-│ • Custom Business Session     │ │ • SHARED_SESSION_ID     │ │ • Server-Determined Scopes Config│
-│ • Calls `identity_checkpoint!`│ │ • Writes user to Redis  │ │ • Proxies to Spring Admin API   │
-└──────────────┬────────────────┘ └────────────┬────────────┘ └────────┬────────────────────────┘
-               │ (Mounts & Calls)              │                       │
-               ▼                               │                       │
-┌───────────────────────────────┐              │                       │
-│    oauth2_client_kit Gem      │              │                       │
-├───────────────────────────────┤              │                       │
-│ • RFC 9221 JARM Verifier      │              │                       │
-│ • RFC 9126 PAR Engine         │              │                       │
-│ • RFC 7523 private_key_jwt    │              │                       │
-│ • RFC 9449 DPoP + Nonce Loop  │              │                       │
-│ • RFC 7636 PKCE S256          │              │                       │
-│ • RFC 7662 Introspection      │              │                       │
-│ • Backchannel Logout Handler  │              │                       │
-│ • Isolated Token Store (DB 1) │              │                       │
-└──────────────┬────────────────┘              │                       │
-               │                               │                       │ Admin REST API
-   Backchannel │ Backchannel PAR, Token,       │ Shared Session        │ (POST/GET/DELETE /api/admin)
-   Logout Push │ Introspect & Revocation       │ Context               │ (X-Admin-Api-Key)
-   (/oidc/...) │ (DPoP + private_key_jwt)      │ (session:<id>)        │
-               ▼                               ▼                       ▼
-┌───────────────────────────────────────────────────────────────────────────────────────────────┐
-│                    Spring Authorization Server (http://localhost:9000)                        │
-├───────────────────────────────────────────────────────────────────────────────────────────────┤
-│ • RFC 9221: JWT-Secured Authorization Response Mode (JARM, KMS RS256 signed responses)       │
-│ • RFC 9126: Native Pushed Authorization Requests (PAR)                                        │
-│ • RFC 7523: Strict private_key_jwt Authentication (weak methods off)                          │
-│ • RFC 9449: Strictly Enforced DPoP Tokens (Sender-Constrained cnf.jkt)                        │
-│ • RFC 7636: Proof Key for Code Exchange (PKCE S256) strictly enforced                         │
-│ • RFC 9207: Authorization Server Issuer Identification (Mix-Up defense)                       │
-│ • Server-Determined Authorization Scopes (zero client scope tampering)                        │
-│ • RFC 7009: Token Revocation & RFC 7662: Token Introspection                                  │
-│ • OpenID Connect Back-Channel Logout 1.0 (asynchronous signed logout_token)                  │
-│ • PostgresRegisteredClientRepository: In-memory near-cache + Postgres ACID store              │
-│ • JdbcOAuth2AuthorizationService: Distributed persistent authorizations & refresh             │
-│ • Flyway: Automated database schema versioning and lifecycle management                       │
-│ • ClientReloadRedisSubscriber: Cluster cache invalidation via Redis Pub/Sub                   │
-│ • SharedRedisSessionFilter: SSO bridge with Rails IdP via Redis DB 0                          │
-│ • ClientAdminController: Secure administrative REST API (/api/admin/clients)                  │
-└───────┬──────────────────────────────┬────────────────────────────────────────┬───────────────┘
-        │                              │                                        │
-        │ (Port 5432 - Java Only)      │ (Port 6379)                            │ (Port 4566 - KMS)
-        ▼                              ▼                                        ▼
-┌──────────────────────────────┐ ┌──────────────────────────────┐ ┌──────────────────────────────┐
-│     PostgreSQL Database      │ │         Redis Server         │ │     LocalStack (AWS KMS)     │
-│       (localhost:5432)       │ │       (localhost:6379)       │ │       (localhost:4566)       │
-├──────────────────────────────┤ ├──────────────────────────────┤ ├──────────────────────────────┤
-│ • oauth2_registered_client   │ │ DB 0: Rails SSO & Spring JTI │ │ • Asymmetric RS256 Hardware  │
-│ • oauth2_authorization       │ │ DB 1: Isolated Token Store   │ │   Signing (RSA_2048)         │
-│ • oauth2_authorization_consent│ │ Pub/Sub: Cluster Sync       │ │ • Multi-Key JWKS Rotation    │
-│ • oauth2_client_public_key   │ └──────────────────────────────┘ │ • FIPS 140-2 Level 3 HSM     │
-│ • flyway_schema_history      │                                  └──────────────────────────────┘
-└──────────────────────────────┘
+```mermaid
+graph TD
+    %% Nodes
+    Browser["Browser / User-Agent / Administrator<br/>(Initiates Auth, Configures Clients)"]
+    
+    subgraph Web_Tier["Frontend & Web Clients"]
+        direction LR
+        ThinClient["Thin Client App<br/>(demo-client :8080)<br/>Pure UI & Custom Business Session"]
+        RailsIdp["Rails Identity Provider<br/>(rails-app :3000)<br/>User Login UI"]
+        ClientManager["Next.js Client Manager<br/>(client-manager :3001)<br/>In-Browser RSA Key Generator"]
+    end
+    
+    subgraph Client_Library["OAuth Client Library"]
+        Gem["oauth2_client_kit Gem<br/>(RFC 9221 JARM, RFC 9126 PAR,<br/>RFC 9449 DPoP, RFC 7636 PKCE)"]
+    end
+    
+    subgraph Core_Auth["Core Authorization"]
+        SpringAS["Spring Authorization Server<br/>(Auth Server :9000)<br/>Strict private_key_jwt, Server-Determined Scopes,<br/>OIDC Back-Channel Logout"]
+    end
+    
+    subgraph Data_Tier["Infrastructure & Persistence"]
+        direction LR
+        Postgres[("PostgreSQL Database<br/>(Port 5432)")]
+        Redis[("Redis Server<br/>(Port 6379)")]
+        KMS["LocalStack (AWS KMS)<br/>(FIPS 140-2 HSM Signing)"]
+    end
+    
+    %% Relationships
+    Browser -- "Direct Browser Redirects<br/>(Visits & Auth Starts)" --> ThinClient
+    Browser -- "Direct Browser Redirects<br/>(Authenticates)" --> RailsIdp
+    Browser -- "UI & WebCrypto<br/>(Manages Clients)" --> ClientManager
+    
+    ThinClient -- "Mounts & Calls" --> Gem
+    
+    Gem -- "Backchannel PAR, Token, Introspect,<br/>Revocation (DPoP + private_key_jwt)" --> SpringAS
+    SpringAS -- "Backchannel Logout Push" --> Gem
+    
+    RailsIdp -- "Writes SSO Session (SHARED_SESSION_ID)" --> Redis
+    SpringAS -- "Reads SSO Session Context" --> Redis
+    
+    ClientManager -- "Admin REST API (X-Admin-Api-Key)" --> SpringAS
+    
+    SpringAS -- "Persistent Configs & Authz" --> Postgres
+    SpringAS -- "Cluster Sync (Pub/Sub) & JTI Cache" --> Redis
+    SpringAS -- "Asymmetric RS256 Hardware Signing" --> KMS
 ```
 
 ---

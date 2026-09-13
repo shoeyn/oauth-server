@@ -96,7 +96,7 @@ public class SharedRedisSessionFilter extends OncePerRequestFilter {
                     userDetails.put("session_id", sessionUuid.toString());
                     if (user.email() != null) userDetails.put("email", user.email());
                     if (user.name() != null) userDetails.put("name", user.name());
-                    if (user.roles() != null) userDetails.put("roles", user.roles());
+                    if (!user.roles().isEmpty()) userDetails.put("roles", user.roles());
                     if (user.authenticatedAt() != null) userDetails.put("authenticated_at", user.authenticatedAt());
 
                     UsernamePasswordAuthenticationToken auth =

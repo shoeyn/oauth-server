@@ -109,31 +109,19 @@ end
 
 ### Component Separation & Storage Boundaries
 
-```
- ┌─────────────────────────────────────────────────────────────┐
- │                Host Application (e.g. Rails)                │
- │  • Business Domain Controllers, Models, and Views           │
- │  • Client Application Session (Cookies, Redis DB, or DB)    │
- │    (e.g., shopping cart, user preferences, tenant ID)       │
- └──────────────────────────────┬──────────────────────────────┘
-                                │ includes ControllerMethods
-                                ▼
- ┌─────────────────────────────────────────────────────────────┐
- │                   oauth2_client_kit Gem                     │
- │  • Engine / Route Dispatcher (`mount_oauth2_client_kit`)     │
- │  • Asymmetric Client Assertion (`private_key_jwt`, RS256)   │
- │  • Sender-Constrained DPoP Engine (EC P-256 / ES256)        │
- │  • Strict Algorithm Pinning & JWKS Cache                    │
- │  • Backchannel Logout Receiver (`/oidc/backchannel_logout`)  │
- └──────────────┬──────────────────────────────┬───────────────┘
-                │ Reads / Writes Token Data    │ Backchannel TLS
-                ▼                              ▼
- ┌──────────────────────────────┐ ┌────────────────────────────┐
- │  Isolated Token Store (DB 1) │ │ Spring Authorization Server │
- │  • Raw tokens & DPoP keys    │ │ (http://localhost:9000)    │
- │  • Single-use OAuth states   │ └────────────────────────────┘
- │  • Sub/SID lookup indexes    │
- └──────────────────────────────┘
+```mermaid
+graph TD
+    HostApp["Host Application (e.g. Rails)<br/>• Business Domain Controllers, Models, and Views<br/>• Client Application Session (Cookies, Redis DB, or DB)<br/>(e.g., shopping cart, user preferences, tenant ID)"]
+    
+    Gem["oauth2_client_kit Gem<br/>• Engine / Route Dispatcher (`mount_oauth2_client_kit`)<br/>• Asymmetric Client Assertion (`private_key_jwt`, RS256)<br/>• Sender-Constrained DPoP Engine (EC P-256 / ES256)<br/>• Strict Algorithm Pinning & JWKS Cache<br/>• Backchannel Logout Receiver (`/oidc/backchannel_logout`)"]
+    
+    HostApp -- "includes ControllerMethods" --> Gem
+    
+    TokenStore[("Isolated Token Store (DB 1)<br/>• Raw tokens & DPoP keys<br/>• Single-use OAuth states<br/>• Sub/SID lookup indexes")]
+    SpringAS["Spring Authorization Server<br/>(http://localhost:9000)"]
+    
+    Gem -- "Reads / Writes Token Data" --> TokenStore
+    Gem -- "Backchannel TLS" --> SpringAS
 ```
 
 ### Application Sessions vs. Token Store Isolation
