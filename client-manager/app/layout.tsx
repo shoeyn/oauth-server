@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "OAuth 2.1 Client Config Manager | Spring Security",
-  description: "Dynamic PostgreSQL-backed OAuth 2.1 client configuration manager with real-time Spring Security synchronization",
+  title: "OAuth 2.1 Admin Manager",
+  description: "Administrative dashboard for managing OAuth 2.1 clients and platform users",
 };
 
 export default function RootLayout({
@@ -25,9 +25,26 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-slate-100 min-h-screen`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-slate-100 min-h-screen flex flex-col`}
       >
-        {children}
+        <header className="bg-slate-900 border-b border-slate-800">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between h-16 items-center">
+              <div className="flex">
+                <div className="shrink-0 flex items-center gap-2">
+                  <span className="font-bold text-xl tracking-tight text-white">OAuth 2.1 Admin</span>
+                </div>
+                <div className="ml-6 flex space-x-4">
+                  <a href="/" className="text-slate-300 hover:bg-slate-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Clients</a>
+                  <a href="/users" className="text-slate-300 hover:bg-slate-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Users</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+        <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+          {children}
+        </main>
       </body>
     </html>
   );

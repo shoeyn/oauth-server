@@ -4,6 +4,7 @@ import com.example.authserver.client.PostgresRegisteredClientRepository;
 import com.example.authserver.security.ClientAssertionDecoderFactory;
 import com.example.authserver.security.ClientPreDeterminedScopeAuthorizationRequestConverter;
 import com.example.authserver.security.DPoPNonceFilter;
+import com.example.authserver.security.GracefulLogoutHandler;
 import com.example.authserver.security.OidcBackChannelLogoutService;
 import com.example.authserver.security.SharedRedisSessionFilter;
 import com.example.authserver.security.StrictClientAssertionAuthenticationConverter;
@@ -66,6 +67,7 @@ public class AuthorizationServerConfig {
             StringRedisTemplate redisTemplate,
             OidcBackChannelLogoutService oidcBackChannelLogoutService,
             JwtEncoder jwtEncoder,
+            GracefulLogoutHandler gracefulLogoutHandler,
             @Value("${spring.data.redis.namespace:session:}") String redisPrefix) throws Exception {
 
         OAuth2AuthorizationServerConfigurer authorizationServerConfigurer =
@@ -112,30 +114,18 @@ public class AuthorizationServerConfig {
                         // OIDC RP-Initiated Logout: Invalidate local security context and evict shared SSO session
                         .logoutEndpoint(logoutEndpoint -> logoutEndpoint
                             .errorResponseHandler((request, response, exception) -> {
+                                if (gracefulLogoutHandler.handleGracefully(request, response)) {
+                                    return;
+                                }
                                 log.warn("OIDC Logout validation failure: {}", exception.getMessage());
                                 response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
                                 response.setContentType("application/json");
                                 response.getWriter().write("{\"error\":\"invalid_request\",\"error_description\":\"" + exception.getMessage().replace("\"", "'") + "\"}");
                             })
                             .logoutResponseHandler((request, response, authentication) -> {
-                                String sessionId = null;
-                                if (request.getCookies() != null) {
-                                    for (Cookie c : request.getCookies()) {
-                                        if ("SHARED_SESSION_ID".equals(c.getName())) {
-                                            sessionId = c.getValue();
-                                            break;
-                                        }
-                                    }
-                                }
-                                if (sessionId != null && !sessionId.isBlank()) {
-                                    redisTemplate.delete(redisPrefix + sessionId);
-                                    log.info("Evicted SHARED_SESSION_ID from Redis on OIDC logout: {}", sessionId);
-                                }
-                                Cookie clearedCookie = new Cookie("SHARED_SESSION_ID", "");
-                                clearedCookie.setPath("/");
-                                clearedCookie.setMaxAge(0);
-                                clearedCookie.setHttpOnly(true);
-                                response.addCookie(clearedCookie);
+                                // Extract session ID before eviction for back-channel logout dispatch
+                                String sessionId = gracefulLogoutHandler.extractSessionId(request);
+                                gracefulLogoutHandler.evictSharedSession(request, response);
 
                                 // OpenID Connect Back-Channel Logout 1.0:
                                 // Asynchronously dispatch signed logout_token to registered client back-channel endpoint

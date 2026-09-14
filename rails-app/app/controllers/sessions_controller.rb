@@ -2,49 +2,22 @@ require "redis"
 require "json"
 require "securerandom"
 require "uri"
-require "active_support/security_utils"
+require "net/http"
+require "digest"
 
 class SessionsController < ApplicationController
-  # Whitelist of allowed redirect targets for the return_to parameter to prevent Open Redirect attacks
-  # Configured dynamically via environment variables with safe defaults
-  def self.allowed_return_hosts
-    @allowed_return_hosts ||= begin
-      hosts = Set.new(["localhost:9000", "127.0.0.1:9000", "spring-auth-server:9000"])
-      if ENV["AUTH_SERVER_URL"].present?
-        uri = URI.parse(ENV["AUTH_SERVER_URL"]) rescue nil
-        hosts << "#{uri.host}:#{uri.port}" if uri&.host
-        hosts << uri.host if uri&.host
-      end
-      if ENV["SPRING_AUTH_SERVER_URL"].present?
-        uri = URI.parse(ENV["SPRING_AUTH_SERVER_URL"]) rescue nil
-        hosts << "#{uri.host}:#{uri.port}" if uri&.host
-        hosts << uri.host if uri&.host
-      end
-      hosts.freeze
-    end
-  end
-
   def new
     @return_to = sanitize_return_to(params[:return_to])
   end
 
   def create
-    username = params[:username].to_s.strip.slice(0, 100)
-    username = "demo_user" if username.blank?
-
+    email = params[:email].to_s.strip.slice(0, 100)
     password = params[:password].to_s
+    return_to = sanitize_return_to(params[:return_to])
 
-    # Error Journey Simulation:
-    # Allows testing how client applications handle auth errors returned by the IdP (RFC 6749 Section 4.1.2.1).
-    if params[:simulate_error].present? || username == "locked_user" || username == "suspended_user"
-      error_code = if username == "locked_user" || params[:simulate_error] == "access_denied"
-                     "access_denied"
-                   elsif username == "suspended_user" || params[:simulate_error] == "account_suspended"
-                     "account_suspended"
-                   else
-                     params[:simulate_error].to_s
-                   end
-
+    if params[:simulate_error].present?
+      error_code = params[:simulate_error] == "access_denied" ? "access_denied" : "account_suspended"
+      
       error_desc = case error_code
                    when "access_denied"
                      "User account is locked or administrative access was denied."
@@ -53,61 +26,99 @@ class SessionsController < ApplicationController
                    else
                      "Authentication rejected: #{error_code}"
                    end
-
-      failure_redirect_uri = resolve_client_failure_redirect(params[:return_to], error_code, error_desc)
-      if failure_redirect_uri.present?
-        return redirect_to failure_redirect_uri, allow_other_host: true, status: :see_other
+      
+      if return_to.present?
+        return redirect_to resolve_client_failure_redirect(return_to, error_code, error_desc), allow_other_host: true, status: :see_other
       else
-        flash[:error] = "Authentication error: #{error_desc} (No return_to destination provided)"
+        @error_message = error_desc
         return render :new, status: :unprocessable_entity
       end
     end
 
-    # Constant-time comparison to mitigate timing attacks
-    expected_password = "password"
-    is_valid_password = ActiveSupport::SecurityUtils.secure_compare(password, expected_password)
-
-    # In development/PoC mode, accept predefined credentials or non-empty password
-    unless is_valid_password || password.present?
-      flash[:error] = "Invalid credentials"
+    if email.blank? || password.blank?
+      @error_message = "incorrect username or password"
       return render :new, status: :unprocessable_entity
     end
 
-    return_to = sanitize_return_to(params[:return_to])
+    begin
+      uri = URI.parse("#{ENV.fetch('SPRING_AUTH_SERVER_URL', 'http://spring-auth-server:9000')}/api/admin/users/authenticate")
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.open_timeout = 2
+      http.read_timeout = 2
+      
+      http_request = Net::HTTP::Post.new(uri.path, {
+        "Content-Type" => "application/json",
+        "X-Admin-Api-Key" => ENV.fetch("ADMIN_API_KEY", "secret-admin-key")
+      })
+      # Pre-hash password with SHA-256 before sending to auth server.
+      # Plaintext password never crosses a service boundary (defense-in-depth).
+      password_hash = Digest::SHA256.hexdigest(password)
+      http_request.body = { email: email, password: password_hash }.to_json
+      
+      response = http.request(http_request)
+      
+      if response.code == "403"
+        if return_to.present?
+          return redirect_to resolve_client_failure_redirect(return_to, "account_suspended", "Your account has been temporarily suspended. Please contact customer support."), allow_other_host: true, status: :see_other
+        else
+          @error_message = "Your account has been temporarily suspended. Please contact customer support."
+          return render :new, status: :forbidden
+        end
+      elsif response.code == "401" || response.code == "404"
+        @error_message = "incorrect username or password"
+        return render :new, status: :unprocessable_entity
+      elsif response.code != "200"
+        Rails.logger.error("Auth Server Error: #{response.code} - #{response.body}")
+        @error_message = "An internal error occurred"
+        return render :new, status: :internal_server_error
+      end
 
-    user_payload = {
-      username: username,
-      email: "#{username}@example.com",
-      name: "#{username.capitalize} User",
-      roles: ["ROLE_USER"],
-      authenticated_at: Time.now.utc.iso8601
-    }
+      # Validated
+      result_body = JSON.parse(response.body)
+      user_id = result_body["id"]
 
-    # Invalidate previous session in Redis to prevent session fixation attacks
-    old_session_id = cookies[:SHARED_SESSION_ID]
-    if old_session_id.present? && valid_session_id?(old_session_id)
-      redis_client.del(redis_session_key(old_session_id))
+      user_payload = {
+        username: user_id,
+        email: email,
+        name: "#{email.split('@').first.capitalize} User",
+        roles: ["ROLE_USER"],
+        authenticated_at: Time.now.utc.iso8601
+      }
+
+      # Invalidate previous session in Redis to prevent session fixation attacks
+      old_session_id = cookies[:SHARED_SESSION_ID]
+      if old_session_id.present? && valid_session_id?(old_session_id)
+        redis_client.del(redis_session_key(old_session_id))
+      end
+
+      # Issue cryptographically secure UUIDv4 session identifier and persist to Redis
+      session_id = SecureRandom.uuid
+      redis_client.set(redis_session_key(session_id), user_payload.to_json, ex: 7200)
+
+      # Issue hardened session cookie:
+      # - HttpOnly: Prevents client-side script access (mitigates XSS cookie theft)
+      # - SameSite: Lax: Mitigates CSRF on cross-site requests
+      # - Secure: Transmitted only over TLS in production
+      cookies[:SHARED_SESSION_ID] = {
+        value: session_id,
+        path: "/",
+        expires: 2.hours.from_now,
+        same_site: :lax,
+        httponly: true,
+        secure: ENV.fetch("REQUIRE_SECURE_COOKIES", request.ssl?.to_s) == "true"
+      }
+
+      # Session identifier is transmitted exclusively via cookie, never in URL query strings (CWE-598)
+      if return_to.present?
+        redirect_to return_to, allow_other_host: true, status: :see_other
+      else
+        render :success, status: :ok
+      end
+    rescue => e
+      Rails.logger.error("API Error: #{e.message}")
+      @error_message = "An internal error occurred"
+      render :new, status: :internal_server_error
     end
-
-    # Issue cryptographically secure UUIDv4 session identifier and persist to Redis
-    session_id = SecureRandom.uuid
-    redis_client.set(redis_session_key(session_id), user_payload.to_json, ex: 7200)
-
-    # Issue hardened session cookie:
-    # - HttpOnly: Prevents client-side script access (mitigates XSS cookie theft)
-    # - SameSite: Lax: Mitigates CSRF on cross-site requests
-    # - Secure: Transmitted only over TLS in production
-    cookies[:SHARED_SESSION_ID] = {
-      value: session_id,
-      path: "/",
-      expires: 2.hours.from_now,
-      same_site: :lax,
-      httponly: true,
-      secure: ENV.fetch("REQUIRE_SECURE_COOKIES", request.ssl?.to_s) == "true"
-    }
-
-    # Session identifier is transmitted exclusively via cookie, never in URL query strings (CWE-598)
-    redirect_to return_to, allow_other_host: true, status: :see_other
   end
 
   def health
@@ -146,22 +157,22 @@ class SessionsController < ApplicationController
 
   # Validates return_to parameter against trusted hosts to prevent open redirects
   def sanitize_return_to(target_url)
-    fallback_url = ENV.fetch("AUTH_SERVER_URL", "http://localhost:9000")
-    return fallback_url if target_url.blank?
+    return nil if target_url.blank?
 
     begin
       parsed = URI.parse(target_url.to_s.strip)
-      allowed = self.class.allowed_return_hosts
-      if parsed.host.nil?
-        target_url.start_with?("/") ? target_url : fallback_url
+      allowed = Rails.configuration.x.auth_server.allowed_return_hosts
+      
+      if parsed.host.nil? && target_url.start_with?("/")
+        target_url
       elsif allowed.include?(parsed.host) || allowed.include?("#{parsed.host}:#{parsed.port}")
         target_url
       else
         Rails.logger.warn("Blocked untrusted return_to redirect: #{target_url}")
-        fallback_url
+        nil
       end
     rescue URI::InvalidURIError
-      fallback_url
+      nil
     end
   end
 
@@ -175,7 +186,6 @@ class SessionsController < ApplicationController
   # so that the Authorization Server issues an RFC 9221 KMS-signed JARM error JWT to the client callback.
   def resolve_client_failure_redirect(return_to_url, error_code, error_description)
     return nil if return_to_url.blank?
-
     begin
       target = URI.parse(return_to_url.to_s.strip)
       separator = target.query.present? ? "&" : "?"

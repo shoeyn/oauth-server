@@ -251,37 +251,6 @@ module OAuth2ClientKit
     end
 
     # POST /auth/simulate_fraud_revocation
-    def simulate_fraud_revocation
-      token_data = current_token_data
-      access_token = token_data[:raw_access_token]
-      client = OAuth2ClientKit.client
-
-      if access_token.present?
-        begin
-          response = client.connection.post("#{client.internal_issuer_url}/api/admin/revoke-session") do |req|
-            req.headers["Content-Type"] = "application/x-www-form-urlencoded"
-            req.headers["X-Admin-Api-Key"] = OAuth2ClientKit.config.admin_api_key
-            req.body = URI.encode_www_form({ token: access_token })
-          end
-
-          if response.status == 403
-            flash[:notice] = "🛡️ Perimeter Isolation Verified: The edge reverse proxy (Nginx) correctly rejected public access to /api/admin/revoke-session with HTTP 403 Forbidden. Administrative operations are isolated from external clients."
-          elsif response.status == 200
-            token_key = session[:token_key]
-            OAuth2ClientKit.token_store.delete(token_key) if token_key.present?
-            reset_session
-            flash[:notice] = "⚠️ Simulated Fraud Alert: Authorization session terminated globally! Both Auth Server SSO session and client tokens have been revoked."
-            redirect_to "/" and return
-          else
-            flash[:error] = "Administrative revocation returned HTTP #{response.status}: #{response.body}"
-          end
-        rescue => e
-          flash[:error] = "Failed to simulate revocation: #{e.message}"
-        end
-      end
-
-      redirect_to OAuth2ClientKit.config.after_login_path
-    end
 
     # POST /logout
     def logout
