@@ -6,13 +6,13 @@
     <%= f.hidden_field :return_to, value: @return_to %>
 
     <div style="margin-bottom: 1.25rem;">
-      <%= f.label :username, "Username", style: "display: block; font-size: 0.875rem; font-weight: 500; color: #374151; margin-bottom: 0.25rem;" %>
-      <%= f.text_field :username, value: "demo_user", required: true, autofocus: true, style: "width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 6px; box-sizing: border-box; font-size: 1rem;" %>
+      <%= f.label :email, "Email Address", style: "display: block; font-size: 0.875rem; font-weight: 500; color: #374151; margin-bottom: 0.25rem;" %>
+      <%= f.text_field :email, value: "alice_smith@example.com", required: true, autofocus: true, style: "width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 6px; box-sizing: border-box; font-size: 1rem;" %>
     </div>
 
     <div style="margin-bottom: 1.5rem;">
       <%= f.label :password, "Password", style: "display: block; font-size: 0.875rem; font-weight: 500; color: #374151; margin-bottom: 0.25rem;" %>
-      <%= f.password_field :password, value: "password", required: true, style: "width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 6px; box-sizing: border-box; font-size: 1rem;" %>
+      <%= f.password_field :password, value: "secret123", required: true, style: "width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 6px; box-sizing: border-box; font-size: 1rem;" %>
     </div>
 
     <button type="submit" style="width: 100%; background-color: #4f46e5; color: white; padding: 0.75rem; border: none; border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background-color 0.2s;">

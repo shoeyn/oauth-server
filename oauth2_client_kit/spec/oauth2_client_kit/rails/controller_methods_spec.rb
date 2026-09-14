@@ -59,7 +59,6 @@ RSpec.describe OAuth2ClientKit::ControllerMethods do
       expect(controller.auth_start_path(prompt: 'login')).to eq("/auth/start?prompt=login")
       expect(controller.auth_refresh_path).to eq("/auth/refresh")
       expect(controller.auth_revoke_path).to eq("/auth/revoke")
-      expect(controller.auth_simulate_fraud_revocation_path).to eq("/auth/simulate_fraud_revocation")
       expect(controller.logout_path).to eq("/logout")
       expect(controller.callback_path).to eq("/callback")
       expect(controller.oauth_redirect_uri).to eq("http://test.host/callback")

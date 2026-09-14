@@ -23,7 +23,6 @@ module OAuth2ClientKit
                       :auth_start_path,
                       :auth_refresh_path,
                       :auth_revoke_path,
-                      :auth_simulate_fraud_revocation_path,
                       :logout_path,
                       :callback_path
       end
@@ -39,10 +38,6 @@ module OAuth2ClientKit
 
     def auth_revoke_path
       "/auth/revoke"
-    end
-
-    def auth_simulate_fraud_revocation_path
-      "/auth/simulate_fraud_revocation"
     end
 
     def logout_path

@@ -21,3 +21,16 @@ end
 Then("I should see {string}") do |content|
   expect(page).to have_content(content)
 end
+
+When("I fill in the test user credentials") do
+  fill_in "Email Address", with: @test_email
+  fill_in "Password", with: @test_password
+end
+
+When("I flag the test user as fraud") do
+  uri = URI("http://localhost:9001/api/admin/users/#{@test_email}/fraud")
+  req = Net::HTTP::Post.new(uri)
+  req['X-Admin-Api-Key'] = 'secret-admin-key'
+  res = Net::HTTP.start(uri.hostname, uri.port) { |http| http.request(req) }
+  expect(res).to be_a(Net::HTTPSuccess)
+end
