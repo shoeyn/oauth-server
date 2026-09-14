@@ -9,8 +9,7 @@ import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
-import software.amazon.awssdk.core.retry.RetryPolicy;
-import software.amazon.awssdk.core.retry.backoff.BackoffStrategy;
+import software.amazon.awssdk.awscore.retry.AwsRetryStrategy;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.kms.KmsClient;
 
@@ -22,7 +21,7 @@ import software.amazon.awssdk.services.kms.KmsClient;
 @ConditionalOnProperty(name = "aws.kms.enabled", havingValue = "true", matchIfMissing = true)
 public class KmsClientConfig {
 
-    @Value("${aws.kms.endpoint:http://localhost:4566}")
+    @Value("${aws.kms.endpoint}")
     private String endpoint;
 
     @Value("${aws.region:us-east-1}")
@@ -36,11 +35,12 @@ public class KmsClientConfig {
 
     @Bean
     public KmsClient kmsClient() {
-        // Resilience: Configured with 3-attempt exponential backoff with full jitter to avoid thundering herd
+        // Resilience: standard retry strategy (exponential backoff with jitter) capped at 3 total
+        // attempts to avoid thundering herd. Uses the non-deprecated RetryStrategy API (AWS SDK v2).
         ClientOverrideConfiguration overrideConfig = ClientOverrideConfiguration.builder()
-                .retryPolicy(RetryPolicy.builder()
-                        .numRetries(3)
-                        .backoffStrategy(BackoffStrategy.defaultStrategy())
+                .retryStrategy(AwsRetryStrategy.standardRetryStrategy()
+                        .toBuilder()
+                        .maxAttempts(3)
                         .build())
                 .apiCallTimeout(Duration.ofSeconds(5))
                 .apiCallAttemptTimeout(Duration.ofSeconds(2))

@@ -19,3 +19,9 @@ Thumbs.db
 
 # Coverage reports
 coverage/
+
+# Local-only corporate CA bundle for Docker builds behind a TLS-intercepting proxy.
+# Never commit corporate certificates. Provided to `docker compose build` via a build secret.
+.local-certs/
+*.crt
+!**/public/**

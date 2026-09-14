@@ -5,7 +5,6 @@ import com.nimbusds.jose.jwk.JWK;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.Principal;
-import java.time.Instant;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashMap;

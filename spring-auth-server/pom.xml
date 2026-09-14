@@ -106,7 +106,7 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.12</version>
+                <version>0.8.13</version>
                 <executions>
                     <execution>
                         <goals>
@@ -131,23 +131,74 @@
                                 <rule>
                                     <element>CLASS</element>
                                     <excludes>
+                                        <!--
+                                            The following classes remain excluded from the 100% line/branch
+                                            coverage gate. Each is either a data holder with no meaningful
+                                            branching, a framework entrypoint, or pure Spring bean wiring that
+                                            cannot be exercised without a full application context. All
+                                            security-critical logic classes have been moved INTO the gate and
+                                            backed by genuine behavioural unit tests (code-review finding H3).
+                                        -->
+                                        <!-- Pure Spring @Configuration bean wiring / infrastructure requiring full context. -->
                                         <exclude>com.example.authserver.config.**</exclude>
+                                        <!-- Spring Boot main() bootstrap entrypoint - no testable logic. -->
                                         <exclude>com.example.authserver.AuthServerApplication</exclude>
+                                        <!-- Immutable data record (session principal DTO) - no branching logic worth gating. -->
                                         <exclude>com.example.authserver.security.AuthenticatedUser</exclude>
+                                        <!-- Immutable Jackson DTO record - no logic. -->
                                         <exclude>com.example.authserver.client.ClientConfigDto</exclude>
-                                        <exclude>com.example.authserver.client.ClientReloadRedisSubscriber</exclude>
-                                        <exclude>com.example.authserver.client.PostgresRegisteredClientRepository</exclude>
-                                        <exclude>com.example.authserver.controller.SessionInfoController</exclude>
-                                        <exclude>com.example.authserver.task.OAuth2AuthorizationCleanupService</exclude>
-                                        <exclude>com.example.authserver.security.AdminApiKeyFilter</exclude>
+                                        <!--
+                                            The redundant defence-in-depth RS256 algorithm-pinning validator lambda
+                                            only ever executes AFTER NimbusJwtDecoder has already enforced RS256 at
+                                            signature-verification time, so its `alg == null` / `alg != RS256`
+                                            branches are unreachable through the public decode() API and cannot be
+                                            covered without reflecting into decoder internals. Its behavioural
+                                            contract (subject/issuer/audience/JTI-replay validation) is exercised by
+                                            ClientAssertionDecoderFactoryTest and the functional test suite.
+                                        -->
                                         <exclude>com.example.authserver.security.ClientAssertionDecoderFactory</exclude>
+                                        <!--
+                                            Contains two unreachable defensive null-guards - `token.getClientId() != null`
+                                            and `token.getAdditionalParameters() != null` - which are ALWAYS true for the
+                                            OAuth2AuthorizationCodeRequestAuthenticationToken produced by the delegate
+                                            OAuth2AuthorizationCodeRequestAuthenticationConverter (it throws on a missing
+                                            client_id and always supplies a non-null additional-parameters map), so their
+                                            false branches cannot be reached via the public convert() API. All reachable
+                                            security behaviour (server-determined scope binding, strict RFC 9126 PAR
+                                            enforcement, IdP-error forwarding and RFC 9207 mix-up defence) is covered by
+                                            ClientPreDeterminedScopeAuthorizationRequestConverterTest.
+                                        -->
                                         <exclude>com.example.authserver.security.ClientPreDeterminedScopeAuthorizationRequestConverter</exclude>
-                                        <exclude>com.example.authserver.security.KmsJwtEncoder</exclude>
-                                        <exclude>com.example.authserver.security.KmsRsaSigner</exclude>
-                                        <exclude>com.example.authserver.security.OidcBackChannelLogoutService</exclude>
-                                        <exclude>com.example.authserver.security.StrictClientAssertionAuthenticationConverter</exclude>
-                                        <exclude>com.example.authserver.security.StrictDPoPTokenRequestAuthenticationConverter</exclude>
+                                        <!-- Nested result record (data holder) of UserSessionRevocationService. -->
                                         <exclude>com.example.authserver.security.UserSessionRevocationService$RevocationResult</exclude>
+                                        <!--
+                                            Instantiates a JdbcRegisteredClientRepository internally and drives Flyway
+                                            migration + near-cache reload against a live PostgreSQL schema. Its DTO
+                                            mapping and cache-reload branches require a real database (integration
+                                            test), not a unit test, to exercise fully; unit-testing it in isolation
+                                            cannot reach the 100% line+branch gate. Covered instead by the functional
+                                            test suite (see functional_tests/).
+                                        -->
+                                        <exclude>com.example.authserver.client.PostgresRegisteredClientRepository</exclude>
+                                        <!--
+                                            Retains a defence-in-depth `resolvedClientId != null && !isBlank()` guard
+                                            before dispatching back-channel logout. resolvedClientId originates from
+                                            RegisteredClient.getClientId() (non-blank by the registry contract), so the
+                                            isBlank() false-branch is unreachable via the public API. We deliberately
+                                            KEEP the guard (safer than deleting a safety check to win a coverage metric),
+                                            which makes 100% branch coverage unattainable; the reachable session-revocation
+                                            behaviour is covered by SessionInfoControllerTest.
+                                        -->
+                                        <exclude>com.example.authserver.controller.SessionInfoController</exclude>
+                                        <!--
+                                            The fail-closed KMS signing path ends with a `lastException != null ? ... : "unknown error"`
+                                            guard. By loop structure lastException is always non-null at that point, so the
+                                            else-branch is unreachable; we KEEP the null-guard rather than risk an NPE that
+                                            would mask the real KMS failure in a security-critical fail-closed path. This
+                                            leaves one uncoverable branch. Reachable signing/retry/fail-closed behaviour is
+                                            covered by KmsRsaSignerTest.
+                                        -->
+                                        <exclude>com.example.authserver.security.KmsRsaSigner</exclude>
                                     </excludes>
                                     <limits>
                                         <limit>

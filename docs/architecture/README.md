@@ -21,7 +21,7 @@ flowchart TB
     end
 
     subgraph SecurityTier ["Cryptographic Hardware Module"]
-        LocalStackKMS[("LocalStack AWS KMS<br/>(Port 4566)<br/>FIPS 140-2 Level 3 HSM Token Signing")]
+        LocalStackKMS[("LocalStack AWS KMS<br/>(Port 4566)<br/>Software KMS emulation — dev only")]
     end
 
     subgraph DataTier ["Data & Storage Tier"]
@@ -72,13 +72,22 @@ Click the links below to inspect specific end-to-end communication flows:
    - Concurrency bottleneck identification, benchmark metrics (EC vs RSA DPoP, response caching, ETag 304s), resilience/retry patterns, and high-scale roadmap.
 
 6. [**AWS KMS Key Management, Multi-Key JWKS Rotation & Algorithm Pinning**](kms_multi_key_rotation_flow.md)
-   - Hardware Security Module (HSM) boundary, FIPS 140-2 Level 3 protection, zero-downtime multi-key JWKS rotation lifecycle, automated rotation tooling, and strict RFC 8725 algorithm pinning.
+   - Hardware Security Module (HSM) boundary **(FIPS 140-2 Level 3 when deployed against real AWS KMS; LocalStack is a software emulation locally)**, zero-downtime multi-key JWKS rotation lifecycle, automated rotation tooling, and strict RFC 8725 algorithm pinning.
 
 7. [**Network Perimeter & Reverse Proxy Routing Architecture**](network_perimeter_and_proxy_routing.md)
    - External reverse proxy / ALB path routing specification isolating internal administrative APIs (`/api/admin/**`) from public OAuth 2.1 traffic, with configuration templates for AWS ALB, Nginx, Kubernetes Ingress, and Cloudflare WAF.
 
 8. [**Interface Contracts & Unified Data Dictionary**](contracts_and_data_dictionary.md)
    - Formal JSON schema specification for the Rails $\leftrightarrow$ Spring Redis SSO session, unified Redis key taxonomy and TTL lifecycle matrix, and PostgreSQL DDL/ERD schema reference.
+
+9. [**User Management, Authentication & Fraud Revocation**](user_management_and_authentication.md)
+   - The `app_users` store, the `/api/admin/users` administrative API, the two-stage SHA-256 → BCrypt password pipeline, the Rails IdP `/authenticate` integration, and the fraud-flag → global session revocation flow.
+
+10. [**Higher Key & Cryptographic Standards (Design Options)**](higher_key_and_crypto_standards.md)
+    - Pros/cons of stronger signing algorithms (ES256, RSA-3072, PS256, Ed25519), Argon2id/PBKDF2 password hashing, and an accurate FIPS 140-2/140-3 posture. Decision aid only — not implemented.
+
+11. [**JWT-Secured Authorization Requests (JAR, RFC 9101) — Design Option**](jar_rfc9101_design_option.md)
+    - Evaluation of JAR signed request objects vs the implemented RFC 9126 PAR flow, why it is documented rather than implemented, a recommended PAR + JAR shape, and pros/cons.
 
 ---
 
@@ -99,6 +108,6 @@ Click the links below to inspect specific end-to-end communication flows:
 | **`rails-app`** | `3000` | HTTP / TCP | External login & Identity Provider (sets `SHARED_SESSION_ID`) |
 | **`client-manager`** | `3001` | HTTP / TCP | Administrative UI for client configuration (connects directly to Spring :9000) |
 | **`postgres`** | `5432` | PostgreSQL / TCP | ACID persistence for registered clients & runtime authorization records |
-| **`localstack`** | `4566` | HTTP / KMS API | Emulated AWS KMS (FIPS 140-2 Level 3 HSM Asymmetric Key Signing) |
+| **`localstack`** | `4566` | HTTP / KMS API | Emulated AWS KMS — **software emulation, no HSM/FIPS** (real AWS KMS provides the FIPS 140-2 Level 3 HSM in production) |
 | **`redis`** | `6379` | RESP / TCP | DB 0 (SSO, JTI), DB 1 (Client Tokens), and Pub/Sub cluster invalidation |
 

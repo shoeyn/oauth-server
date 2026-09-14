@@ -200,7 +200,13 @@ module OAuth2ClientKit
         raise "Security Error: ID Token nonce ('#{payload['nonce']}') does not match expected nonce ('#{expected_nonce}')"
       end
 
-      if payload["at_hash"].present? && raw_access_token.present?
+      # OIDC Core 1.0 §3.1.3.6: when the access token is available for validation, the ID Token
+      # MUST carry a matching at_hash. Absence is treated as a failure (fail-closed), not skipped,
+      # to prevent an issuer/MITM from bypassing token-substitution protection by omitting the claim.
+      if raw_access_token.present?
+        if payload["at_hash"].blank?
+          raise "Security Error: ID Token is missing the required at_hash claim while an access token is present."
+        end
         digest = OpenSSL::Digest::SHA256.digest(raw_access_token)
         expected_at_hash = Base64.urlsafe_encode64(digest[0...16], padding: false)
         if payload["at_hash"] != expected_at_hash
@@ -208,7 +214,12 @@ module OAuth2ClientKit
         end
       end
 
-      if payload["c_hash"].present? && code.present?
+      # OIDC Core 1.0 §3.3.2.11: when the authorization code is available, the ID Token MUST carry a
+      # matching c_hash. Absence is a failure (fail-closed) to prevent code-substitution attacks.
+      if code.present?
+        if payload["c_hash"].blank?
+          raise "Security Error: ID Token is missing the required c_hash claim while an authorization code is present."
+        end
         code_digest = OpenSSL::Digest::SHA256.digest(code)
         expected_c_hash = Base64.urlsafe_encode64(code_digest[0...16], padding: false)
         if payload["c_hash"] != expected_c_hash
@@ -427,6 +438,12 @@ module OAuth2ClientKit
 
       if payload.key?("nonce")
         raise "Security Error: logout_token MUST NOT contain a nonce claim"
+      end
+
+      # OIDC Back-Channel Logout 1.0 §2.4: a logout_token MUST contain a sub and/or sid claim.
+      # Reject tokens with neither (they would otherwise drive an unbounded, target-less eviction).
+      if payload["sub"].blank? && payload["sid"].blank?
+        raise "Security Error: logout_token MUST contain a 'sub' and/or 'sid' claim."
       end
 
       payload

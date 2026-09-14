@@ -54,7 +54,7 @@ graph TD
         direction LR
         Postgres[("PostgreSQL Database<br/>(Port 5432)")]
         Redis[("Redis Server<br/>(Port 6379)")]
-        KMS["LocalStack (AWS KMS)<br/>(FIPS 140-2 HSM Signing)"]
+        KMS["LocalStack (AWS KMS emulation)<br/>(Software KMS — dev only)"]
     end
     
     %% Relationships
@@ -89,7 +89,7 @@ graph TD
 | **Client Auth** | **RFC 7523 private_key_jwt** | Asymmetric client assertions signed with client RSA/EC private keys. Weak methods (`client_secret_basic`, `client_secret_post`) are rejected. JTI replay caching in Redis. |
 | **Sender Constraints** | **RFC 9449 DPoP** | Mandatory DPoP proof on token requests. Access tokens are cryptographically bound to client keys via `cnf.jkt` claim. |
 | **Request Security** | **RFC 9126 PAR** | Authorization requests are pushed to `/oauth2/par` via backchannel POST; returns single-use `request_uri`. |
-| **Token Signing** | **AWS KMS (FIPS 140-2 Level 3 / 140-3)** | Asymmetric hardware-backed token signing using AWS KMS RSA_2048 key pairs (`RSASSA_PKCS1_V1_5_SHA_256`). Private keys never enter JVM memory. |
+| **Token Signing** | **AWS KMS (software-emulated locally via LocalStack)** | Asymmetric token signing using AWS KMS RSA_2048 key pairs (`RSASSA_PKCS1_V1_5_SHA_256`); private keys never enter JVM memory. **FIPS note:** when deployed against real AWS KMS in a FIPS-validated region the signing HSM is FIPS 140-2 Level 3 validated; the local LocalStack stack is a **software emulation with no FIPS validation and no HSM** (dev only). |
 | **Algorithm Pinning** | **Strict RS256 Verification** | Eliminates algorithm confusion attacks (`alg: none`, symmetric HMAC `HS256`). Enforced at both authorization server and client. |
 | **Key Rotation** | **Graceful Multi-Key JWKS** | Zero-downtime rotation. Active key signs new tokens; active + previous keys published concurrently at `/oauth2/jwks`. |
 | **Mix-Up Defense** | **RFC 9207 Issuer Identification** | Authorization server appends `iss` parameter to callback redirects. Client validates `iss` matches trusted authorization server. |
@@ -100,7 +100,7 @@ graph TD
 
 | Standard / RFC | Specification Name | How It Is Implemented & Enforced |
 |---|---|---|
-| **FIPS 140-2 / KMS** | **Hardware-Backed Asymmetric Signing** | Tokens (access, ID, logout) are signed within an AWS KMS Hardware Security Module (HSM) boundary using `RSA_2048`. Asymmetric private keys never enter JVM heap memory. |
+| **FIPS 140-2 / KMS** | **Hardware-Backed Asymmetric Signing (in real AWS KMS)** | Tokens (access, ID, logout) are signed via the AWS KMS `Sign` API using `RSA_2048`; asymmetric private keys never enter the JVM heap. **In a real AWS deployment** the KMS HSM boundary is FIPS 140-2 Level 3 validated. **Locally this runs against LocalStack — a software KMS emulation with no HSM and no FIPS validation** (development only). |
 | **RFC 8725** | **Strict Algorithm Pinning (RS256)** | Authorization server and client strictly enforce `RS256`, rejecting `none`, symmetric HMAC (`HS256`), and unapproved algorithms to eliminate JWT signature confusion attacks. |
 | **Graceful Rotation**| **Multi-Key JWKS Rotation** | Serves active and previous keys concurrently at `/oauth2/jwks`, enabling zero-downtime key rotation while in-flight tokens remain valid through their TTL. |
 | **RFC 9126** | **Pushed Authorization Requests (PAR)** | All authorization parameters (`client_id`, `state`, `nonce`, `code_challenge`) are pushed directly to `/oauth2/par` over TLS via an authenticated backchannel POST. The browser only receives an opaque, single-use `request_uri`. Stops query leakage and URL manipulation. |
@@ -123,7 +123,7 @@ graph TD
 This section documents the security controls currently active in the platform, along with an enterprise production readiness roadmap detailing requirements, benefits, trade-offs, and classification.
 
 ### 1. Active Security Inclusions (Implemented in Codebase)
-- **Cryptographic Isolation:** Asymmetric signing keys reside in FIPS 140-2 Level 3 Hardware Security Modules (AWS KMS). Private keys never touch application memory.
+- **Cryptographic Isolation:** Asymmetric signing keys are managed by AWS KMS and never touch application memory. **When deployed against real AWS KMS** the keys reside in FIPS 140-2 Level 3 validated Hardware Security Modules; **the bundled local stack uses LocalStack, a software KMS emulation with no HSM and no FIPS validation** (dev only).
 - **Fail-Closed Guarantee:** When KMS signing is enabled (`aws.kms.enabled: true`), the authorization server refuses startup if KMS is unreachable, preventing silent fallback to insecure keys.
 - **Strict Algorithm Pinning:** Rejects `alg: none` and symmetric HMAC `HS256` confusion attacks at both the authorization server and client decoders.
 - **Multi-Key JWKS Rotation:** Concurrent publishing of active and retired keys at `/oauth2/jwks` eliminates downtime during key lifecycle transitions.
@@ -176,6 +176,9 @@ Comprehensive sequence diagrams, topology graphs, and communication flows are do
 - [**Performance, Scalability & Bottleneck Analysis**](docs/architecture/performance_and_scalability.md): Deep-dive analysis of system bottlenecks, cryptographic speedups, in-memory JWKS/discovery caching, ETag 304 validation, automated retries, and high-scale roadmap.
 - [**PostgreSQL Persistence Architecture & Performance Analysis**](docs/architecture/postgres_persistence_and_performance.md): Architectural rationale for database-backed clients, Flyway schema migrations, Java-only network isolation, and near-cache performance.
 - [**Interface Contracts & Unified Data Dictionary**](docs/architecture/contracts_and_data_dictionary.md): Formal JSON schema for the Rails $\leftrightarrow$ Spring Redis SSO session, unified Redis key taxonomy and TTL matrix, and PostgreSQL DDL/ERD schema reference.
+- [**User Management, Authentication & Fraud Revocation**](docs/architecture/user_management_and_authentication.md): The `app_users` store, `/api/admin/users` admin API, two-stage SHA-256 → BCrypt password pipeline, Rails IdP `/authenticate` integration, and fraud-flag → global session revocation.
+- [**Higher Key & Cryptographic Standards (Design Options)**](docs/architecture/higher_key_and_crypto_standards.md): Pros/cons of stronger signing algorithms, Argon2id password hashing, and accurate FIPS 140-2/140-3 scoping. Decision aid — not implemented.
+- [**JAR (RFC 9101) — Design Option**](docs/architecture/jar_rfc9101_design_option.md): JWT-Secured Authorization Requests evaluated against the implemented PAR flow, with pros/cons and a recommended PAR + JAR shape. Documented, not implemented.
 
 ### Developer & Tester Guides
 - [**Developer Cookbook & Iteration Guide**](docs/guides/developer_cookbook.md): Dual-mode execution (Docker vs. local IDE debugging), Admin API `curl` client registration examples, custom JWT claim recipes, and hot-cache reload commands.
@@ -334,7 +337,7 @@ k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 
 | Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS + JARM) | Evaluation |
 |---|---|---|---|
-| **Cryptographic Boundary** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 (KMS HSM)** | Maximum hardware protection |
+| **Cryptographic Boundary** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 KMS HSM in real AWS** (LocalStack software emulation locally) | Hardware protection in production; emulated in dev |
 | **Algorithm Pinning** | Optional | **Strict RS256 enforced (`none` & `HS256` rejected)** | Pinning active |
 | **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime cutover |
 | **KMS Signatures / Flow** | 0 (Local CPU) | **3 (JARM Auth Code + Access Token + ID Token)** | Full cryptographic auditability |
@@ -404,8 +407,10 @@ k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 │       │       ├── OidcBackChannelLogoutService.java       # Dispatches signed logout_token JWS
 │       │       └── SharedRedisSessionFilter.java           # Bridges Rails shared session to Spring context
 │       └── resources/db/migration/
-│           ├── V1__create_oauth2_schema.sql                # Core Spring Security OAuth2 tables
-│           └── V2__create_client_public_keys.sql           # Public key store for private_key_jwt
+│           ├── V1__create_oauth2_authorization_tables.sql  # Core Spring Security OAuth2 authorization tables
+│           ├── V2__create_authorization_expiry_indices.sql # B-tree indices on authorization expiry timestamps
+│           ├── V3__seed_default_demo_client.sql            # Seeds default demo-client & its RSA public key
+│           └── V4__create_users_table.sql                  # app_users store (email, BCrypt hash, fraud flag)
 ├── rails-app/                      # Ruby on Rails 7 Identity Provider
 │   ├── app/controllers/sessions_controller.rb      # Writes session:<uuid> to Redis
 │   ├── app/views/sessions/new.html.erb             # User login form

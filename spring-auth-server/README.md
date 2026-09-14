@@ -6,7 +6,7 @@ A hardened, enterprise **OAuth 2.1 Authorization Server** built with **Spring Bo
 
 ## Security Policies & Architectural Design
 
-1. **Hardware-Backed Asymmetric Signing via AWS KMS (FIPS 140-2 Level 3 / FIPS 140-3)**:
+1. **Hardware-Backed Asymmetric Signing via AWS KMS (FIPS 140-2 Level 3 in real AWS; LocalStack software emulation locally)**:
    - Private signing keys reside within the AWS KMS Hardware Security Module (HSM) boundary.
    - Access tokens, ID tokens, and logout tokens are signed remotely via [`KmsJwtEncoder`](src/main/java/com/example/authserver/security/KmsJwtEncoder.java) and [`KmsRsaSigner`](src/main/java/com/example/authserver/security/KmsRsaSigner.java) using `RSA_2048` (`RSASSA_PKCS1_V1_5_SHA_256`).
    - Private key material **never enters host or JVM heap memory**, mitigating memory scraping and offline forgery.

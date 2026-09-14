@@ -19,11 +19,11 @@
       </div>
 
       <div class="btn-group" style="margin-top: 0.5rem; display: flex; gap: 1rem; flex-wrap: wrap;">
-        <%= button_to auth_start_path(flow: "par"), method: :post, class: "btn" do %>
+        <%= button_to auth_start_path(flow: "par"), method: :post, class: "btn", "aria-label": "Start secure login using Pushed Authorization Requests with DPoP and PKCE" do %>
           🚀 Start Secure Login (PAR + DPoP + PKCE)
         <% end %>
 
-        <%= button_to auth_start_path(flow: "direct"), method: :post, class: "btn btn-secondary" do %>
+        <%= button_to auth_start_path(flow: "direct"), method: :post, class: "btn btn-secondary", "aria-label": "Start direct authorize using the standard authorization code flow with DPoP and PKCE" do %>
           🌐 Start Direct Authorize (Standard Flow + DPoP + PKCE)
         <% end %>
       </div>

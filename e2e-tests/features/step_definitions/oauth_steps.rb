@@ -22,6 +22,10 @@ Then("I should see {string}") do |content|
   expect(page).to have_content(content)
 end
 
+Then("I should not see {string}") do |content|
+  expect(page).not_to have_content(content)
+end
+
 When("I fill in the test user credentials") do
   fill_in "Email Address", with: @test_email
   fill_in "Password", with: @test_password

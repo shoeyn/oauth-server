@@ -3,7 +3,6 @@ package com.example.authserver.config;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.support.lob.DefaultLobHandler;
 import org.springframework.security.jackson.SecurityJacksonModules;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
@@ -125,7 +124,8 @@ public class ScopePropagatingOAuth2AuthorizationService implements OAuth2Authori
         JdbcOAuth2AuthorizationService svc = new JdbcOAuth2AuthorizationService(jdbcTemplate, registeredClientRepository);
         JdbcOAuth2AuthorizationService.JsonMapperOAuth2AuthorizationRowMapper rowMapper =
                 new JdbcOAuth2AuthorizationService.JsonMapperOAuth2AuthorizationRowMapper(registeredClientRepository, jsonMapper);
-        rowMapper.setLobHandler(new DefaultLobHandler());
+        // Note: no explicit LobHandler is set. The row mapper reads LOB columns via standard JDBC
+        // by default; Spring's DefaultLobHandler/setLobHandler are deprecated and unnecessary here.
         svc.setAuthorizationRowMapper(rowMapper);
         svc.setAuthorizationParametersMapper(
                 new JdbcOAuth2AuthorizationService.JsonMapperOAuth2AuthorizationParametersMapper(jsonMapper));

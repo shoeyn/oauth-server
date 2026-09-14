@@ -66,8 +66,13 @@ export async function unflagUserFraud(email: string): Promise<void> {
   }
 }
 
-export async function createUser(data: any): Promise<void> {
-  const payload = { ...data };
+export interface CreateUserInput {
+  email: string;
+  password?: string;
+}
+
+export async function createUser(data: CreateUserInput): Promise<void> {
+  const payload: CreateUserInput = { ...data };
   if (payload.password) {
     payload.password = sha256(payload.password);
   }

@@ -17,12 +17,20 @@ require 'simplecov'
 
 SimpleCov.start do
   add_filter '/spec/'
+  # Top-level require/logger glue: the meaningful branches (`defined?(Rails)`
+  # inflector wiring and the Rails.logger fallback) only execute inside a real
+  # Rails host, so they cannot be unit-tested without booting one.
   add_filter '/lib/oauth2_client_kit.rb'
+  # Single frozen VERSION constant. Nothing to assert beyond its own definition.
   add_filter '/lib/oauth2_client_kit/version.rb'
-  add_filter '/lib/oauth2_client_kit/configuration.rb'
-  add_filter '/lib/oauth2_client_kit/token_store.rb'
+  # Pure Rails route-mapper wiring: extends ActionDispatch::Routing::Mapper and
+  # only runs when mounted in a Rails router. Not unit-testable without a host.
   add_filter '/lib/oauth2_client_kit/rails/routes.rb'
+  # Subclasses ::Rails::Engine and draws routes at load time; requires a booted
+  # Rails application to exercise. Framework wiring only.
   add_filter '/lib/oauth2_client_kit/rails/engine.rb'
+  # Subclasses ::Rails::Railtie with an after_initialize hook; only meaningful
+  # inside a running Rails app. Framework wiring only.
   add_filter '/lib/oauth2_client_kit/rails/railtie.rb'
   minimum_coverage 100
 end

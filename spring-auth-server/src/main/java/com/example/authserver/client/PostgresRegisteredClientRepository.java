@@ -6,7 +6,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -14,9 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.flywaydb.core.Flyway;
 import org.springframework.context.annotation.DependsOn;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Primary;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.converter.RsaKeyConverters;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
@@ -39,7 +36,7 @@ import org.springframework.stereotype.Component;
  *       transactionally in PostgreSQL (tables: {@code oauth2_registered_client}, {@code oauth2_client_public_key}).</li>
  *   <li><b>Sub-Millisecond Reads:</b> Token issuance and PAR validation resolve from an internal
  *       {@link ConcurrentHashMap} near-cache in ~0.001 ms, avoiding database I/O during steady-state auth flows.</li>
- *   <li><b>Real-Time Cluster Invalidation:</b> Listens to Redis Pub/Sub ({@code oauth2:clients:reload})
+ *   <li><b>Real-Time Cluster Invalidation:</b> Listens to Redis Pub/Sub ({@code oauth2as:clients:reload})
  *       to synchronize client mutations across multiple Spring Auth Server instances instantaneously.</li>
  *   <li><b>Organizational Security:</b> Only this Java repository directly communicates with PostgreSQL;
  *       external management clients interact solely via the authenticated ClientAdminController.</li>
@@ -55,24 +52,22 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
 
     private final JdbcTemplate jdbcTemplate;
     private final JdbcRegisteredClientRepository jdbcRepository;
-    private final RSAPublicKey fallbackPublicKey;
-    private final StringRedisTemplate stringRedisTemplate;
     private final Flyway flyway;
 
-    // High-performance thread-safe near-cache
-    private final Map<String, RegisteredClient> clientsById = new ConcurrentHashMap<>();
-    private final Map<String, RegisteredClient> clientsByClientId = new ConcurrentHashMap<>();
-    private final Map<String, RSAPublicKey> publicKeysByClientId = new ConcurrentHashMap<>();
+    // High-performance thread-safe near-cache.
+    // These references are volatile so reloadNearCacheFromDatabase() can atomically swap in a
+    // freshly-built snapshot: lock-free readers always observe either the previous complete map
+    // or the new complete map, never a transiently cleared/partial one (which previously caused
+    // spurious invalid_client errors during a clear()+putAll() reload window).
+    private volatile Map<String, RegisteredClient> clientsById = new ConcurrentHashMap<>();
+    private volatile Map<String, RegisteredClient> clientsByClientId = new ConcurrentHashMap<>();
+    private volatile Map<String, RSAPublicKey> publicKeysByClientId = new ConcurrentHashMap<>();
 
     public PostgresRegisteredClientRepository(
             JdbcTemplate jdbcTemplate,
-            @Lazy RSAPublicKey fallbackPublicKey,
-            StringRedisTemplate stringRedisTemplate,
             Flyway flyway) {
         this.jdbcTemplate = jdbcTemplate;
         this.jdbcRepository = new JdbcRegisteredClientRepository(jdbcTemplate);
-        this.fallbackPublicKey = fallbackPublicKey;
-        this.stringRedisTemplate = stringRedisTemplate;
         this.flyway = flyway;
     }
 
@@ -81,28 +76,12 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
         log.info("Executing Flyway migration to guarantee schema existence...");
         flyway.migrate();
 
-        // Ensure demo-client is registered and seeded in PostgreSQL on first boot
-        if (!doesClientExist("demo-client")) {
-            log.info("Default 'demo-client' not found in PostgreSQL. Seeding default demo-client...");
-            registerDefaultDemoClient();
-        }
+        // Client seeding is owned exclusively by Flyway migrations (e.g. V3 seed for local/dev
+        // environments). No client definitions are hardcoded or seeded from application code,
+        // preventing accidental provisioning of fixture clients in production deployments.
 
         // Preload all registered clients and cryptographic keys from PostgreSQL into near-cache
         reloadNearCacheFromDatabase();
-    }
-
-    private boolean doesClientExist(String clientId) {
-        try {
-            Integer count = jdbcTemplate.queryForObject(
-                    "SELECT count(*) FROM oauth2_registered_client WHERE client_id = ?",
-                    Integer.class,
-                    clientId
-            );
-            return count != null && count > 0;
-        } catch (Exception e) {
-            log.warn("Could not query client existence for '{}' from PostgreSQL: {}", clientId, e.getMessage());
-            return false;
-        }
     }
 
     /**
@@ -142,72 +121,17 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
             });
 
 
-            clientsById.clear();
-            clientsById.putAll(newClientsById);
-
-            clientsByClientId.clear();
-            clientsByClientId.putAll(newClientsByClientId);
-
-            publicKeysByClientId.clear();
-            publicKeysByClientId.putAll(newPublicKeysByClientId);
+            // Atomically publish the freshly-built snapshot. Assigning the volatile references
+            // swaps in fully-populated maps in one step, so concurrent readers never see a
+            // partially-populated or cleared cache during a reload.
+            clientsById = newClientsById;
+            clientsByClientId = newClientsByClientId;
+            publicKeysByClientId = newPublicKeysByClientId;
 
             log.info("Near-cache warmed from PostgreSQL: {} client(s) and {} public key(s) loaded into memory.",
                     clientsByClientId.size(), publicKeysByClientId.size());
         } catch (Exception e) {
             log.error("Failed to load registered clients from PostgreSQL into near-cache: {}", e.getMessage(), e);
-        }
-    }
-
-    private void registerDefaultDemoClient() {
-        RegisteredClient demoClient = RegisteredClient.withId("demo-client")
-                .clientId("demo-client")
-                .clientName("Demo Client")
-                .clientAuthenticationMethod(ClientAuthenticationMethod.PRIVATE_KEY_JWT)
-                .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-                .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
-                .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
-                .redirectUri("http://127.0.0.1:8080/callback")
-                .redirectUri("http://localhost:8080/callback")
-                .redirectUri("http://demo-client:8080/callback")
-                .postLogoutRedirectUri("http://127.0.0.1:8080/")
-                .postLogoutRedirectUri("http://localhost:8080/")
-                .postLogoutRedirectUri("http://demo-client:8080/")
-                .scope("openid")
-                .scope("profile")
-                .scope("email")
-                .scope("user.read")
-                .scope("demo.secret_access")
-                .clientSettings(ClientSettings.builder()
-                        .requireProofKey(true)
-                        .requireAuthorizationConsent(false)
-                        .setting("settings.client.require-pushed-authorization-requests", true)
-                        .build())
-                .tokenSettings(TokenSettings.builder()
-                        .accessTokenFormat(OAuth2TokenFormat.SELF_CONTAINED)
-                        .accessTokenTimeToLive(Duration.ofMinutes(15))
-                        .reuseRefreshTokens(false)
-                        .refreshTokenTimeToLive(Duration.ofDays(30))
-                        .idTokenSignatureAlgorithm(SignatureAlgorithm.RS256)
-                        .build())
-                .build();
-
-        jdbcRepository.save(demoClient);
-
-        // Persist demo-client RSA public key into oauth2_client_public_key table
-        if (fallbackPublicKey != null) {
-            try {
-                String b64 = Base64.getEncoder().encodeToString(fallbackPublicKey.getEncoded());
-                String pem = "-----BEGIN PUBLIC KEY-----\n" + b64.replaceAll("(.{64})", "$1\n").trim() + "\n-----END PUBLIC KEY-----";
-                jdbcTemplate.update(
-                        "INSERT INTO oauth2_client_public_key (client_id, public_key_pem, updated_at) " +
-                        "VALUES (?, ?, CURRENT_TIMESTAMP) " +
-                        "ON CONFLICT (client_id) DO UPDATE SET public_key_pem = EXCLUDED.public_key_pem, updated_at = CURRENT_TIMESTAMP",
-                        "demo-client", pem
-                );
-                log.info("Default 'demo-client' public key persisted into PostgreSQL.");
-            } catch (Exception e) {
-                log.warn("Failed to persist default demo-client public key to PostgreSQL: {}", e.getMessage());
-            }
         }
     }
 

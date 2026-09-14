@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ClientConfig, AVAILABLE_SCOPES } from "@/lib/types";
 import {
   ShieldCheck,
@@ -46,9 +46,30 @@ export default function Home() {
   const [generatedKeyNotice, setGeneratedKeyNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // Ref to the currently-open dialog's close button for focus management
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
   useEffect(() => {
     fetchClients();
   }, []);
+
+  // Accessibility: Escape-to-close and focus the close button when a dialog opens
+  useEffect(() => {
+    if (modalMode === null) return;
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setModalMode(null);
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    closeButtonRef.current?.focus();
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [modalMode]);
 
   async function fetchClients() {
     setLoading(true);
@@ -279,20 +300,20 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <button
             onClick={fetchClients}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700 transition"
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700 transition whitespace-nowrap"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-4 h-4 shrink-0 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </button>
           <button
             onClick={openCreateModal}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition whitespace-nowrap"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4 shrink-0" />
             Register New Client
           </button>
         </div>
@@ -449,6 +470,7 @@ export default function Home() {
                           onClick={() => openViewModal(c)}
                           className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition"
                           title="View JSON"
+                          aria-label={`View JSON for client ${c.clientId}`}
                         >
                           <Eye className="w-4 h-4" />
                         </button>
@@ -456,6 +478,7 @@ export default function Home() {
                           onClick={() => openEditModal(c)}
                           className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition"
                           title="Edit Client"
+                          aria-label={`Edit client ${c.clientId}`}
                         >
                           <Edit className="w-4 h-4" />
                         </button>
@@ -463,6 +486,7 @@ export default function Home() {
                           onClick={() => handleDelete(c)}
                           className="p-1.5 rounded-lg hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition"
                           title="Delete Client"
+                          aria-label={`Delete client ${c.clientId}`}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -479,14 +503,21 @@ export default function Home() {
       {/* Modal: Create or Edit Client */}
       {(modalMode === "create" || modalMode === "edit") && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-form-dialog-title"
+            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl"
+          >
             <div className="flex items-center justify-between pb-4 mb-6 border-b border-slate-800">
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <h2 id="client-form-dialog-title" className="text-xl font-bold text-white flex items-center gap-2">
                 <Key className="w-5 h-5 text-indigo-400" />
                 {modalMode === "create" ? "Register New OAuth 2.1 Client" : `Edit Client: ${formData.clientId}`}
               </h2>
               <button
+                ref={closeButtonRef}
                 onClick={() => setModalMode(null)}
+                aria-label="Close dialog"
                 className="text-slate-400 hover:text-white text-lg font-bold"
               >
                 ✕
@@ -562,10 +593,12 @@ export default function Home() {
                   {AVAILABLE_SCOPES.map((scope) => {
                     const checked = formData.scopes.includes(scope.id);
                     return (
-                      <div
+                      <button
                         key={scope.id}
+                        type="button"
                         onClick={() => toggleScope(scope.id)}
-                        className={`p-3 rounded-lg border cursor-pointer transition flex items-start gap-3 ${
+                        aria-pressed={checked}
+                        className={`p-3 rounded-lg border cursor-pointer transition flex items-start gap-3 text-left ${
                           checked
                             ? "bg-indigo-600/10 border-indigo-500 text-white"
                             : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700"
@@ -575,7 +608,10 @@ export default function Home() {
                           type="checkbox"
                           checked={checked}
                           onChange={() => {}}
-                          className="mt-0.5 text-indigo-600 rounded bg-slate-900 border-slate-700"
+                          readOnly
+                          tabIndex={-1}
+                          aria-hidden="true"
+                          className="mt-0.5 text-indigo-600 rounded bg-slate-900 border-slate-700 pointer-events-none"
                         />
                         <div>
                           <div className="font-mono text-xs font-bold text-slate-200">{scope.label}</div>
@@ -583,7 +619,7 @@ export default function Home() {
                             {scope.description}
                           </div>
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -751,14 +787,21 @@ export default function Home() {
       {/* Modal: View Client JSON */}
       {modalMode === "view" && selectedClient && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl p-6 shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-json-dialog-title"
+            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl p-6 shadow-2xl"
+          >
             <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <h2 id="client-json-dialog-title" className="text-lg font-bold text-white flex items-center gap-2">
                 <Eye className="w-5 h-5 text-indigo-400" />
                 Client JSON: {selectedClient.clientId}
               </h2>
               <button
+                ref={closeButtonRef}
                 onClick={() => setModalMode(null)}
+                aria-label="Close dialog"
                 className="text-slate-400 hover:text-white text-lg font-bold"
               >
                 ✕

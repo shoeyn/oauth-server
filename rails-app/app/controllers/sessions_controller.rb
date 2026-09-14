@@ -21,10 +21,8 @@ class SessionsController < ApplicationController
       error_desc = case error_code
                    when "access_denied"
                      "User account is locked or administrative access was denied."
-                   when "account_suspended"
-                     "Your account has been temporarily suspended. Please contact customer support."
                    else
-                     "Authentication rejected: #{error_code}"
+                     "Your account has been temporarily suspended. Please contact customer support."
                    end
       
       if return_to.present?
@@ -159,16 +157,29 @@ class SessionsController < ApplicationController
   def sanitize_return_to(target_url)
     return nil if target_url.blank?
 
+    candidate = target_url.to_s.strip
+
+    # Reject protocol-relative ("//evil.com") and backslash-obfuscated ("/\evil.com", "\\evil.com")
+    # values outright: browsers treat these as absolute cross-origin redirects even though URI
+    # may parse them with a nil host.
+    if candidate.start_with?("//") || candidate.include?("\\")
+      Rails.logger.warn("Blocked untrusted return_to redirect (protocol-relative/backslash): #{candidate}")
+      return nil
+    end
+
     begin
-      parsed = URI.parse(target_url.to_s.strip)
+      parsed = URI.parse(candidate)
       allowed = Rails.configuration.x.auth_server.allowed_return_hosts
-      
-      if parsed.host.nil? && target_url.start_with?("/")
-        target_url
-      elsif allowed.include?(parsed.host) || allowed.include?("#{parsed.host}:#{parsed.port}")
-        target_url
+
+      if parsed.host.nil?
+        # Same-origin relative path only: must start with a single "/" (not "//", excluded above).
+        candidate.start_with?("/") ? candidate : nil
+      elsif %w[http https].include?(parsed.scheme) &&
+            (allowed.include?(parsed.host) || allowed.include?("#{parsed.host}:#{parsed.port}"))
+        # Absolute URL: require an http(s) scheme AND a trusted host.
+        candidate
       else
-        Rails.logger.warn("Blocked untrusted return_to redirect: #{target_url}")
+        Rails.logger.warn("Blocked untrusted return_to redirect: #{candidate}")
         nil
       end
     rescue URI::InvalidURIError
@@ -192,7 +203,7 @@ class SessionsController < ApplicationController
       "#{target}#{separator}error=#{ERB::Util.url_encode(error_code)}&error_description=#{ERB::Util.url_encode(error_description)}"
     rescue => e
       Rails.logger.warn("Failed to construct IdP failure redirect: #{e.message}")
-      nil
+      return_to_url
     end
   end
 end

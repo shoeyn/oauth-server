@@ -9,7 +9,6 @@ import com.example.authserver.security.OidcBackChannelLogoutService;
 import com.example.authserver.security.SharedRedisSessionFilter;
 import com.example.authserver.security.StrictClientAssertionAuthenticationConverter;
 import com.example.authserver.security.StrictDPoPTokenRequestAuthenticationConverter;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -52,10 +51,10 @@ import org.springframework.security.web.context.SecurityContextHolderFilter;
 @Configuration(proxyBeanMethods = false)
 public class AuthorizationServerConfig {
 
-    @Value("${auth.rails.login-url:http://localhost:3000/login}")
+    @Value("${auth.rails.login-url}")
     private String railsLoginUrl;
 
-    @Value("${auth.server.issuer-url:http://localhost:9000}")
+    @Value("${auth.server.issuer-url}")
     private String issuerUrl;
 
     @Bean

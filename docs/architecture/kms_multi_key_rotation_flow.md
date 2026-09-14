@@ -8,7 +8,7 @@ This document details the cryptographic architecture, zero-downtime multi-key ro
 
 ```mermaid
 flowchart TD
-    subgraph KMS ["AWS KMS / LocalStack HSM Cryptographic Boundary (FIPS 140-2 Level 3)"]
+    subgraph KMS ["AWS KMS Cryptographic Boundary (FIPS 140-2 Level 3 in real AWS; LocalStack software emulation locally)"]
         ActiveKey["Active Asymmetric Key (RSA_2048)<br/>Alias: alias/oauth2-signing-key<br/>(KeyUsage: SIGN_VERIFY)<br/>• Signs all newly minted tokens<br/>• Private Key NEVER leaves HSM"]
         PreviousKey["Previous Asymmetric Key (RSA_2048)<br/>Alias: alias/oauth2-signing-key-previous<br/>(KeyUsage: SIGN_VERIFY)<br/>• Retained during overlap window<br/>• Signs no new tokens"]
     end

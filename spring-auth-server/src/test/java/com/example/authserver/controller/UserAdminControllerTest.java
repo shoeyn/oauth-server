@@ -110,12 +110,50 @@ public class UserAdminControllerTest {
     }
 
     @Test
+    void createUser_nullEmail_isBadRequest() throws Exception {
+        Map<String, String> payload = new HashMap<>();
+        payload.put("email", null);
+        payload.put("password", "secret123");
+
+        mockMvc.perform(post("/api/admin/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Email and password required"));
+    }
+
+    @Test
+    void createUser_nullPassword_isBadRequest() throws Exception {
+        Map<String, String> payload = new HashMap<>();
+        payload.put("email", "bob@example.com");
+        payload.put("password", null);
+
+        mockMvc.perform(post("/api/admin/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Email and password required"));
+    }
+
+    @Test
+    void createUser_blankPassword_isBadRequest() throws Exception {
+        mockMvc.perform(post("/api/admin/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("email", "bob@example.com", "password", "   "))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Email and password required"));
+    }
+
+    @Test
     void editUser_updatePasswordAndEmail() throws Exception {
         Map<String, String> payload = Map.of(
                 "email", "newalice@example.com",
                 "password", "newsecret"
         );
 
+        String userId = UUID.randomUUID().toString();
+        when(jdbcTemplate.queryForList(contains("SELECT id FROM app_users"), eq("oldalice@example.com")))
+                .thenReturn(List.of(Map.of("id", userId)));
         when(jdbcTemplate.update(anyString(), eq("newalice@example.com"), anyString(), eq("oldalice@example.com")))
                 .thenReturn(1);
 
@@ -125,7 +163,7 @@ public class UserAdminControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("User updated"));
 
-        verify(revocationService).revokeUserGlobally(eq("oldalice@example.com"), isNull(), isNull());
+        verify(revocationService).revokeUserGlobally(eq(userId), isNull(), isNull());
     }
 
     @Test
@@ -157,6 +195,9 @@ public class UserAdminControllerTest {
                 "email", "newalice@example.com"
         );
 
+        String userId = UUID.randomUUID().toString();
+        when(jdbcTemplate.queryForList(contains("SELECT id FROM app_users"), eq("oldalice@example.com")))
+                .thenReturn(List.of(Map.of("id", userId)));
         when(jdbcTemplate.update(anyString(), eq("newalice@example.com"), eq("oldalice@example.com")))
                 .thenReturn(1);
 
@@ -166,18 +207,24 @@ public class UserAdminControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("User updated"));
 
-        verify(revocationService).revokeUserGlobally(eq("oldalice@example.com"), isNull(), isNull());
+        verify(revocationService).revokeUserGlobally(eq(userId), isNull(), isNull());
     }
 
     @Test
     void flagFraud_userFound() throws Exception {
-        when(jdbcTemplate.update(anyString(), eq("alice@example.com"))).thenReturn(1);
+        String userId = UUID.randomUUID().toString();
+        when(jdbcTemplate.queryForList(contains("SELECT id FROM app_users"), eq("alice@example.com")))
+                .thenReturn(List.of(Map.of("id", userId)));
+        when(jdbcTemplate.update(contains("SET is_fraud = true"), eq("alice@example.com"))).thenReturn(1);
 
         mockMvc.perform(post("/api/admin/users/alice@example.com/fraud"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("User flagged as fraud and sessions terminated"));
 
-        verify(revocationService).revokeUserGlobally(eq("alice@example.com"), isNull(), isNull());
+        // Regression guard (steer): sessions/authorizations are keyed by user id, NOT email.
+        // Flagging must revoke by the resolved id, otherwise no sessions are actually terminated.
+        verify(revocationService).revokeUserGlobally(eq(userId), isNull(), isNull());
+        verify(revocationService, never()).revokeUserGlobally(eq("alice@example.com"), any(), any());
     }
 
     @Test
@@ -187,6 +234,35 @@ public class UserAdminControllerTest {
         mockMvc.perform(post("/api/admin/users/unknown@example.com/fraud"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("User not found"));
+    }
+
+    @Test
+    void flagFraud_resolvesNullId_whenRowHasNullId() throws Exception {
+        // resolveUserId ternary false-branch: a row exists but its id column is null.
+        Map<String, Object> rowWithNullId = new HashMap<>();
+        rowWithNullId.put("id", null);
+        when(jdbcTemplate.queryForList(contains("SELECT id FROM app_users"), eq("alice@example.com")))
+                .thenReturn(List.of(rowWithNullId));
+        when(jdbcTemplate.update(contains("SET is_fraud = true"), eq("alice@example.com"))).thenReturn(1);
+
+        mockMvc.perform(post("/api/admin/users/alice@example.com/fraud"))
+                .andExpect(status().isOk());
+
+        verify(revocationService).revokeUserGlobally(isNull(), isNull(), isNull());
+    }
+
+    @Test
+    void flagFraud_idResolutionFailsGracefully_whenLookupThrows() throws Exception {
+        // resolveUserId catch-branch: the id lookup query throws; revocation proceeds with null id
+        // (flag still applied) rather than failing the request.
+        when(jdbcTemplate.queryForList(contains("SELECT id FROM app_users"), eq("alice@example.com")))
+                .thenThrow(new RuntimeException("db blip"));
+        when(jdbcTemplate.update(contains("SET is_fraud = true"), eq("alice@example.com"))).thenReturn(1);
+
+        mockMvc.perform(post("/api/admin/users/alice@example.com/fraud"))
+                .andExpect(status().isOk());
+
+        verify(revocationService).revokeUserGlobally(isNull(), isNull(), isNull());
     }
 
     @Test
@@ -209,13 +285,16 @@ public class UserAdminControllerTest {
 
     @Test
     void deleteUser_userFound() throws Exception {
-        when(jdbcTemplate.update(anyString(), eq("alice@example.com"))).thenReturn(1);
+        String userId = UUID.randomUUID().toString();
+        when(jdbcTemplate.queryForList(contains("SELECT id FROM app_users"), eq("alice@example.com")))
+                .thenReturn(List.of(Map.of("id", userId)));
+        when(jdbcTemplate.update(contains("DELETE FROM app_users"), eq("alice@example.com"))).thenReturn(1);
 
         mockMvc.perform(delete("/api/admin/users/alice@example.com"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("User deleted"));
 
-        verify(revocationService).revokeUserGlobally(eq("alice@example.com"), isNull(), isNull());
+        verify(revocationService).revokeUserGlobally(eq(userId), isNull(), isNull());
     }
 
     @Test
@@ -325,5 +404,196 @@ public class UserAdminControllerTest {
                         .content(objectMapper.writeValueAsString(Map.of("email", "test@example.com"))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Email and password required"));
+    }
+
+    @Test
+    void authenticate_nullEmail_isBadRequest() throws Exception {
+        Map<String, String> payload = new HashMap<>();
+        payload.put("email", null);
+        payload.put("password", "somepass");
+
+        mockMvc.perform(post("/api/admin/users/authenticate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Email and password required"));
+    }
+
+    @Test
+    void authenticate_nullPassword_isBadRequest() throws Exception {
+        Map<String, String> payload = new HashMap<>();
+        payload.put("email", "alice@example.com");
+        payload.put("password", null);
+
+        mockMvc.perform(post("/api/admin/users/authenticate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Email and password required"));
+    }
+
+    @Test
+    void listUsers_normalisesInvalidPaginationParams() throws Exception {
+        // page < 1 and limit < 1 must be clamped to defaults (page=1, limit=10, offset=0)
+        when(jdbcTemplate.queryForList(anyString(), eq(10), eq(0)))
+                .thenReturn(Collections.emptyList());
+        when(jdbcTemplate.queryForObject(eq("SELECT COUNT(*) FROM app_users"), eq(Integer.class)))
+                .thenReturn(0);
+
+        mockMvc.perform(get("/api/admin/users?page=0&limit=0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.total").value(0));
+
+        verify(jdbcTemplate).queryForList(anyString(), eq(10), eq(0));
+    }
+
+    @Test
+    void createUser_databaseErrorReturns500() throws Exception {
+        Map<String, String> payload = Map.of(
+                "email", "bob@example.com",
+                "password", "secret123"
+        );
+
+        when(jdbcTemplate.update(anyString(), eq("bob@example.com"), anyString()))
+                .thenThrow(new RuntimeException("duplicate key value violates unique constraint"));
+
+        mockMvc.perform(post("/api/admin/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("duplicate key value violates unique constraint"));
+    }
+
+    @Test
+    void editUser_noChangesProvided_isNoOp() throws Exception {
+        // Neither a new password nor a differing email is supplied: no DB update, no revocation.
+        mockMvc.perform(put("/api/admin/users/alice@example.com")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("email", "alice@example.com"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("User updated"));
+
+        verify(jdbcTemplate, never()).update(anyString(), any(), any());
+        verify(revocationService, never()).revokeUserGlobally(anyString(), any(), any());
+    }
+
+    @Test
+    void editUser_blankPasswordAndBlankEmail_isNoOp() throws Exception {
+        // Blank password (fails !isBlank) and blank new email (fails !isBlank): no-op update.
+        mockMvc.perform(put("/api/admin/users/alice@example.com")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("email", "  ", "password", "  "))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("User updated"));
+
+        verify(jdbcTemplate, never()).update(anyString(), any(), any());
+        verify(revocationService, never()).revokeUserGlobally(anyString(), any(), any());
+    }
+
+    @Test
+    void editUser_passwordWithSameEmail_doesNotRevoke() throws Exception {
+        // Password change but newEmail equals current email → password-only branch (no revocation).
+        when(jdbcTemplate.update(anyString(), anyString(), eq("alice@example.com"))).thenReturn(1);
+
+        mockMvc.perform(put("/api/admin/users/alice@example.com")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("email", "alice@example.com", "password", "newsecret"))))
+                .andExpect(status().isOk());
+
+        verify(jdbcTemplate).update(
+                eq("UPDATE app_users SET password_hash = ? WHERE email = ?"),
+                argThat((String hash) -> passwordEncoder.matches("newsecret", hash)),
+                eq("alice@example.com"));
+        verify(revocationService, never()).revokeUserGlobally(anyString(), any(), any());
+    }
+
+    @Test
+    void editUser_passwordWithBlankEmail_updatesPasswordOnly() throws Exception {
+        // Password present, newEmail blank → L89 short-circuits on (!newEmail.isBlank()) false → password-only.
+        when(jdbcTemplate.update(anyString(), anyString(), eq("alice@example.com"))).thenReturn(1);
+
+        mockMvc.perform(put("/api/admin/users/alice@example.com")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("email", "   ", "password", "newsecret"))))
+                .andExpect(status().isOk());
+
+        verify(jdbcTemplate).update(
+                eq("UPDATE app_users SET password_hash = ? WHERE email = ?"),
+                argThat((String hash) -> passwordEncoder.matches("newsecret", hash)),
+                eq("alice@example.com"));
+        verify(revocationService, never()).revokeUserGlobally(anyString(), any(), any());
+    }
+
+    @Test
+    void editUser_passwordWithNullEmail_updatesPasswordOnly() throws Exception {
+        // Password present, newEmail null → L89 short-circuits on (newEmail != null) false → password-only.
+        Map<String, String> payload = new HashMap<>();
+        payload.put("password", "newsecret");
+        when(jdbcTemplate.update(anyString(), anyString(), eq("alice@example.com"))).thenReturn(1);
+
+        mockMvc.perform(put("/api/admin/users/alice@example.com")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isOk());
+
+        verify(jdbcTemplate).update(
+                eq("UPDATE app_users SET password_hash = ? WHERE email = ?"),
+                argThat((String hash) -> passwordEncoder.matches("newsecret", hash)),
+                eq("alice@example.com"));
+        verify(revocationService, never()).revokeUserGlobally(anyString(), any(), any());
+    }
+
+    @Test
+    void editUser_nullPasswordAndNullEmail_isNoOp() throws Exception {
+        // Password null, newEmail null → L95 else-if short-circuits on (newEmail != null) false → no-op.
+        mockMvc.perform(put("/api/admin/users/alice@example.com")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("User updated"));
+
+        verify(jdbcTemplate, never()).update(anyString(), any(), any());
+        verify(revocationService, never()).revokeUserGlobally(anyString(), any(), any());
+    }
+
+    @Test
+    void editUser_databaseErrorReturns500() throws Exception {
+        Map<String, String> payload = Map.of(
+                "email", "alice@example.com",
+                "password", "newsecret"
+        );
+
+        when(jdbcTemplate.update(anyString(), anyString(), eq("alice@example.com")))
+                .thenThrow(new RuntimeException("db failure"));
+
+        mockMvc.perform(put("/api/admin/users/alice@example.com")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("db failure"));
+    }
+
+    @Test
+    void authenticate_databaseErrorReturns500() throws Exception {
+        // Password verification succeeds, but the stored row is missing "id",
+        // so building the success response NPEs and is caught → HTTP 500.
+        String bcryptHash = passwordEncoder.encode("prehashed_secret");
+        Map<String, Object> dbUser = new HashMap<>();
+        dbUser.put("id", null);
+        dbUser.put("email", "alice@example.com");
+        dbUser.put("password_hash", bcryptHash);
+        dbUser.put("is_fraud", false);
+
+        when(jdbcTemplate.queryForList(anyString(), eq("alice@example.com")))
+                .thenReturn(List.of(dbUser));
+
+        mockMvc.perform(post("/api/admin/users/authenticate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "email", "alice@example.com",
+                                "password", "prehashed_secret"
+                        ))))
+                .andExpect(status().isInternalServerError());
     }
 }

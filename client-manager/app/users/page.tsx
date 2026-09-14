@@ -26,8 +26,8 @@ export default async function UsersPage(props: { searchParams: Promise<{ page?: 
   async function createUserAction(formData: FormData) {
     "use server";
     await createUser({
-      email: formData.get("email"),
-      password: formData.get("password")
+      email: String(formData.get("email") ?? ""),
+      password: String(formData.get("password") ?? "")
     });
     revalidatePath("/users");
   }
@@ -152,23 +152,23 @@ export default async function UsersPage(props: { searchParams: Promise<{ page?: 
           </div>
           <div className="flex gap-2">
             {data.page > 1 ? (
-              <Link href={`/users?page=${data.page - 1}`} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors">
+              <Link href={`/users?page=${data.page - 1}`} aria-label="Go to previous page" className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors">
                 <ChevronLeft className="h-5 w-5" />
               </Link>
             ) : (
-              <div className="p-2 rounded-lg bg-slate-800/50 text-slate-600 cursor-not-allowed">
+              <button type="button" disabled aria-label="Previous page (unavailable)" className="p-2 rounded-lg bg-slate-800/50 text-slate-600 cursor-not-allowed">
                 <ChevronLeft className="h-5 w-5" />
-              </div>
+              </button>
             )}
             
             {data.page < data.totalPages ? (
-              <Link href={`/users?page=${data.page + 1}`} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors">
+              <Link href={`/users?page=${data.page + 1}`} aria-label="Go to next page" className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors">
                 <ChevronRight className="h-5 w-5" />
               </Link>
             ) : (
-              <div className="p-2 rounded-lg bg-slate-800/50 text-slate-600 cursor-not-allowed">
+              <button type="button" disabled aria-label="Next page (unavailable)" className="p-2 rounded-lg bg-slate-800/50 text-slate-600 cursor-not-allowed">
                 <ChevronRight className="h-5 w-5" />
-              </div>
+              </button>
             )}
           </div>
         </div>

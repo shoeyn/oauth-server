@@ -2,6 +2,8 @@
 
 This directory contains automated **k6** load testing scripts designed to evaluate throughput, concurrency limits, latency percentiles, and caching behavior across the OAuth 2.1 & OpenID Connect platform.
 
+> **Scope note:** This suite measures **performance, throughput, and redirect/flow plumbing** under concurrent load. It exercises the full authorization flow to generate realistic traffic, but it does **not** verify the cryptographic security guarantees themselves (e.g. DPoP sender-constraint binding, PAR request integrity, JARM response signing/validation). Those correctness properties are asserted by the functional test suites (`*/functional_tests/`). Treat k6 results as capacity/latency evidence, not as security assurance.
+
 ---
 
 ## Overview of Test Scenarios (`oauth_load_test.js`)
@@ -96,14 +98,14 @@ With **AWS KMS HSM asymmetric signing (RSA_2048)**, **graceful multi-key JWKS ro
     • Public Discovery / JWKS 304:     100.00% (724 out of 724 requests returned 304 Not Modified)
     • Overall HTTP Failure Rate:       0.00% (0 out of 4,232 requests failed)
     • Cryptographic Signatures / Flow: 3 (JARM Auth Code + Access Token + ID Token)
-    • Cryptographic Boundary:          FIPS 140-2 Level 3 / AWS KMS HSM (Zero private keys in JVM memory)
+    • Cryptographic Boundary:          AWS KMS (real AWS = FIPS 140-2 Level 3 HSM; LocalStack = software emulation, dev only). Zero private keys in JVM memory.
 ```
 
 ### 2. In-Memory Software Signing vs. AWS KMS Hardware Signing
 
 | Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS + JARM) | Evaluation |
 |---|---|---|---|
-| **Cryptographic Boundary** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 (KMS HSM)** | Maximum hardware protection |
+| **Cryptographic Boundary** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 KMS HSM in real AWS** (LocalStack software emulation locally) | Hardware protection in production; emulated in dev |
 | **Algorithm Pinning** | Optional | **Strict RS256 enforced (`none` & `HS256` rejected)** | Pinning active |
 | **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime cutover |
 | **KMS Signatures / Flow** | 0 (Local CPU) | **3 (JARM Auth Code + Access Token + ID Token)** | Cryptographic non-repudiation |

@@ -19,10 +19,10 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 @EnableWebSecurity
 public class DefaultSecurityConfig {
 
-    @Value("${auth.rails.login-url:http://localhost:3000/login}")
+    @Value("${auth.rails.login-url}")
     private String railsLoginUrl;
 
-    @Value("${auth.server.issuer-url:http://localhost:9000}")
+    @Value("${auth.server.issuer-url}")
     private String issuerUrl;
 
     @Value("${auth.admin.api-key:secret-admin-key}")

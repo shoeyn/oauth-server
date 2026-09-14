@@ -76,6 +76,8 @@ services:
   spring-auth-server:
     build:
       context: ./spring-auth-server
+      secrets:
+        - ca_bundle
     container_name: poc-spring-auth-server
     ports:
       - "127.0.0.1:9001:9000"
@@ -144,4 +146,13 @@ services:
 
 volumes:
   postgres-data:
+
+# Build-time secret for corporate TLS interception (proxies that re-sign HTTPS with an internal
+# CA). Points at a LOCAL, git-ignored CA bundle — corporate certs are never committed. Override
+# the path with the CA_BUNDLE_FILE env var. If you build off the corporate network, create an
+# empty file at the default path (`touch .local-certs/corporate-ca-bundle.crt`) — the Dockerfile
+# skips the import when the file is empty.
+secrets:
+  ca_bundle:
+    file: ${CA_BUNDLE_FILE:-.local-certs/corporate-ca-bundle.crt}
 

@@ -1,7 +1,6 @@
 package com.example.authserver.controller;
 
 import com.example.authserver.client.ClientConfigDto;
-import com.example.authserver.client.ClientReloadRedisSubscriber;
 import com.example.authserver.client.PostgresRegisteredClientRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -43,7 +42,7 @@ public class ClientAdminController {
     @Value("${auth.admin.api-key:secret-admin-key}")
     private String adminApiKey;
 
-    @Value("${spring.data.redis.channel.reload:auth_server:clients:reload}")
+    @Value("${spring.data.redis.channel.reload:oauth2as:clients:reload}")
     private String reloadTopic;
 
     private boolean isAuthorized(String apiKeyHeader) {
