@@ -258,7 +258,7 @@ module OAuth2ClientKit
 
       if access_token.present?
         begin
-          response = client.connection.post("#{client.public_issuer_url}/api/admin/revoke-session") do |req|
+          response = client.connection.post("#{client.internal_issuer_url}/api/admin/revoke-session") do |req|
             req.headers["Content-Type"] = "application/x-www-form-urlencoded"
             req.headers["X-Admin-Api-Key"] = OAuth2ClientKit.config.admin_api_key
             req.body = URI.encode_www_form({ token: access_token })
