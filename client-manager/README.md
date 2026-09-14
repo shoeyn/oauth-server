@@ -65,7 +65,7 @@ Deletes the client configuration from PostgreSQL via Spring Admin API.
 ## Running Locally
 
 ### Prerequisites
-- Node.js 18+ and `pnpm`
+- Node.js 20+ (LTS) and `pnpm`
 - Spring Auth Server running:
   - **Direct local mode (outside Docker)**: `http://localhost:9000`
   - **Docker Compose cluster mode**: Connect to internal bastion `http://localhost:9001` (since Nginx on port `9000` intentionally blocks external `/api/admin/*` access).

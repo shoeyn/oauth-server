@@ -40,30 +40,44 @@ module OAuth2ClientKit
 
     # Evicts all tokens and sessions matching sub or sid across Redis (for Back-Channel Logout)
     # Uses non-blocking SCAN cursor (scan_each) to avoid blocking the Redis server in shared environments.
+    #
+    # Matching is performed on EXACT parsed fields (sub / sid) rather than a naive substring search
+    # over the serialized blob, so a sub/sid that merely appears as a substring of unrelated data
+    # cannot cause cross-user eviction.
     def evict_sessions_for!(sub: nil, sid: nil)
       evicted_count = 0
 
-      # Match Rails session keys (e.g. demo_client:_session_id:* or _session_id:*)
-      @redis.scan_each(match: "*_session_id:*") do |key|
-        raw_val = @redis.get(key)
-        if raw_val.present? && ((sid.present? && raw_val.include?(sid)) || (sub.present? && raw_val.include?(sub)))
-          @redis.del(key)
-          evicted_count += 1
-          OAuth2ClientKit.logger.info("Evicted session #{key} via Back-Channel Logout")
-        end
-      end
+      %w[*_session_id:* *token:*].each do |pattern|
+        @redis.scan_each(match: pattern) do |key|
+          raw_val = @redis.get(key)
+          next if raw_val.nil? || raw_val.empty?
 
-      # Match token keys (e.g. demo_client:token:* or token:*)
-      @redis.scan_each(match: "*token:*") do |key|
-        raw_val = @redis.get(key)
-        if raw_val.present? && ((sid.present? && raw_val.include?(sid)) || (sub.present? && raw_val.include?(sub)))
-          @redis.del(key)
-          evicted_count += 1
-          OAuth2ClientKit.logger.info("Evicted token #{key} via Back-Channel Logout")
+          if record_matches?(raw_val, sub: sub, sid: sid)
+            @redis.del(key)
+            evicted_count += 1
+            OAuth2ClientKit.logger.info("Evicted #{key} via Back-Channel Logout")
+          end
         end
       end
 
       evicted_count
+    end
+
+    private
+
+    # Returns true only when the stored record's parsed sub/sid field exactly equals the
+    # requested sub/sid. Non-JSON or unparseable values never match (fail-safe: no eviction).
+    def record_matches?(raw_val, sub:, sid:)
+      data = JSON.parse(raw_val)
+      return false unless data.is_a?(Hash)
+
+      record_sub = data["sub"] || data["sub".to_sym]
+      record_sid = data["sid"] || data["sid".to_sym]
+
+      (sid && !sid.to_s.empty? && record_sid.to_s == sid.to_s) ||
+        (sub && !sub.to_s.empty? && record_sub.to_s == sub.to_s)
+    rescue JSON::ParserError
+      false
     end
   end
 end

@@ -12,6 +12,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import com.nimbusds.jose.jwk.source.JWKSource;
@@ -19,7 +20,6 @@ import com.nimbusds.jose.proc.SecurityContext;
 import org.springframework.security.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
 
 import java.io.IOException;
-import java.net.URI;
 import java.util.List;
 
 /**
@@ -71,7 +71,7 @@ public class GracefulLogoutHandler {
             Jwt jwt = signatureOnlyDecoder.decode(idTokenHint);
 
             List<String> aud = jwt.getAudience();
-            if (aud == null || aud.isEmpty()) {
+            if (CollectionUtils.isEmpty(aud)) {
                 return false;
             }
 

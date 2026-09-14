@@ -299,7 +299,7 @@ sequenceDiagram
 ```
 
 #### Security Level Gained:
-- **FIPS 140-2 Level 3 / FIPS 140-3 Hardware Protection:** Private key material never enters host, container, or JVM heap memory.
+- **Hardware Protection (real AWS KMS):** When deployed against real AWS KMS, private key material never enters host, container, or JVM heap memory and resides in a FIPS 140-2 Level 3 validated HSM. **The bundled LocalStack stack is a software emulation with no HSM/FIPS validation (dev only).**
 - **Memory Scraping & Heap Dump Immunity:** Even if an attacker gains unauthorized root container access or memory dump capability, the private key cannot be extracted because it physically resides inside the KMS cryptographic boundary.
 - **Offline Token Forgery Prevention:** Attackers cannot steal the key to forge arbitrary tokens offline; every single signature requires active authorization and emits an immutable AWS CloudTrail audit event.
 - **Zero-Downtime Key Rotation:** Keys can be rotated in AWS KMS by updating the alias target (`alias/oauth2-signing-key`) without code changes or server redeployments.
@@ -319,7 +319,7 @@ With RFC 9221 JARM active, each full login flow executes **three** remote AWS KM
 
 | Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS + JARM) | Evaluation |
 |---|---|---|---|
-| **Cryptographic Security** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 (KMS HSM)** | Maximum security |
+| **Cryptographic Security** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 KMS HSM in real AWS** (LocalStack software emulation locally) | Hardware protection in production; emulated in dev |
 | **Algorithm Pinning** | Optional | **Strict RS256 enforced (`none` & `HS256` rejected)** | Pinning active |
 | **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime |
 | **KMS Signatures / Flow** | 0 (Local CPU) | **3 (JARM Auth Code + Access Token + ID Token)** | Cryptographic non-repudiation |

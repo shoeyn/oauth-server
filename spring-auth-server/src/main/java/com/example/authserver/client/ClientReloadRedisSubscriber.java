@@ -18,7 +18,7 @@ public class ClientReloadRedisSubscriber {
     public RedisMessageListenerContainer redisMessageListenerContainer(
             RedisConnectionFactory connectionFactory,
             PostgresRegisteredClientRepository registeredClientRepository,
-            @Value("${spring.data.redis.channel.reload:auth_server:clients:reload}") String reloadTopic) {
+            @Value("${spring.data.redis.channel.reload:oauth2as:clients:reload}") String reloadTopic) {
 
         RedisMessageListenerContainer container = new RedisMessageListenerContainer();
         container.setConnectionFactory(connectionFactory);

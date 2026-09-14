@@ -20,7 +20,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.security.PublicKey;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -52,7 +51,7 @@ public class ClientAdminControllerTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(controller, "adminApiKey", "secret-admin-key");
-        ReflectionTestUtils.setField(controller, "reloadTopic", "auth_server:clients:reload");
+        ReflectionTestUtils.setField(controller, "reloadTopic", "oauth2as:clients:reload");
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 
@@ -197,7 +196,7 @@ public class ClientAdminControllerTest {
 
         verify(clientRepository).saveDtoToDatabase(any(ClientConfigDto.class));
         verify(clientRepository).reloadNearCacheFromDatabase();
-        verify(redisTemplate).convertAndSend(eq("auth_server:clients:reload"), contains("new-client"));
+        verify(redisTemplate).convertAndSend(eq("oauth2as:clients:reload"), contains("new-client"));
     }
 
     @Test
@@ -228,7 +227,7 @@ public class ClientAdminControllerTest {
                 .andExpect(jsonPath("$.clientId").value("client1"));
 
         verify(clientRepository).deleteClient("client1");
-        verify(redisTemplate).convertAndSend(eq("auth_server:clients:reload"), contains("client1"));
+        verify(redisTemplate).convertAndSend(eq("oauth2as:clients:reload"), contains("client1"));
     }
 
     @Test

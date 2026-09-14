@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Link from "next/link";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -35,8 +36,8 @@ export default function RootLayout({
                   <span className="font-bold text-xl tracking-tight text-white">OAuth 2.1 Admin</span>
                 </div>
                 <div className="ml-6 flex space-x-4">
-                  <a href="/" className="text-slate-300 hover:bg-slate-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Clients</a>
-                  <a href="/users" className="text-slate-300 hover:bg-slate-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Users</a>
+                  <Link href="/" className="text-slate-300 hover:bg-slate-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Clients</Link>
+                  <Link href="/users" className="text-slate-300 hover:bg-slate-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Users</Link>
                 </div>
               </div>
             </div>

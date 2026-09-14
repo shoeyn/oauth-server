@@ -22,4 +22,8 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "rspec", "~> 3.0"
   spec.add_development_dependency "simplecov"
   spec.add_development_dependency "webmock"
+  # The gem relies on ActiveSupport core extensions (present?/blank?) which are
+  # provided by the Rails host at runtime. It is required here as a dev
+  # dependency so the specs can exercise that real behaviour in isolation.
+  spec.add_development_dependency "activesupport", ">= 7.0"
 end

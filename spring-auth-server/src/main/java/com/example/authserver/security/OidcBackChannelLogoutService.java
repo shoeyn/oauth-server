@@ -31,10 +31,10 @@ public class OidcBackChannelLogoutService {
 
     private final JwtEncoder jwtEncoder;
 
-    @Value("${auth.server.issuer-url:http://localhost:9000}")
+    @Value("${auth.server.issuer-url}")
     private String issuerUrl;
 
-    @Value("${auth.client.backchannel-logout-url:http://localhost:8080/oidc/backchannel_logout}")
+    @Value("${auth.client.backchannel-logout-url}")
     private String defaultBackchannelLogoutUrl;
 
     private final RestClient restClient = RestClient.builder().build();

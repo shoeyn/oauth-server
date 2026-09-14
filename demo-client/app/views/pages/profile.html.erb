@@ -96,9 +96,9 @@
   </p>
 
   <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-    <%= button_to "🔄 Refresh Access Token (Rotation)", auth_refresh_path, method: :post, class: "btn btn-secondary", style: "font-size: 0.9rem;" %>
-    <%= button_to "🛡️ Perform Sensitive Action (Introspection Guard)", auth_sensitive_action_path, method: :post, class: "btn", style: "font-size: 0.9rem; background: #059669;" %>
-    <%= button_to "🛑 Revoke Tokens (RFC 7009)", auth_revoke_path, method: :post, class: "btn", style: "font-size: 0.9rem; background: #dc2626;" %>
+    <%= button_to "🔄 Refresh Access Token (Rotation)", auth_refresh_path, method: :post, class: "btn btn-secondary", style: "font-size: 0.9rem;", "aria-label": "Refresh access token using refresh token rotation" %>
+    <%= button_to "🛡️ Perform Sensitive Action (Introspection Guard)", auth_sensitive_action_path, method: :post, class: "btn", style: "font-size: 0.9rem; background: #059669;", "aria-label": "Perform sensitive action guarded by token introspection" %>
+    <%= button_to "🛑 Revoke Tokens (RFC 7009)", auth_revoke_path, method: :post, class: "btn", style: "font-size: 0.9rem; background: #dc2626;", "aria-label": "Revoke access and refresh tokens" %>
   </div>
   <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.75rem;">
     &bull; <strong>Sensitive Action</strong> calls <code>POST /oauth2/introspect</code> on the Authorization Server first.<br>

@@ -32,6 +32,26 @@ public class UserAdminController {
         this.revocationService = revocationService;
     }
 
+    /**
+     * Resolves a user's stable id (UUID) from their email. Sessions and OAuth authorizations are
+     * keyed by this id (it is the Redis session {@code username} field and the OAuth
+     * {@code principal_name}), NOT by email, so revocation must be performed by id.
+     * Returns null if the user does not exist.
+     */
+    private String resolveUserId(String email) {
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    "SELECT id FROM app_users WHERE email = ? LIMIT 1", email);
+            if (rows.isEmpty()) {
+                return null;
+            }
+            Object id = rows.get(0).get("id");
+            return id != null ? id.toString() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     @GetMapping
     public ResponseEntity<Map<String, Object>> listUsers(
             @RequestParam(defaultValue = "1") int page,
@@ -83,18 +103,21 @@ public class UserAdminController {
         String password = payload.get("password");
 
         try {
+            // Resolve id from the CURRENT email before any update (the email may be changing).
+            String userId = resolveUserId(email);
+
             if (password != null && !password.isBlank()) {
                 String passwordHash = passwordEncoder.encode(password);
                 
                 if (newEmail != null && !newEmail.isBlank() && !newEmail.equals(email)) {
                     jdbcTemplate.update("UPDATE app_users SET email = ?, password_hash = ? WHERE email = ?", newEmail, passwordHash, email);
-                    revocationService.revokeUserGlobally(email, null, null);
+                    revocationService.revokeUserGlobally(userId, null, null);
                 } else {
                     jdbcTemplate.update("UPDATE app_users SET password_hash = ? WHERE email = ?", passwordHash, email);
                 }
             } else if (newEmail != null && !newEmail.isBlank() && !newEmail.equals(email)) {
                 jdbcTemplate.update("UPDATE app_users SET email = ? WHERE email = ?", newEmail, email);
-                revocationService.revokeUserGlobally(email, null, null);
+                revocationService.revokeUserGlobally(userId, null, null);
             }
             return ResponseEntity.ok(Map.of("message", "User updated"));
         } catch (Exception e) {
@@ -104,13 +127,15 @@ public class UserAdminController {
 
     @PostMapping("/{email}/fraud")
     public ResponseEntity<?> flagFraud(@PathVariable String email) {
+        String userId = resolveUserId(email);
         int updated = jdbcTemplate.update("UPDATE app_users SET is_fraud = true WHERE email = ?", email);
         if (updated == 0) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
         }
-        
-        revocationService.revokeUserGlobally(email, null, null);
-        
+
+        // Revoke by user id: sessions/authorizations are keyed by id, not email.
+        revocationService.revokeUserGlobally(userId, null, null);
+
         return ResponseEntity.ok(Map.of("message", "User flagged as fraud and sessions terminated"));
     }
     
@@ -125,7 +150,9 @@ public class UserAdminController {
 
     @DeleteMapping("/{email}")
     public ResponseEntity<?> deleteUser(@PathVariable String email) {
-        revocationService.revokeUserGlobally(email, null, null);
+        // Resolve id before deleting the row, then revoke sessions/authorizations by id.
+        String userId = resolveUserId(email);
+        revocationService.revokeUserGlobally(userId, null, null);
         int deleted = jdbcTemplate.update("DELETE FROM app_users WHERE email = ?", email);
         if (deleted == 0) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));

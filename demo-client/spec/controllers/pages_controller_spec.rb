@@ -48,13 +48,20 @@ RSpec.describe PagesController, type: :controller do
 
     context "when unauthenticated" do
       before do
-        allow(controller).to receive(:require_authentication!).and_return(false)
-        # Assuming require_authentication! handles redirect or render, we just return false
+        # Mirror the real ControllerMethods#require_authentication!: when unauthenticated it
+        # sets a flash error, redirects to "/", and returns false (halting the action).
+        allow(controller).to receive(:require_authentication!) do
+          controller.flash[:error] = "Please log in first."
+          controller.redirect_to "/"
+          false
+        end
       end
 
-      it "does not render profile" do
+      it "does not render profile and redirects to root" do
         get :profile
+        expect(response).to redirect_to("/")
         expect(response).not_to have_http_status(:success)
+        expect(flash[:error]).to be_present
       end
     end
     

@@ -399,7 +399,15 @@ RSpec.describe OAuth2ClientKit::Client do
           subject.decode_and_verify_id_token(token, nil, 'wrong')
         }.to raise_error(/at_hash.*does not match/)
       end
-      
+
+      it 'requires at_hash to be present when an access token is supplied' do
+        payload = { iss: public_issuer_url, aud: client_id, exp: Time.now.to_i + 3600 }
+        token = sign_jwt(payload)
+        expect {
+          subject.decode_and_verify_id_token(token, nil, 'access_token')
+        }.to raise_error(/missing the required at_hash/)
+      end
+
       it 'validates c_hash' do
         code = 'code'
         digest = OpenSSL::Digest::SHA256.digest(code)
@@ -412,6 +420,20 @@ RSpec.describe OAuth2ClientKit::Client do
         expect {
           subject.decode_and_verify_id_token(token, nil, nil, 'wrong')
         }.to raise_error(/c_hash.*does not match/)
+      end
+
+      it 'requires c_hash to be present when an authorization code is supplied' do
+        payload = { iss: public_issuer_url, aud: client_id, exp: Time.now.to_i + 3600 }
+        token = sign_jwt(payload)
+        expect {
+          subject.decode_and_verify_id_token(token, nil, nil, 'code')
+        }.to raise_error(/missing the required c_hash/)
+      end
+
+      it 'does not require at_hash/c_hash when neither token nor code is supplied' do
+        payload = { iss: public_issuer_url, aud: client_id, exp: Time.now.to_i + 3600 }
+        token = sign_jwt(payload)
+        expect(subject.decode_and_verify_id_token(token, nil)).to be_present
       end
     end
 
@@ -437,18 +459,38 @@ RSpec.describe OAuth2ClientKit::Client do
       it 'verifies valid logout token' do
         payload = { 
           iss: public_issuer_url, aud: client_id, exp: Time.now.to_i + 3600,
+          sub: 'alice', sid: 'sess-1',
           events: { "http://schemas.openid.net/event/backchannel-logout" => {} }
         }
         token = sign_jwt(payload)
         expect(subject.verify_logout_token(token)).to be_present
       end
-      
+
+      it 'accepts a logout token with only sub (no sid)' do
+        payload = {
+          iss: public_issuer_url, aud: client_id, exp: Time.now.to_i + 3600,
+          sub: 'alice',
+          events: { "http://schemas.openid.net/event/backchannel-logout" => {} }
+        }
+        token = sign_jwt(payload)
+        expect(subject.verify_logout_token(token)["sub"]).to eq('alice')
+      end
+
+      it 'raises when neither sub nor sid is present' do
+        payload = {
+          iss: public_issuer_url, aud: client_id, exp: Time.now.to_i + 3600,
+          events: { "http://schemas.openid.net/event/backchannel-logout" => {} }
+        }
+        token = sign_jwt(payload)
+        expect { subject.verify_logout_token(token) }.to raise_error(/MUST contain a 'sub' and\/or 'sid'/)
+      end
+
       it 'returns nil for blank token' do
         expect(subject.verify_logout_token('')).to be_nil
       end
       
       it 'raises if missing event' do
-        payload = { iss: public_issuer_url, aud: client_id, exp: Time.now.to_i + 3600, events: {} }
+        payload = { iss: public_issuer_url, aud: client_id, exp: Time.now.to_i + 3600, sub: 'alice', events: {} }
         token = sign_jwt(payload)
         expect { subject.verify_logout_token(token) }.to raise_error(/missing required event claim/)
       end
@@ -456,6 +498,7 @@ RSpec.describe OAuth2ClientKit::Client do
       it 'raises if nonce is present' do
         payload = { 
           iss: public_issuer_url, aud: client_id, exp: Time.now.to_i + 3600,
+          sub: 'alice',
           events: { "http://schemas.openid.net/event/backchannel-logout" => {} },
           nonce: 'n1'
         }
