@@ -92,11 +92,20 @@ public class GracefulLogoutHandler {
                 return false;
             }
 
-            log.info("Graceful logout fallback: id_token_hint expired but signature verified. Redirecting to {}", normalisedRedirectUri);
+            String targetRedirectUri = normalisedRedirectUri;
+            String state = request.getParameter("state");
+            if (state != null && !state.isBlank()) {
+                targetRedirectUri = UriComponentsBuilder.fromUriString(normalisedRedirectUri)
+                        .queryParam("state", state)
+                        .build()
+                        .toUriString();
+            }
+
+            log.info("Graceful logout fallback: id_token_hint expired but signature verified. Redirecting to {}", targetRedirectUri);
 
             evictSharedSession(request, response);
 
-            response.sendRedirect(normalisedRedirectUri);
+            response.sendRedirect(targetRedirectUri);
             return true;
         } catch (Exception ex) {
             log.warn("Graceful logout fallback failed: {}", ex.getMessage());
