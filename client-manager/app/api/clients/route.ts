@@ -20,7 +20,10 @@ export async function POST(req: Request) {
     }
 
     if (!body.publicKeyPem || !body.publicKeyPem.includes("BEGIN PUBLIC KEY")) {
-      return NextResponse.json({ error: "A valid RSA public key in PEM format is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "A valid RSA public key in PEM format is required" },
+        { status: 400 },
+      );
     }
 
     const client: ClientConfig = {
@@ -36,12 +39,16 @@ export async function POST(req: Request) {
       postLogoutRedirectUris: Array.isArray(body.postLogoutRedirectUris)
         ? body.postLogoutRedirectUris.map((u: string) => u.trim()).filter(Boolean)
         : [],
-      scopes: Array.isArray(body.scopes) && body.scopes.length > 0
-        ? body.scopes
-        : ["openid", "profile", "email"],
+      scopes:
+        Array.isArray(body.scopes) && body.scopes.length > 0
+          ? body.scopes
+          : ["openid", "profile", "email"],
       requireProofKey: body.requireProofKey !== undefined ? !!body.requireProofKey : true,
       requireAuthorizationConsent: false,
-      requirePushedAuthorizationRequests: body.requirePushedAuthorizationRequests !== undefined ? !!body.requirePushedAuthorizationRequests : true,
+      requirePushedAuthorizationRequests:
+        body.requirePushedAuthorizationRequests !== undefined
+          ? !!body.requirePushedAuthorizationRequests
+          : true,
       accessTokenTimeToLiveMinutes: Number(body.accessTokenTimeToLiveMinutes) || 15,
       refreshTokenTimeToLiveDays: Number(body.refreshTokenTimeToLiveDays) || 30,
       publicKeyPem: body.publicKeyPem.trim(),

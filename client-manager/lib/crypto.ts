@@ -7,7 +7,7 @@ export async function generateRSAKeyPair(): Promise<{ publicKey: string; private
       hash: "SHA-256",
     },
     true,
-    ["sign", "verify"]
+    ["sign", "verify"],
   );
 
   const exportPublicKey = await crypto.subtle.exportKey("spki", keyPair.publicKey);
@@ -17,7 +17,7 @@ export async function generateRSAKeyPair(): Promise<{ publicKey: string; private
   const privB64 = btoa(String.fromCharCode(...new Uint8Array(exportPrivateKey)));
 
   return {
-    publicKey: `-----BEGIN PUBLIC KEY-----\n${pubB64.match(/.{1,64}/g)?.join('\n')}\n-----END PUBLIC KEY-----`,
-    privateKey: `-----BEGIN PRIVATE KEY-----\n${privB64.match(/.{1,64}/g)?.join('\n')}\n-----END PRIVATE KEY-----`
+    publicKey: `-----BEGIN PUBLIC KEY-----\n${pubB64.match(/.{1,64}/g)?.join("\n")}\n-----END PUBLIC KEY-----`,
+    privateKey: `-----BEGIN PRIVATE KEY-----\n${privB64.match(/.{1,64}/g)?.join("\n")}\n-----END PRIVATE KEY-----`,
   };
 }

@@ -7,14 +7,14 @@ import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record AuthenticatedUser(
-        @JsonProperty("username") String username,
-        @JsonProperty("email") String email,
-        @JsonProperty("name") String name,
-        @JsonProperty("roles") List<String> roles,
-        @JsonProperty("authenticated_at") String authenticatedAt
-) implements Serializable {
+    @JsonProperty("username") String username,
+    @JsonProperty("email") String email,
+    @JsonProperty("name") String name,
+    @JsonProperty("roles") List<String> roles,
+    @JsonProperty("authenticated_at") String authenticatedAt)
+    implements Serializable {
 
-    public List<String> roles() {
-        return roles != null ? roles : List.of();
-    }
+  public List<String> roles() {
+    return roles != null ? roles : List.of();
+  }
 }

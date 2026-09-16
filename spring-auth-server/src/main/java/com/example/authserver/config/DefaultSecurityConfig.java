@@ -19,51 +19,56 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 @EnableWebSecurity
 public class DefaultSecurityConfig {
 
-    @Value("${auth.rails.login-url}")
-    private String railsLoginUrl;
+  @Value("${auth.rails.login-url}")
+  private String railsLoginUrl;
 
-    @Value("${auth.server.issuer-url}")
-    private String issuerUrl;
+  @Value("${auth.server.issuer-url}")
+  private String issuerUrl;
 
-    @Value("${auth.admin.api-key:secret-admin-key}")
-    private String adminApiKey;
+  @Value("${auth.admin.api-key:secret-admin-key}")
+  private String adminApiKey;
 
-    @Bean
-    @Order(2)
-    public SecurityFilterChain defaultSecurityFilterChain(
-            HttpSecurity http,
-            StringRedisTemplate redisTemplate,
-            @Value("${spring.data.redis.namespace:session:}") String redisPrefix) throws Exception {
+  @Bean
+  @Order(2)
+  public SecurityFilterChain defaultSecurityFilterChain(
+      HttpSecurity http,
+      StringRedisTemplate redisTemplate,
+      @Value("${spring.data.redis.namespace:session:}") String redisPrefix)
+      throws Exception {
 
-        http
-            .cors(Customizer.withDefaults())
-            .headers(headers -> headers
-                .contentTypeOptions(Customizer.withDefaults())
-                .frameOptions(frame -> frame.deny())
-                .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"))
-                .referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
-            )
-            .csrf(csrf -> csrf.ignoringRequestMatchers("/api/admin/**", "/actuator/**"))
-            .authorizeHttpRequests((authorize) -> authorize
-                .requestMatchers("/actuator/**", "/error", "/health", "/.well-known/**", "/api/admin/**").permitAll()
-                .anyRequest().authenticated()
-            )
-            // Security Improvement: Disable built-in Spring Security form login and basic auth
-            // All user authentication must exclusively route through the external Rails login application
-            .formLogin(form -> form.disable())
-            .httpBasic(basic -> basic.disable())
-            .exceptionHandling((exceptions) -> exceptions
-                .authenticationEntryPoint(new ExternalLoginAuthenticationEntryPoint(railsLoginUrl, issuerUrl))
-            )
-            .addFilterBefore(
-                new AdminApiKeyFilter(adminApiKey),
-                AuthorizationFilter.class
-            )
-            .addFilterAfter(
-                new SharedRedisSessionFilter(redisTemplate, redisPrefix),
-                LogoutFilter.class
-            );
+    http.cors(Customizer.withDefaults())
+        .headers(
+            headers ->
+                headers
+                    .contentTypeOptions(Customizer.withDefaults())
+                    .frameOptions(frame -> frame.deny())
+                    .contentSecurityPolicy(
+                        csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"))
+                    .referrerPolicy(
+                        referrer ->
+                            referrer.policy(ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)))
+        .csrf(csrf -> csrf.ignoringRequestMatchers("/api/admin/**", "/actuator/**"))
+        .authorizeHttpRequests(
+            (authorize) ->
+                authorize
+                    .requestMatchers(
+                        "/actuator/**", "/error", "/health", "/.well-known/**", "/api/admin/**")
+                    .permitAll()
+                    .anyRequest()
+                    .authenticated())
+        // Security Improvement: Disable built-in Spring Security form login and basic auth
+        // All user authentication must exclusively route through the external Rails login
+        // application
+        .formLogin(form -> form.disable())
+        .httpBasic(basic -> basic.disable())
+        .exceptionHandling(
+            (exceptions) ->
+                exceptions.authenticationEntryPoint(
+                    new ExternalLoginAuthenticationEntryPoint(railsLoginUrl, issuerUrl)))
+        .addFilterBefore(new AdminApiKeyFilter(adminApiKey), AuthorizationFilter.class)
+        .addFilterAfter(
+            new SharedRedisSessionFilter(redisTemplate, redisPrefix), LogoutFilter.class);
 
-        return http.build();
-    }
+    return http.build();
+  }
 }

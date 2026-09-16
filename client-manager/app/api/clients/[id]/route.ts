@@ -2,10 +2,7 @@ import { NextResponse } from "next/server";
 import { getClient, saveClient, deleteClient } from "@/lib/clients";
 import { ClientConfig } from "@/lib/types";
 
-export async function GET(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
     const client = await getClient(id);
@@ -18,10 +15,7 @@ export async function GET(
   }
 }
 
-export async function PUT(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
     const body = await req.json();
@@ -34,12 +28,20 @@ export async function PUT(
       ...existing,
       clientName: body.clientName !== undefined ? body.clientName.trim() : existing.clientName,
       redirectUris: Array.isArray(body.redirectUris) ? body.redirectUris : existing.redirectUris,
-      postLogoutRedirectUris: Array.isArray(body.postLogoutRedirectUris) ? body.postLogoutRedirectUris : existing.postLogoutRedirectUris,
+      postLogoutRedirectUris: Array.isArray(body.postLogoutRedirectUris)
+        ? body.postLogoutRedirectUris
+        : existing.postLogoutRedirectUris,
       scopes: Array.isArray(body.scopes) ? body.scopes : existing.scopes,
-      requireProofKey: body.requireProofKey !== undefined ? !!body.requireProofKey : existing.requireProofKey,
-      requirePushedAuthorizationRequests: body.requirePushedAuthorizationRequests !== undefined ? !!body.requirePushedAuthorizationRequests : existing.requirePushedAuthorizationRequests,
-      accessTokenTimeToLiveMinutes: Number(body.accessTokenTimeToLiveMinutes) || existing.accessTokenTimeToLiveMinutes,
-      refreshTokenTimeToLiveDays: Number(body.refreshTokenTimeToLiveDays) || existing.refreshTokenTimeToLiveDays,
+      requireProofKey:
+        body.requireProofKey !== undefined ? !!body.requireProofKey : existing.requireProofKey,
+      requirePushedAuthorizationRequests:
+        body.requirePushedAuthorizationRequests !== undefined
+          ? !!body.requirePushedAuthorizationRequests
+          : existing.requirePushedAuthorizationRequests,
+      accessTokenTimeToLiveMinutes:
+        Number(body.accessTokenTimeToLiveMinutes) || existing.accessTokenTimeToLiveMinutes,
+      refreshTokenTimeToLiveDays:
+        Number(body.refreshTokenTimeToLiveDays) || existing.refreshTokenTimeToLiveDays,
       publicKeyPem: body.publicKeyPem?.trim() || existing.publicKeyPem,
     };
 
@@ -50,10 +52,7 @@ export async function PUT(
   }
 }
 
-export async function DELETE(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
     const existing = await getClient(id);

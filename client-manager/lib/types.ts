@@ -19,5 +19,9 @@ export const AVAILABLE_SCOPES = [
   { id: "profile", label: "profile", description: "Access to user profile (name, username)" },
   { id: "email", label: "email", description: "Access to user email address" },
   { id: "user.read", label: "user.read", description: "Standard user resource reading" },
-  { id: "demo.secret_access", label: "demo.secret_access", description: "Privileged scope granting restricted UserInfo clearance claims" },
+  {
+    id: "demo.secret_access",
+    label: "demo.secret_access",
+    description: "Privileged scope granting restricted UserInfo clearance claims",
+  },
 ];

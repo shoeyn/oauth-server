@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "oauth2_client_kit"
+require 'oauth2_client_kit'
 
 # Backward compatibility alias for external test suites and scripts.
 # All RFC 9126, 7523, 7636, 9449, 9207, and OIDC protocol mechanics

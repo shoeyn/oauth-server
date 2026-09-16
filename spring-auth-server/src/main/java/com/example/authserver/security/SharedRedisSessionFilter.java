@@ -29,139 +29,159 @@ import tools.jackson.databind.json.JsonMapper;
 @Slf4j
 public class SharedRedisSessionFilter extends OncePerRequestFilter {
 
-    public static final String COOKIE_NAME = "SHARED_SESSION_ID";
+  public static final String COOKIE_NAME = "SHARED_SESSION_ID";
 
-    private final StringRedisTemplate redisTemplate;
-    private final ObjectMapper objectMapper;
-    private final SecurityContextRepository securityContextRepository;
-    private final String redisPrefix;
+  private final StringRedisTemplate redisTemplate;
+  private final ObjectMapper objectMapper;
+  private final SecurityContextRepository securityContextRepository;
+  private final String redisPrefix;
 
-    public SharedRedisSessionFilter(StringRedisTemplate redisTemplate, String redisPrefix) {
-        this(redisTemplate, JsonMapper.shared(), redisPrefix);
-    }
+  public SharedRedisSessionFilter(StringRedisTemplate redisTemplate, String redisPrefix) {
+    this(redisTemplate, JsonMapper.shared(), redisPrefix);
+  }
 
-    public SharedRedisSessionFilter(StringRedisTemplate redisTemplate, ObjectMapper objectMapper, String redisPrefix) {
-        this.redisTemplate = redisTemplate;
-        this.objectMapper = objectMapper != null ? objectMapper : JsonMapper.shared();
-        this.securityContextRepository = new HttpSessionSecurityContextRepository();
-        this.redisPrefix = redisPrefix;
-    }
+  public SharedRedisSessionFilter(
+      StringRedisTemplate redisTemplate, ObjectMapper objectMapper, String redisPrefix) {
+    this.redisTemplate = redisTemplate;
+    this.objectMapper = objectMapper != null ? objectMapper : JsonMapper.shared();
+    this.securityContextRepository = new HttpSessionSecurityContextRepository();
+    this.redisPrefix = redisPrefix;
+  }
 
-    /**
-     * Skips shared Redis session lookup for non-interactive machine-to-machine,
-     * token exchange, JWKS, and discovery endpoints.
-     * Only interactive user endpoints (such as /oauth2/authorize) require user session evaluation.
-     */
-    @Override
-    protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getRequestURI();
-        return path.startsWith("/oauth2/token") ||
-               path.startsWith("/oauth2/par") ||
-               path.startsWith("/oauth2/jwks") ||
-               path.startsWith("/oauth2/introspect") ||
-               path.startsWith("/oauth2/revoke") ||
-               path.startsWith("/.well-known/") ||
-               path.startsWith("/actuator/");
-    }
+  /**
+   * Skips shared Redis session lookup for non-interactive machine-to-machine, token exchange, JWKS,
+   * and discovery endpoints. Only interactive user endpoints (such as /oauth2/authorize) require
+   * user session evaluation.
+   */
+  @Override
+  protected boolean shouldNotFilter(HttpServletRequest request) {
+    String path = request.getRequestURI();
+    return path.startsWith("/oauth2/token")
+        || path.startsWith("/oauth2/par")
+        || path.startsWith("/oauth2/jwks")
+        || path.startsWith("/oauth2/introspect")
+        || path.startsWith("/oauth2/revoke")
+        || path.startsWith("/.well-known/")
+        || path.startsWith("/actuator/");
+  }
 
-    @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
-            throws ServletException, IOException {
+  @Override
+  protected void doFilterInternal(
+      HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+      throws ServletException, IOException {
 
-        String sessionId = extractSessionId(request);
-        UUID sessionUuid = parseUuid(sessionId);
-        boolean sessionEstablished = false;
+    String sessionId = extractSessionId(request);
+    UUID sessionUuid = parseUuid(sessionId);
+    boolean sessionEstablished = false;
 
-        // Security Improvement: Validate session ID format using native Java UUID parser before issuing Redis lookup
-        if (sessionUuid != null) {
-            String redisKey = redisPrefix + sessionUuid;
-            String sessionJson = redisTemplate.opsForValue().get(redisKey);
+    // Security Improvement: Validate session ID format using native Java UUID parser before issuing
+    // Redis lookup
+    if (sessionUuid != null) {
+      String redisKey = redisPrefix + sessionUuid;
+      String sessionJson = redisTemplate.opsForValue().get(redisKey);
 
-            if (sessionJson != null && !sessionJson.isBlank()) {
-                try {
-                    AuthenticatedUser user = objectMapper.readValue(sessionJson, AuthenticatedUser.class);
-                    List<GrantedAuthority> authorities = user.roles().stream()
-                            .map(role -> role.startsWith("ROLE_") ? role : "ROLE_" + role)
-                            .map(SimpleGrantedAuthority::new)
-                            .collect(Collectors.toList());
-
-                    // Spring Security 7 multifactor / auth_time tracking for OIDC id_token
-                    authorities.add(FactorGrantedAuthority.fromAuthority(FactorGrantedAuthority.PASSWORD_AUTHORITY));
-
-                    // Store user details as standard Map to guarantee safe Jackson serialization in JdbcOAuth2AuthorizationService
-                    Map<String, Object> userDetails = new HashMap<>();
-                    userDetails.put("username", user.username());
-                    userDetails.put("session_id", sessionUuid.toString());
-                    if (user.email() != null) userDetails.put("email", user.email());
-                    if (user.name() != null) userDetails.put("name", user.name());
-                    if (!user.roles().isEmpty()) userDetails.put("roles", user.roles());
-                    if (user.authenticatedAt() != null) userDetails.put("authenticated_at", user.authenticatedAt());
-
-                    UsernamePasswordAuthenticationToken auth =
-                            new UsernamePasswordAuthenticationToken(user.username(), null, authorities);
-                    auth.setDetails(userDetails);
-
-                    SecurityContext context = SecurityContextHolder.createEmptyContext();
-                    context.setAuthentication(auth);
-                    SecurityContextHolder.setContext(context);
-                    securityContextRepository.saveContext(context, request, response);
-
-                    sessionEstablished = true;
-                    log.info("Established SecurityContext from shared Redis session for user: {}", user.username());
-                } catch (Exception e) {
-                    log.error("Failed to parse user JSON from Redis key {}: {}", redisKey, e.getMessage());
-                }
-            } else {
-                log.debug("No session found in Redis for key {}", redisKey);
-            }
-        } else if (sessionId != null) {
-            // Security Improvement: Log rejected malformed session identifiers
-            log.warn("Rejected malformed SHARED_SESSION_ID cookie format: {}", sessionId);
-        }
-
-        if (!sessionEstablished) {
-            // Shared Redis session is missing, expired, or was revoked (fraud revocation / global logout).
-            // Invalidate residual SecurityContext and Tomcat HttpSession so user CANNOT remain authenticated!
-            SecurityContextHolder.clearContext();
-            HttpSession httpSession = request.getSession(false);
-            if (httpSession != null) {
-                httpSession.invalidate();
-            }
-            if (sessionId != null) {
-                Cookie clearedCookie = new Cookie(COOKIE_NAME, "");
-                clearedCookie.setPath("/");
-                clearedCookie.setMaxAge(0);
-                clearedCookie.setHttpOnly(true);
-                response.addCookie(clearedCookie);
-            }
-        }
-
-        filterChain.doFilter(request, response);
-    }
-
-    // Security Improvement: Session identifier is ONLY extracted from HttpOnly cookies.
-    // Query parameter session ID extraction has been explicitly eliminated to prevent CWE-598
-    // (Stops session IDs from leaking into access logs, web server history, proxies, and HTTP Referer headers).
-    private String extractSessionId(HttpServletRequest request) {
-        if (request.getCookies() != null) {
-            for (Cookie cookie : request.getCookies()) {
-                if (COOKIE_NAME.equals(cookie.getName())) {
-                    return cookie.getValue();
-                }
-            }
-        }
-        return null;
-    }
-
-    // Security Improvement: Use native UUID parser to validate session ID format before issuing Redis queries
-    private UUID parseUuid(String value) {
-        if (value == null || value.length() != 36) {
-            return null;
-        }
+      if (sessionJson != null && !sessionJson.isBlank()) {
         try {
-            return UUID.fromString(value);
-        } catch (IllegalArgumentException ex) {
-            return null;
+          AuthenticatedUser user = objectMapper.readValue(sessionJson, AuthenticatedUser.class);
+          List<GrantedAuthority> authorities =
+              user.roles().stream()
+                  .map(role -> role.startsWith("ROLE_") ? role : "ROLE_" + role)
+                  .map(SimpleGrantedAuthority::new)
+                  .collect(Collectors.toList());
+
+          // Spring Security 7 multifactor / auth_time tracking for OIDC id_token
+          authorities.add(
+              FactorGrantedAuthority.fromAuthority(FactorGrantedAuthority.PASSWORD_AUTHORITY));
+
+          // Store user details as standard Map to guarantee safe Jackson serialization in
+          // JdbcOAuth2AuthorizationService
+          Map<String, Object> userDetails = new HashMap<>();
+          userDetails.put("username", user.username());
+          userDetails.put("session_id", sessionUuid.toString());
+          if (user.email() != null) {
+            userDetails.put("email", user.email());
+          }
+          if (user.name() != null) {
+            userDetails.put("name", user.name());
+          }
+          if (!user.roles().isEmpty()) {
+            userDetails.put("roles", user.roles());
+          }
+          if (user.authenticatedAt() != null) {
+            userDetails.put("authenticated_at", user.authenticatedAt());
+          }
+
+          UsernamePasswordAuthenticationToken auth =
+              new UsernamePasswordAuthenticationToken(user.username(), null, authorities);
+          auth.setDetails(userDetails);
+
+          SecurityContext context = SecurityContextHolder.createEmptyContext();
+          context.setAuthentication(auth);
+          SecurityContextHolder.setContext(context);
+          securityContextRepository.saveContext(context, request, response);
+
+          sessionEstablished = true;
+          log.info(
+              "Established SecurityContext from shared Redis session for user: {}",
+              user.username());
+        } catch (Exception e) {
+          log.error("Failed to parse user JSON from Redis key {}: {}", redisKey, e.getMessage());
         }
+      } else {
+        log.debug("No session found in Redis for key {}", redisKey);
+      }
+    } else if (sessionId != null) {
+      // Security Improvement: Log rejected malformed session identifiers
+      log.warn("Rejected malformed SHARED_SESSION_ID cookie format: {}", sessionId);
     }
+
+    if (!sessionEstablished) {
+      // Shared Redis session is missing, expired, or was revoked (fraud revocation / global
+      // logout).
+      // Invalidate residual SecurityContext and Tomcat HttpSession so user CANNOT remain
+      // authenticated!
+      SecurityContextHolder.clearContext();
+      HttpSession httpSession = request.getSession(false);
+      if (httpSession != null) {
+        httpSession.invalidate();
+      }
+      if (sessionId != null) {
+        Cookie clearedCookie = new Cookie(COOKIE_NAME, "");
+        clearedCookie.setPath("/");
+        clearedCookie.setMaxAge(0);
+        clearedCookie.setHttpOnly(true);
+        response.addCookie(clearedCookie);
+      }
+    }
+
+    filterChain.doFilter(request, response);
+  }
+
+  // Security Improvement: Session identifier is ONLY extracted from HttpOnly cookies.
+  // Query parameter session ID extraction has been explicitly eliminated to prevent CWE-598
+  // (Stops session IDs from leaking into access logs, web server history, proxies, and HTTP Referer
+  // headers).
+  private String extractSessionId(HttpServletRequest request) {
+    if (request.getCookies() != null) {
+      for (Cookie cookie : request.getCookies()) {
+        if (COOKIE_NAME.equals(cookie.getName())) {
+          return cookie.getValue();
+        }
+      }
+    }
+    return null;
+  }
+
+  // Security Improvement: Use native UUID parser to validate session ID format before issuing Redis
+  // queries
+  private UUID parseUuid(String value) {
+    if (value == null || value.length() != 36) {
+      return null;
+    }
+    try {
+      return UUID.fromString(value);
+    } catch (IllegalArgumentException ex) {
+      return null;
+    }
+  }
 }

@@ -1,0 +1,4 @@
+en:
+  sessions:
+    destroy:
+      notice: "Logged out"

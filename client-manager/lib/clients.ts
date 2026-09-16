@@ -42,12 +42,15 @@ export async function listClients(): Promise<ClientConfig[]> {
 
 export async function getClient(clientId: string): Promise<ClientConfig | null> {
   try {
-    const res = await fetchWithTimeout(`${SPRING_AUTH_SERVER_URL}/api/admin/clients/${encodeURIComponent(clientId)}`, {
-      headers: {
-        "X-Admin-Api-Key": ADMIN_API_KEY,
+    const res = await fetchWithTimeout(
+      `${SPRING_AUTH_SERVER_URL}/api/admin/clients/${encodeURIComponent(clientId)}`,
+      {
+        headers: {
+          "X-Admin-Api-Key": ADMIN_API_KEY,
+        },
+        cache: "no-store",
       },
-      cache: "no-store",
-    });
+    );
 
     if (res.status === 404) {
       return null;
@@ -82,12 +85,15 @@ export async function saveClient(client: ClientConfig): Promise<void> {
 }
 
 export async function deleteClient(clientId: string): Promise<void> {
-  const res = await fetchWithTimeout(`${SPRING_AUTH_SERVER_URL}/api/admin/clients/${encodeURIComponent(clientId)}`, {
-    method: "DELETE",
-    headers: {
-      "X-Admin-Api-Key": ADMIN_API_KEY,
+  const res = await fetchWithTimeout(
+    `${SPRING_AUTH_SERVER_URL}/api/admin/clients/${encodeURIComponent(clientId)}`,
+    {
+      method: "DELETE",
+      headers: {
+        "X-Admin-Api-Key": ADMIN_API_KEY,
+      },
     },
-  });
+  );
 
   if (!res.ok && res.status !== 404) {
     const errorBody = await res.text();

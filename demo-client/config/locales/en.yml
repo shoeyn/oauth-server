@@ -1,0 +1,6 @@
+en:
+  pages:
+    profile:
+      tokens_unavailable: "Session tokens have expired or are unavailable. Please log in again."
+    sensitive_action:
+      alert_revoked: "🚨 SECURITY ALERT: Token Introspection check returned active=false. Authorization Server terminated the session early. Local session cleared."

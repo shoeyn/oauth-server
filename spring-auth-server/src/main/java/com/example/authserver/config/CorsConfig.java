@@ -10,48 +10,49 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
- * Cross-Origin Resource Sharing (CORS) configuration for OAuth 2.1 & OIDC public endpoints.
- * Allows web-based Single Page Applications (SPAs) and external clients to discover metadata,
- * fetch public JWKS, exchange authorization codes with DPoP proofs, and query userinfo.
+ * Cross-Origin Resource Sharing (CORS) configuration for OAuth 2.1 & OIDC public endpoints. Allows
+ * web-based Single Page Applications (SPAs) and external clients to discover metadata, fetch public
+ * JWKS, exchange authorization codes with DPoP proofs, and query userinfo.
  */
 @Configuration
 public class CorsConfig {
 
-    @Value("${auth.cors.allowed-origins}")
-    private String allowedOrigins;
+  @Value("${auth.cors.allowed-origins}")
+  private String allowedOrigins;
 
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
+  @Bean
+  public CorsConfigurationSource corsConfigurationSource() {
+    CorsConfiguration config = new CorsConfiguration();
 
-        if ("*".equals(allowedOrigins.trim())) {
-            config.addAllowedOriginPattern("*");
-        } else {
-            List<String> origins = Arrays.stream(allowedOrigins.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .toList();
-            config.setAllowedOrigins(origins);
-        }
-
-        config.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
-        config.setAllowedHeaders(List.of(
-                "Authorization",
-                "DPoP",
-                "Content-Type",
-                "If-None-Match",
-                "X-Requested-With",
-                "Accept"
-        ));
-        config.setExposedHeaders(List.of("ETag", "DPoP-Nonce"));
-        config.setMaxAge(3600L);
-        config.setAllowCredentials(false);
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/oauth2/**", config);
-        source.registerCorsConfiguration("/.well-known/**", config);
-        source.registerCorsConfiguration("/userinfo", config);
-        // Exclude /api/admin/** entirely from CORS to mitigate Cross-Origin admin attacks
-        return source;
+    if ("*".equals(allowedOrigins.trim())) {
+      config.addAllowedOriginPattern("*");
+    } else {
+      List<String> origins =
+          Arrays.stream(allowedOrigins.split(","))
+              .map(String::trim)
+              .filter(s -> !s.isEmpty())
+              .toList();
+      config.setAllowedOrigins(origins);
     }
+
+    config.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+    config.setAllowedHeaders(
+        List.of(
+            "Authorization",
+            "DPoP",
+            "Content-Type",
+            "If-None-Match",
+            "X-Requested-With",
+            "Accept"));
+    config.setExposedHeaders(List.of("ETag", "DPoP-Nonce"));
+    config.setMaxAge(3600L);
+    config.setAllowCredentials(false);
+
+    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+    source.registerCorsConfiguration("/oauth2/**", config);
+    source.registerCorsConfiguration("/.well-known/**", config);
+    source.registerCorsConfiguration("/userinfo", config);
+    // Exclude /api/admin/** entirely from CORS to mitigate Cross-Origin admin attacks
+    return source;
+  }
 }

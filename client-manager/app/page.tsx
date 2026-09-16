@@ -173,7 +173,7 @@ export default function Home() {
           hash: "SHA-256",
         },
         true,
-        ["sign", "verify"]
+        ["sign", "verify"],
       );
 
       // Export Public Key (SPKI)
@@ -197,7 +197,9 @@ export default function Home() {
       a.click();
       URL.revokeObjectURL(url);
 
-      setGeneratedKeyNotice("Generated RSA key pair! Private key downloaded to your browser. Public key populated below.");
+      setGeneratedKeyNotice(
+        "Generated RSA key pair! Private key downloaded to your browser. Public key populated below.",
+      );
     } catch (err) {
       alert(`Key generation error: ${(err as Error).message}`);
       setGeneratedKeyNotice(null);
@@ -250,7 +252,9 @@ export default function Home() {
         throw new Error(errJson.error || "Failed to save client");
       }
 
-      setSyncStatus(`Client '${payload.clientId}' successfully saved to PostgreSQL via Spring Admin API!`);
+      setSyncStatus(
+        `Client '${payload.clientId}' successfully saved to PostgreSQL via Spring Admin API!`,
+      );
       setTimeout(() => setSyncStatus(null), 5000);
       setModalMode(null);
       await fetchClients();
@@ -262,14 +266,20 @@ export default function Home() {
   }
 
   async function handleDelete(client: ClientConfig) {
-    if (!confirm(`Are you sure you want to delete client '${client.clientId}'? This will remove it from PostgreSQL and revoke its ability to authenticate.`)) {
+    if (
+      !confirm(
+        `Are you sure you want to delete client '${client.clientId}'? This will remove it from PostgreSQL and revoke its ability to authenticate.`,
+      )
+    ) {
       return;
     }
 
     try {
       const res = await fetch(`/api/clients/${client.clientId}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete client");
-      setSyncStatus(`Client '${client.clientId}' deleted from PostgreSQL & Spring near-cache purged.`);
+      setSyncStatus(
+        `Client '${client.clientId}' deleted from PostgreSQL & Spring near-cache purged.`,
+      );
       setTimeout(() => setSyncStatus(null), 5000);
       await fetchClients();
     } catch (err) {
@@ -294,7 +304,8 @@ export default function Home() {
                 </span>
               </h1>
               <p className="text-sm text-slate-400 mt-0.5">
-                Centralized management for OAuth 2.1 clients via Spring Admin API with PostgreSQL persistence and cluster near-caching.
+                Centralized management for OAuth 2.1 clients via Spring Admin API with PostgreSQL
+                persistence and cluster near-caching.
               </p>
             </div>
           </div>
@@ -335,7 +346,11 @@ export default function Home() {
             <h3 className="font-semibold text-slate-200 text-sm">Persistence Tier</h3>
           </div>
           <p className="text-xs text-slate-400">
-            PostgreSQL relational store (<code className="text-sky-400 bg-slate-950 px-1.5 py-0.5 rounded">oauth2_registered_client</code>) managed strictly by Spring.
+            PostgreSQL relational store (
+            <code className="text-sky-400 bg-slate-950 px-1.5 py-0.5 rounded">
+              oauth2_registered_client
+            </code>
+            ) managed strictly by Spring.
           </p>
         </div>
 
@@ -345,7 +360,8 @@ export default function Home() {
             <h3 className="font-semibold text-slate-200 text-sm">L1 Near-Cache & Sync</h3>
           </div>
           <p className="text-xs text-slate-400">
-            Microsecond reads via Spring JVM near-cache; Redis Pub/Sub invalidates nodes in &lt; 1 ms.
+            Microsecond reads via Spring JVM near-cache; Redis Pub/Sub invalidates nodes in &lt; 1
+            ms.
           </p>
         </div>
 
@@ -355,7 +371,11 @@ export default function Home() {
             <h3 className="font-semibold text-slate-200 text-sm">Strict Security</h3>
           </div>
           <p className="text-xs text-slate-400">
-            Enforces <code className="text-amber-400 bg-slate-950 px-1.5 py-0.5 rounded">private_key_jwt</code> (RFC 7523), PKCE S256, and server-determined scopes.
+            Enforces{" "}
+            <code className="text-amber-400 bg-slate-950 px-1.5 py-0.5 rounded">
+              private_key_jwt
+            </code>{" "}
+            (RFC 7523), PKCE S256, and server-determined scopes.
           </p>
         </div>
       </div>
@@ -363,8 +383,12 @@ export default function Home() {
       {/* Client Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
         <div className="p-5 border-b border-slate-800 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-white">Registered OAuth 2.1 Clients ({clients.length})</h2>
-          <span className="text-xs text-slate-400">Synchronized with Spring Authorization Server</span>
+          <h2 className="text-base font-semibold text-white">
+            Registered OAuth 2.1 Clients ({clients.length})
+          </h2>
+          <span className="text-xs text-slate-400">
+            Synchronized with Spring Authorization Server
+          </span>
         </div>
 
         {loading && clients.length === 0 ? (
@@ -405,7 +429,9 @@ export default function Home() {
                   <tr key={c.clientId} className="hover:bg-slate-800/40 transition">
                     <td className="px-6 py-4">
                       <div className="font-semibold text-white">{c.clientId}</div>
-                      <div className="text-xs text-slate-400">{c.clientName || "Unnamed Client"}</div>
+                      <div className="text-xs text-slate-400">
+                        {c.clientName || "Unnamed Client"}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-1.5 items-start">
@@ -414,12 +440,18 @@ export default function Home() {
                           private_key_jwt
                         </span>
                         {c.requirePushedAuthorizationRequests ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-indigo-500/15 text-indigo-300 border border-indigo-500/30" title="Strict RFC 9126 PAR Enforced">
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-indigo-500/15 text-indigo-300 border border-indigo-500/30"
+                            title="Strict RFC 9126 PAR Enforced"
+                          >
                             <ShieldCheck className="w-3 h-3 text-indigo-400" />
                             PAR Enforced
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-slate-400 border border-slate-700" title="Direct Authorize Allowed">
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-slate-400 border border-slate-700"
+                            title="Direct Authorize Allowed"
+                          >
                             Direct Allowed
                           </span>
                         )}
@@ -503,16 +535,20 @@ export default function Home() {
       {/* Modal: Create or Edit Client */}
       {(modalMode === "create" || modalMode === "edit") && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div
-            role="dialog"
-            aria-modal="true"
+          <dialog
+            open
             aria-labelledby="client-form-dialog-title"
-            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl"
+            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl text-left block"
           >
             <div className="flex items-center justify-between pb-4 mb-6 border-b border-slate-800">
-              <h2 id="client-form-dialog-title" className="text-xl font-bold text-white flex items-center gap-2">
+              <h2
+                id="client-form-dialog-title"
+                className="text-xl font-bold text-white flex items-center gap-2"
+              >
                 <Key className="w-5 h-5 text-indigo-400" />
-                {modalMode === "create" ? "Register New OAuth 2.1 Client" : `Edit Client: ${formData.clientId}`}
+                {modalMode === "create"
+                  ? "Register New OAuth 2.1 Client"
+                  : `Edit Client: ${formData.clientId}`}
               </h2>
               <button
                 ref={closeButtonRef}
@@ -528,10 +564,14 @@ export default function Home() {
               {/* Basic Fields */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                  <label
+                    htmlFor="client-id-input"
+                    className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5"
+                  >
                     Client ID *
                   </label>
                   <input
+                    id="client-id-input"
                     type="text"
                     required
                     disabled={modalMode === "edit"}
@@ -543,10 +583,14 @@ export default function Home() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                  <label
+                    htmlFor="client-name-input"
+                    className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5"
+                  >
                     Client Name
                   </label>
                   <input
+                    id="client-name-input"
                     type="text"
                     value={formData.clientName}
                     onChange={(e) => setFormData({ ...formData, clientName: e.target.value })}
@@ -558,10 +602,14 @@ export default function Home() {
 
               {/* Redirect URIs */}
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                <label
+                  htmlFor="redirect-uris-input"
+                  className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5"
+                >
                   Redirect URIs (one per line)
                 </label>
                 <textarea
+                  id="redirect-uris-input"
                   rows={2}
                   value={formData.redirectUrisText}
                   onChange={(e) => setFormData({ ...formData, redirectUrisText: e.target.value })}
@@ -572,13 +620,19 @@ export default function Home() {
 
               {/* Post Logout Redirect URIs */}
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                <label
+                  htmlFor="post-logout-redirect-uris-input"
+                  className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5"
+                >
                   Post-Logout Redirect URIs (one per line)
                 </label>
                 <textarea
+                  id="post-logout-redirect-uris-input"
                   rows={2}
                   value={formData.postLogoutRedirectUrisText}
-                  onChange={(e) => setFormData({ ...formData, postLogoutRedirectUrisText: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, postLogoutRedirectUrisText: e.target.value })
+                  }
                   className="w-full px-3.5 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-indigo-500 text-xs font-mono"
                   placeholder="http://localhost:8080/"
                 />
@@ -586,9 +640,9 @@ export default function Home() {
 
               {/* Scopes Selection */}
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
                   Server-Determined Scopes (Pre-assigned Scopes)
-                </label>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
                   {AVAILABLE_SCOPES.map((scope) => {
                     const checked = formData.scopes.includes(scope.id);
@@ -598,6 +652,7 @@ export default function Home() {
                         type="button"
                         onClick={() => toggleScope(scope.id)}
                         aria-pressed={checked}
+                        aria-label={`${scope.label}: ${scope.description}`}
                         className={`p-3 rounded-lg border cursor-pointer transition flex items-start gap-3 text-left ${
                           checked
                             ? "bg-indigo-600/10 border-indigo-500 text-white"
@@ -614,7 +669,9 @@ export default function Home() {
                           className="mt-0.5 text-indigo-600 rounded bg-slate-900 border-slate-700 pointer-events-none"
                         />
                         <div>
-                          <div className="font-mono text-xs font-bold text-slate-200">{scope.label}</div>
+                          <div className="font-mono text-xs font-bold text-slate-200">
+                            {scope.label}
+                          </div>
                           <div className="text-[11px] text-slate-400 leading-tight mt-0.5">
                             {scope.description}
                           </div>
@@ -646,7 +703,10 @@ export default function Home() {
               {/* Public Key Upload / Generate */}
               <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <label
+                    htmlFor="client-public-key-pem"
+                    className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5"
+                  >
                     <Key className="w-3.5 h-3.5 text-amber-400" />
                     Client RSA Public Key (PEM format) *
                   </label>
@@ -667,9 +727,13 @@ export default function Home() {
                 )}
 
                 <div className="flex items-center gap-3">
-                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700">
+                  <label
+                    htmlFor="client-public-key-upload"
+                    className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700"
+                  >
                     Upload .pem / .pub file
                     <input
+                      id="client-public-key-upload"
                       type="file"
                       accept=".pem,.pub,.txt"
                       onChange={handleFileUpload}
@@ -680,6 +744,7 @@ export default function Home() {
                 </div>
 
                 <textarea
+                  id="client-public-key-pem"
                   rows={6}
                   required
                   value={formData.publicKeyPem}
@@ -692,26 +757,38 @@ export default function Home() {
               {/* Token Lifetimes & PKCE */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                  <label
+                    htmlFor="access-token-ttl-input"
+                    className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5"
+                  >
                     Access Token TTL (minutes)
                   </label>
                   <input
+                    id="access-token-ttl-input"
                     type="number"
                     min="1"
                     value={formData.accessTokenTtl}
-                    onChange={(e) => setFormData({ ...formData, accessTokenTtl: parseInt(e.target.value) || 15 })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, accessTokenTtl: parseInt(e.target.value) || 15 })
+                    }
                     className="w-full px-3.5 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                  <label
+                    htmlFor="refresh-token-ttl-input"
+                    className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5"
+                  >
                     Refresh Token TTL (days)
                   </label>
                   <input
+                    id="refresh-token-ttl-input"
                     type="number"
                     min="1"
                     value={formData.refreshTokenTtl}
-                    onChange={(e) => setFormData({ ...formData, refreshTokenTtl: parseInt(e.target.value) || 30 })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, refreshTokenTtl: parseInt(e.target.value) || 30 })
+                    }
                     className="w-full px-3.5 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white text-sm"
                   />
                 </div>
@@ -723,39 +800,64 @@ export default function Home() {
                   Advanced Protocol Security
                 </div>
                 <div className="space-y-3.5">
-                  <label className="flex items-start gap-3 cursor-pointer">
+                  <label
+                    htmlFor="require-proof-key-checkbox"
+                    className="flex items-start gap-3 cursor-pointer"
+                  >
                     <input
+                      id="require-proof-key-checkbox"
                       type="checkbox"
+                      aria-label="Enforce PKCE (RFC 7636)"
                       checked={formData.requireProofKey}
-                      onChange={(e) => setFormData({ ...formData, requireProofKey: e.target.checked })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, requireProofKey: e.target.checked })
+                      }
                       className="mt-1 h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900"
                     />
                     <div>
                       <div className="text-sm font-medium text-white flex items-center gap-2">
                         Enforce PKCE (RFC 7636)
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-mono">Mandatory</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-mono">
+                          Mandatory
+                        </span>
                       </div>
                       <p className="text-xs text-slate-400">
-                        Requires SHA-256 code_challenge verification on all authorization code requests.
+                        Requires SHA-256 code_challenge verification on all authorization code
+                        requests.
                       </p>
                     </div>
                   </label>
 
-                  <label className="flex items-start gap-3 cursor-pointer">
+                  <label
+                    htmlFor="require-par-checkbox"
+                    className="flex items-start gap-3 cursor-pointer"
+                  >
                     <input
+                      id="require-par-checkbox"
                       type="checkbox"
+                      aria-label="Enforce Pushed Authorization Requests (PAR, RFC 9126)"
                       checked={formData.requirePushedAuthorizationRequests}
-                      onChange={(e) => setFormData({ ...formData, requirePushedAuthorizationRequests: e.target.checked })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          requirePushedAuthorizationRequests: e.target.checked,
+                        })
+                      }
                       className="mt-1 h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900"
                     />
                     <div>
                       <div className="text-sm font-medium text-white flex items-center gap-2">
                         Enforce Pushed Authorization Requests (PAR, RFC 9126)
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-400 font-mono">Recommended (FAPI 2.0)</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-400 font-mono">
+                          Recommended (FAPI 2.0)
+                        </span>
                       </div>
                       <p className="text-xs text-slate-400">
-                        Rejects direct browser <code className="text-amber-300">/oauth2/authorize</code> query parameter flows.
-                        Mandates backchannel registration via <code className="text-indigo-300">/oauth2/par</code> with <code className="text-slate-300">request_uri</code>.
+                        Rejects direct browser{" "}
+                        <code className="text-amber-300">/oauth2/authorize</code> query parameter
+                        flows. Mandates backchannel registration via{" "}
+                        <code className="text-indigo-300">/oauth2/par</code> with{" "}
+                        <code className="text-slate-300">request_uri</code>.
                       </p>
                     </div>
                   </label>
@@ -776,25 +878,31 @@ export default function Home() {
                   disabled={submitting}
                   className="px-5 py-2 text-sm font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 disabled:opacity-50"
                 >
-                  {submitting ? "Saving to PostgreSQL..." : modalMode === "create" ? "Save Client" : "Update Client"}
+                  {submitting
+                    ? "Saving to PostgreSQL..."
+                    : modalMode === "create"
+                      ? "Save Client"
+                      : "Update Client"}
                 </button>
               </div>
             </form>
-          </div>
+          </dialog>
         </div>
       )}
 
       {/* Modal: View Client JSON */}
       {modalMode === "view" && selectedClient && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div
-            role="dialog"
-            aria-modal="true"
+          <dialog
+            open
             aria-labelledby="client-json-dialog-title"
-            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl p-6 shadow-2xl"
+            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl p-6 shadow-2xl text-left block"
           >
             <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
-              <h2 id="client-json-dialog-title" className="text-lg font-bold text-white flex items-center gap-2">
+              <h2
+                id="client-json-dialog-title"
+                className="text-lg font-bold text-white flex items-center gap-2"
+              >
                 <Eye className="w-5 h-5 text-indigo-400" />
                 Client JSON: {selectedClient.clientId}
               </h2>
@@ -820,7 +928,7 @@ export default function Home() {
                 Close
               </button>
             </div>
-          </div>
+          </dialog>
         </div>
       )}
     </div>

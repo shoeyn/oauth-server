@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 RSpec.describe SessionsController, type: :controller do
@@ -15,7 +17,7 @@ RSpec.describe SessionsController, type: :controller do
 
   before do
     # Reset the memoised Redis client and stub the connection.
-    SessionsController.instance_variable_set(:@redis_client, nil)
+    described_class.instance_variable_set(:@redis_client, nil)
     allow(Redis).to receive(:new).and_return(redis_mock)
     allow(redis_mock).to receive(:set)
     allow(redis_mock).to receive(:del)
@@ -82,16 +84,21 @@ RSpec.describe SessionsController, type: :controller do
 
       it 'SHA-256 pre-hashes the password before sending it to the auth server' do
         expected_digest = Digest::SHA256.hexdigest(valid_password)
-        expect(http_mock).to receive(:request) do |req|
-          body = JSON.parse(req.body)
-          expect(body['email']).to eq(valid_email)
-          expect(body['password']).to eq(expected_digest)
-          expect(body['password']).not_to eq(valid_password)
-          expect(req['X-Admin-Api-Key']).to be_present
+        sent_body = nil
+        sent_api_key = nil
+        allow(http_mock).to receive(:request) do |req|
+          sent_body = JSON.parse(req.body)
+          sent_api_key = req['X-Admin-Api-Key']
           http_response(200, { id: user_id, email: valid_email }.to_json)
         end
 
         post :create, params: { email: valid_email, password: valid_password }
+
+        expect(http_mock).to have_received(:request)
+        expect(sent_body['email']).to eq(valid_email)
+        expect(sent_body['password']).to eq(expected_digest)
+        expect(sent_body['password']).not_to eq(valid_password)
+        expect(sent_api_key).to be_present
       end
 
       it 'creates a Redis session (2h TTL) and sets a hardened cookie, then redirects to return_to' do
@@ -100,7 +107,7 @@ RSpec.describe SessionsController, type: :controller do
         expect(response).to redirect_to(return_to)
         session_id = cookies[:SHARED_SESSION_ID]
         expect(session_id).to be_present
-        expect(session_id).to match(/\A[0-9a-fA-F\-]{36}\z/) # UUID
+        expect(session_id).to match(/\A[0-9a-fA-F-]{36}\z/) # UUID
         expect(redis_mock).to have_received(:set).with("session:#{session_id}", anything, ex: 7200)
       end
 
@@ -170,8 +177,8 @@ RSpec.describe SessionsController, type: :controller do
 
     context 'with blank credentials' do
       it 'short-circuits with 422 before any HTTP call' do
-        expect(http_mock).not_to receive(:request)
         post :create, params: { email: '', password: '' }
+        expect(http_mock).not_to have_received(:request)
         expect(response).to have_http_status(:unprocessable_entity)
         expect(controller.view_assigns['error_message']).to eq('incorrect username or password')
       end
@@ -224,7 +231,7 @@ RSpec.describe SessionsController, type: :controller do
     it 'returns UP status' do
       get :health
       expect(response).to have_http_status(:success)
-      expect(JSON.parse(response.body)['status']).to eq('UP')
+      expect(response.parsed_body['status']).to eq('UP')
     end
   end
 end

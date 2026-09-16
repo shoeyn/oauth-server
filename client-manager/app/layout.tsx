@@ -33,19 +33,29 @@ export default function RootLayout({
             <div className="flex justify-between h-16 items-center">
               <div className="flex">
                 <div className="shrink-0 flex items-center gap-2">
-                  <span className="font-bold text-xl tracking-tight text-white">OAuth 2.1 Admin</span>
+                  <span className="font-bold text-xl tracking-tight text-white">
+                    OAuth 2.1 Admin
+                  </span>
                 </div>
                 <div className="ml-6 flex space-x-4">
-                  <Link href="/" className="text-slate-300 hover:bg-slate-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Clients</Link>
-                  <Link href="/users" className="text-slate-300 hover:bg-slate-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Users</Link>
+                  <Link
+                    href="/"
+                    className="text-slate-300 hover:bg-slate-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium"
+                  >
+                    Clients
+                  </Link>
+                  <Link
+                    href="/users"
+                    className="text-slate-300 hover:bg-slate-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium"
+                  >
+                    Users
+                  </Link>
                 </div>
               </div>
             </div>
           </div>
         </header>
-        <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
-          {children}
-        </main>
+        <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">{children}</main>
       </body>
     </html>
   );

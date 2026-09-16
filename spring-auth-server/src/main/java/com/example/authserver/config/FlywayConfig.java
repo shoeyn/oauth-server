@@ -10,14 +10,15 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 public class FlywayConfig {
 
-    @Bean(initMethod = "migrate")
-    public Flyway flyway(DataSource dataSource) {
-        log.info("Configuring Flyway and executing database migrations...");
-        Flyway flyway = Flyway.configure()
-                .dataSource(dataSource)
-                .locations("classpath:db/migration")
-                .baselineOnMigrate(true)
-                .load();
-        return flyway;
-    }
+  @Bean(initMethod = "migrate")
+  public Flyway flyway(DataSource dataSource) {
+    log.info("Configuring Flyway and executing database migrations...");
+    Flyway flyway =
+        Flyway.configure()
+            .dataSource(dataSource)
+            .locations("classpath:db/migration")
+            .baselineOnMigrate(true)
+            .load();
+    return flyway;
+  }
 }
