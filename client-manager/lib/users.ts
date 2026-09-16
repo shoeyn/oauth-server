@@ -34,10 +34,13 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise
 
 export async function listUsers(page: number = 1, limit: number = 10): Promise<PagedUsers> {
   try {
-    const res = await fetchWithTimeout(`${SPRING_AUTH_SERVER_URL}/api/admin/users?page=${page}&limit=${limit}`, {
-      headers: { "X-Admin-Api-Key": ADMIN_API_KEY },
-      cache: "no-store",
-    });
+    const res = await fetchWithTimeout(
+      `${SPRING_AUTH_SERVER_URL}/api/admin/users?page=${page}&limit=${limit}`,
+      {
+        headers: { "X-Admin-Api-Key": ADMIN_API_KEY },
+        cache: "no-store",
+      },
+    );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -47,20 +50,26 @@ export async function listUsers(page: number = 1, limit: number = 10): Promise<P
 }
 
 export async function flagUserFraud(email: string): Promise<void> {
-  const res = await fetchWithTimeout(`${SPRING_AUTH_SERVER_URL}/api/admin/users/${encodeURIComponent(email)}/fraud`, {
-    method: "POST",
-    headers: { "X-Admin-Api-Key": ADMIN_API_KEY },
-  });
+  const res = await fetchWithTimeout(
+    `${SPRING_AUTH_SERVER_URL}/api/admin/users/${encodeURIComponent(email)}/fraud`,
+    {
+      method: "POST",
+      headers: { "X-Admin-Api-Key": ADMIN_API_KEY },
+    },
+  );
   if (!res.ok) {
     throw new Error(`Failed to flag user: HTTP ${res.status}`);
   }
 }
 
 export async function unflagUserFraud(email: string): Promise<void> {
-  const res = await fetchWithTimeout(`${SPRING_AUTH_SERVER_URL}/api/admin/users/${encodeURIComponent(email)}/unfraud`, {
-    method: "POST",
-    headers: { "X-Admin-Api-Key": ADMIN_API_KEY },
-  });
+  const res = await fetchWithTimeout(
+    `${SPRING_AUTH_SERVER_URL}/api/admin/users/${encodeURIComponent(email)}/unfraud`,
+    {
+      method: "POST",
+      headers: { "X-Admin-Api-Key": ADMIN_API_KEY },
+    },
+  );
   if (!res.ok) {
     throw new Error(`Failed to unflag user: HTTP ${res.status}`);
   }
@@ -89,19 +98,25 @@ export async function createUser(data: CreateUserInput): Promise<void> {
   }
 }
 
-export async function editUser(oldEmail: string, data: { email?: string; password?: string }): Promise<void> {
+export async function editUser(
+  oldEmail: string,
+  data: { email?: string; password?: string },
+): Promise<void> {
   const payload = { ...data };
   if (payload.password && payload.password.length > 0) {
     payload.password = sha256(payload.password);
   }
-  const res = await fetchWithTimeout(`${SPRING_AUTH_SERVER_URL}/api/admin/users/${encodeURIComponent(oldEmail)}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Admin-Api-Key": ADMIN_API_KEY,
+  const res = await fetchWithTimeout(
+    `${SPRING_AUTH_SERVER_URL}/api/admin/users/${encodeURIComponent(oldEmail)}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Admin-Api-Key": ADMIN_API_KEY,
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  });
+  );
   if (!res.ok) {
     throw new Error(`Failed to edit user: HTTP ${res.status}`);
   }

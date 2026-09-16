@@ -1,5 +1,16 @@
 package com.example.authserver.security;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.when;
+
 import com.example.authserver.client.PostgresRegisteredClientRepository;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -7,6 +18,14 @@ import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jose.crypto.RSASSASigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Date;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,206 +42,191 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.interfaces.RSAPrivateKey;
-import java.security.interfaces.RSAPublicKey;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Date;
-import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.when;
-
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class ClientAssertionDecoderFactoryTest {
 
-    private static final String ISSUER = "http://localhost:9000";
-    private static final String CLIENT_ID = "demo-client";
+  private static final String ISSUER = "http://localhost:9000";
+  private static final String CLIENT_ID = "demo-client";
 
-    @Mock
-    private PostgresRegisteredClientRepository repository;
+  @Mock private PostgresRegisteredClientRepository repository;
 
-    @Mock
-    private StringRedisTemplate redisTemplate;
+  @Mock private StringRedisTemplate redisTemplate;
 
-    @Mock
-    private ValueOperations<String, String> valueOperations;
+  @Mock private ValueOperations<String, String> valueOperations;
 
-    private RSAPublicKey publicKey;
-    private RSAPrivateKey privateKey;
-    private ClientAssertionDecoderFactory factory;
-    private RegisteredClient registeredClient;
+  private RSAPublicKey publicKey;
+  private RSAPrivateKey privateKey;
+  private ClientAssertionDecoderFactory factory;
+  private RegisteredClient registeredClient;
 
-    @BeforeEach
-    void setUp() throws Exception {
-        KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
-        gen.initialize(2048);
-        KeyPair pair = gen.generateKeyPair();
-        publicKey = (RSAPublicKey) pair.getPublic();
-        privateKey = (RSAPrivateKey) pair.getPrivate();
+  @BeforeEach
+  void setUp() throws Exception {
+    KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
+    gen.initialize(2048);
+    KeyPair pair = gen.generateKeyPair();
+    publicKey = (RSAPublicKey) pair.getPublic();
+    privateKey = (RSAPrivateKey) pair.getPrivate();
 
-        factory = new ClientAssertionDecoderFactory(repository, redisTemplate, ISSUER);
-        registeredClient = RegisteredClient.withId(UUID.randomUUID().toString())
-                .clientId(CLIENT_ID)
-                .clientAuthenticationMethod(ClientAuthenticationMethod.PRIVATE_KEY_JWT)
-                .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
-                .build();
+    factory = new ClientAssertionDecoderFactory(repository, redisTemplate, ISSUER);
+    registeredClient =
+        RegisteredClient.withId(UUID.randomUUID().toString())
+            .clientId(CLIENT_ID)
+            .clientAuthenticationMethod(ClientAuthenticationMethod.PRIVATE_KEY_JWT)
+            .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
+            .build();
 
-        lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        lenient().when(valueOperations.setIfAbsent(anyString(), eq("1"), any(Duration.class))).thenReturn(Boolean.TRUE);
-    }
+    lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+    lenient()
+        .when(valueOperations.setIfAbsent(anyString(), eq("1"), any(Duration.class)))
+        .thenReturn(Boolean.TRUE);
+  }
 
-    private String signedAssertion(JWTClaimsSet claims) throws Exception {
-        SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.RS256), claims);
-        jwt.sign(new RSASSASigner(privateKey));
-        return jwt.serialize();
-    }
+  private String signedAssertion(JWTClaimsSet claims) throws Exception {
+    SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.RS256), claims);
+    jwt.sign(new RSASSASigner(privateKey));
+    return jwt.serialize();
+  }
 
-    private JWTClaimsSet.Builder validClaimsBuilder() {
-        Instant now = Instant.now();
-        return new JWTClaimsSet.Builder()
-                .subject(CLIENT_ID)
-                .issuer(CLIENT_ID)
-                .audience(ISSUER + "/oauth2/token")
-                .jwtID(UUID.randomUUID().toString())
-                .issueTime(Date.from(now))
-                .expirationTime(Date.from(now.plusSeconds(60)));
-    }
+  private JWTClaimsSet.Builder validClaimsBuilder() {
+    Instant now = Instant.now();
+    return new JWTClaimsSet.Builder()
+        .subject(CLIENT_ID)
+        .issuer(CLIENT_ID)
+        .audience(ISSUER + "/oauth2/token")
+        .jwtID(UUID.randomUUID().toString())
+        .issueTime(Date.from(now))
+        .expirationTime(Date.from(now.plusSeconds(60)));
+  }
 
-    @Test
-    void createDecoder_ThrowsInvalidClient_WhenNoPublicKeyRegistered() {
-        when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(null);
+  @Test
+  void createDecoder_ThrowsInvalidClient_WhenNoPublicKeyRegistered() {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(null);
 
-        OAuth2AuthenticationException ex = assertThrows(OAuth2AuthenticationException.class,
-                () -> factory.createDecoder(registeredClient));
+    OAuth2AuthenticationException ex =
+        assertThrows(
+            OAuth2AuthenticationException.class, () -> factory.createDecoder(registeredClient));
 
-        assertEquals("invalid_client", ex.getError().getErrorCode());
-    }
+    assertEquals("invalid_client", ex.getError().getErrorCode());
+  }
 
-    @Test
-    void decoder_DecodesValidAssertion() throws Exception {
-        when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
-        JwtDecoder decoder = factory.createDecoder(registeredClient);
+  @Test
+  void decoder_DecodesValidAssertion() throws Exception {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    JwtDecoder decoder = factory.createDecoder(registeredClient);
 
-        String token = signedAssertion(validClaimsBuilder().build());
-        assertNotNull(decoder.decode(token).getSubject());
-    }
+    String token = signedAssertion(validClaimsBuilder().build());
+    assertNotNull(decoder.decode(token).getSubject());
+  }
 
-    @Test
-    void decoder_IsCached_ForSameClientAndKey() {
-        when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+  @Test
+  void decoder_IsCached_ForSameClientAndKey() {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
 
-        JwtDecoder first = factory.createDecoder(registeredClient);
-        JwtDecoder second = factory.createDecoder(registeredClient);
+    JwtDecoder first = factory.createDecoder(registeredClient);
+    JwtDecoder second = factory.createDecoder(registeredClient);
 
-        assertSame(first, second);    }
+    assertSame(first, second);
+  }
 
-    @Test
-    void decoder_RejectsAssertion_WhenSubjectMismatch() throws Exception {
-        when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
-        JwtDecoder decoder = factory.createDecoder(registeredClient);
+  @Test
+  void decoder_RejectsAssertion_WhenSubjectMismatch() throws Exception {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    JwtDecoder decoder = factory.createDecoder(registeredClient);
 
-        String token = signedAssertion(validClaimsBuilder().subject("someone-else").build());
+    String token = signedAssertion(validClaimsBuilder().subject("someone-else").build());
 
-        JwtException ex = assertThrows(JwtException.class, () -> decoder.decode(token));
-        assertTrue(ex.getMessage().contains("Subject"));
-    }
+    JwtException ex = assertThrows(JwtException.class, () -> decoder.decode(token));
+    assertTrue(ex.getMessage().contains("Subject"));
+  }
 
-    @Test
-    void decoder_RejectsAssertion_WhenIssuerMismatch() throws Exception {
-        when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
-        JwtDecoder decoder = factory.createDecoder(registeredClient);
+  @Test
+  void decoder_RejectsAssertion_WhenIssuerMismatch() throws Exception {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    JwtDecoder decoder = factory.createDecoder(registeredClient);
 
-        String token = signedAssertion(validClaimsBuilder().issuer("evil-client").build());
+    String token = signedAssertion(validClaimsBuilder().issuer("evil-client").build());
 
-        JwtException ex = assertThrows(JwtException.class, () -> decoder.decode(token));
-        assertTrue(ex.getMessage().contains("Issuer"));
-    }
+    JwtException ex = assertThrows(JwtException.class, () -> decoder.decode(token));
+    assertTrue(ex.getMessage().contains("Issuer"));
+  }
 
-    @Test
-    void decoder_RejectsAssertion_WhenAudienceInvalid() throws Exception {
-        when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
-        JwtDecoder decoder = factory.createDecoder(registeredClient);
+  @Test
+  void decoder_RejectsAssertion_WhenAudienceInvalid() throws Exception {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    JwtDecoder decoder = factory.createDecoder(registeredClient);
 
-        String token = signedAssertion(validClaimsBuilder().audience("https://other-server").build());
+    String token = signedAssertion(validClaimsBuilder().audience("https://other-server").build());
 
-        JwtException ex = assertThrows(JwtException.class, () -> decoder.decode(token));
-        assertTrue(ex.getMessage().contains("Audience"));
-    }
+    JwtException ex = assertThrows(JwtException.class, () -> decoder.decode(token));
+    assertTrue(ex.getMessage().contains("Audience"));
+  }
 
-    @Test
-    void decoder_AcceptsAssertion_WhenAudienceIsExactIssuer() throws Exception {
-        when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
-        JwtDecoder decoder = factory.createDecoder(registeredClient);
+  @Test
+  void decoder_AcceptsAssertion_WhenAudienceIsExactIssuer() throws Exception {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    JwtDecoder decoder = factory.createDecoder(registeredClient);
 
-        String token = signedAssertion(validClaimsBuilder().audience(ISSUER).build());
-        assertNotNull(decoder.decode(token));
-    }
+    String token = signedAssertion(validClaimsBuilder().audience(ISSUER).build());
+    assertNotNull(decoder.decode(token));
+  }
 
-    @Test
-    void decoder_AcceptsAssertion_WhenIssuerAbsent() throws Exception {
-        when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
-        JwtDecoder decoder = factory.createDecoder(registeredClient);
+  @Test
+  void decoder_AcceptsAssertion_WhenIssuerAbsent() throws Exception {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    JwtDecoder decoder = factory.createDecoder(registeredClient);
 
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
-                .subject(CLIENT_ID)
-                .audience(ISSUER)
-                .jwtID(UUID.randomUUID().toString())
-                .issueTime(Date.from(Instant.now()))
-                .expirationTime(Date.from(Instant.now().plusSeconds(60)))
-                .build();
-        String token = signedAssertion(claims);
-        assertNotNull(decoder.decode(token));
-    }
+    JWTClaimsSet claims =
+        new JWTClaimsSet.Builder()
+            .subject(CLIENT_ID)
+            .audience(ISSUER)
+            .jwtID(UUID.randomUUID().toString())
+            .issueTime(Date.from(Instant.now()))
+            .expirationTime(Date.from(Instant.now().plusSeconds(60)))
+            .build();
+    String token = signedAssertion(claims);
+    assertNotNull(decoder.decode(token));
+  }
 
-    @Test
-    void decoder_RejectsAssertion_OnJtiReplay() throws Exception {
-        when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
-        when(valueOperations.setIfAbsent(anyString(), eq("1"), any(Duration.class))).thenReturn(Boolean.FALSE);
-        JwtDecoder decoder = factory.createDecoder(registeredClient);
+  @Test
+  void decoder_RejectsAssertion_OnJtiReplay() throws Exception {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    when(valueOperations.setIfAbsent(anyString(), eq("1"), any(Duration.class)))
+        .thenReturn(Boolean.FALSE);
+    JwtDecoder decoder = factory.createDecoder(registeredClient);
 
-        String token = signedAssertion(validClaimsBuilder().build());
+    String token = signedAssertion(validClaimsBuilder().build());
 
-        JwtException ex = assertThrows(JwtException.class, () -> decoder.decode(token));
-        assertTrue(ex.getMessage().contains("replay"));
-    }
+    JwtException ex = assertThrows(JwtException.class, () -> decoder.decode(token));
+    assertTrue(ex.getMessage().contains("replay"));
+  }
 
-    @Test
-    void decoder_AcceptsAssertion_WhenNoJtiPresent() throws Exception {
-        when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
-        JwtDecoder decoder = factory.createDecoder(registeredClient);
+  @Test
+  void decoder_AcceptsAssertion_WhenNoJtiPresent() throws Exception {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    JwtDecoder decoder = factory.createDecoder(registeredClient);
 
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
-                .subject(CLIENT_ID)
-                .issuer(CLIENT_ID)
-                .audience(ISSUER)
-                .issueTime(Date.from(Instant.now()))
-                .expirationTime(Date.from(Instant.now().plusSeconds(60)))
-                .build();
-        String token = signedAssertion(claims);
-        assertNotNull(decoder.decode(token));
-    }
+    JWTClaimsSet claims =
+        new JWTClaimsSet.Builder()
+            .subject(CLIENT_ID)
+            .issuer(CLIENT_ID)
+            .audience(ISSUER)
+            .issueTime(Date.from(Instant.now()))
+            .expirationTime(Date.from(Instant.now().plusSeconds(60)))
+            .build();
+    String token = signedAssertion(claims);
+    assertNotNull(decoder.decode(token));
+  }
 
-    @Test
-    void decoder_RejectsAssertion_WhenAlgorithmNotRs256() throws Exception {
-        when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
-        JwtDecoder decoder = factory.createDecoder(registeredClient);
+  @Test
+  void decoder_RejectsAssertion_WhenAlgorithmNotRs256() throws Exception {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    JwtDecoder decoder = factory.createDecoder(registeredClient);
 
-        // An HS256-signed assertion must be rejected by strict algorithm pinning.
-        SignedJWT hs = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), validClaimsBuilder().build());
-        hs.sign(new MACSigner(new byte[32]));
+    // An HS256-signed assertion must be rejected by strict algorithm pinning.
+    SignedJWT hs = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), validClaimsBuilder().build());
+    hs.sign(new MACSigner(new byte[32]));
 
-        assertThrows(JwtException.class, () -> decoder.decode(hs.serialize()));
-    }
+    assertThrows(JwtException.class, () -> decoder.decode(hs.serialize()));
+  }
 }

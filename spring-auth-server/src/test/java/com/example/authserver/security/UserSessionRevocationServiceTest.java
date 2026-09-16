@@ -1,5 +1,10 @@
 package com.example.authserver.security;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,188 +20,187 @@ import org.springframework.security.oauth2.server.authorization.OAuth2Authorizat
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
-
 @ExtendWith(MockitoExtension.class)
 class UserSessionRevocationServiceTest {
 
-    @Mock
-    private OAuth2AuthorizationService authorizationService;
+  @Mock private OAuth2AuthorizationService authorizationService;
 
-    @Mock
-    private StringRedisTemplate redisTemplate;
+  @Mock private StringRedisTemplate redisTemplate;
 
-    @Mock
-    private JdbcTemplate jdbcTemplate;
+  @Mock private JdbcTemplate jdbcTemplate;
 
-    @Mock
-    private ValueOperations<String, String> valueOperations;
+  @Mock private ValueOperations<String, String> valueOperations;
 
-    @Mock
-    private Cursor<String> cursor;
+  @Mock private Cursor<String> cursor;
 
-    @InjectMocks
-    private UserSessionRevocationService service;
+  @InjectMocks private UserSessionRevocationService service;
 
-    private final String redisPrefix = "session:";
+  private final String redisPrefix = "session:";
 
-    @BeforeEach
-    void setUp() {
-        ReflectionTestUtils.setField(service, "redisPrefix", redisPrefix);
-    }
+  @BeforeEach
+  void setUp() {
+    ReflectionTestUtils.setField(service, "redisPrefix", redisPrefix);
+  }
 
-    @Test
-    void testRevokeUserGlobally_UsernameProvided_DeletesFromDbAndScansRedis() {
-        String username = "testuser";
-        when(jdbcTemplate.update("DELETE FROM oauth2_authorization WHERE principal_name = ?", username))
-                .thenReturn(3);
+  @Test
+  void testRevokeUserGlobally_UsernameProvided_DeletesFromDbAndScansRedis() {
+    String username = "testuser";
+    when(jdbcTemplate.update("DELETE FROM oauth2_authorization WHERE principal_name = ?", username))
+        .thenReturn(3);
 
-        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
-        when(cursor.hasNext()).thenReturn(true, true, true, false);
-        when(cursor.next()).thenReturn("session:1", "session:2", "session:3");
-        
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.get("session:1")).thenReturn("{\"username\":\"testuser\"}");
-        when(valueOperations.get("session:2")).thenReturn("{\"username\":\"otheruser\"}");
-        when(valueOperations.get("session:3")).thenReturn(null);
+    when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
+    when(cursor.hasNext()).thenReturn(true, true, true, false);
+    when(cursor.next()).thenReturn("session:1", "session:2", "session:3");
 
-        when(redisTemplate.delete("session:1")).thenReturn(Boolean.TRUE);
+    when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+    when(valueOperations.get("session:1")).thenReturn("{\"username\":\"testuser\"}");
+    when(valueOperations.get("session:2")).thenReturn("{\"username\":\"otheruser\"}");
+    when(valueOperations.get("session:3")).thenReturn(null);
 
-        UserSessionRevocationService.RevocationResult result = service.revokeUserGlobally(username, null, null);
+    when(redisTemplate.delete("session:1")).thenReturn(Boolean.TRUE);
 
-        assertEquals(3, result.purgedAuthorizations());
-        assertTrue(result.sessionEvicted());
+    UserSessionRevocationService.RevocationResult result =
+        service.revokeUserGlobally(username, null, null);
 
-        verify(jdbcTemplate).update("DELETE FROM oauth2_authorization WHERE principal_name = ?", username);
-        verify(redisTemplate).scan(any(ScanOptions.class));
-        verify(redisTemplate).delete("session:1");
-        verify(redisTemplate, never()).delete("session:2");
-        verify(redisTemplate, never()).delete("session:3");
-        verify(cursor).close(); // since try-with-resources calls close()
-    }
+    assertEquals(3, result.purgedAuthorizations());
+    assertTrue(result.sessionEvicted());
 
-    @Test
-    void testRevokeUserGlobally_ScanThrowsException_HandlesExceptionGracefully() {
-        String username = "testuser";
-        when(jdbcTemplate.update("DELETE FROM oauth2_authorization WHERE principal_name = ?", username))
-                .thenReturn(1);
+    verify(jdbcTemplate)
+        .update("DELETE FROM oauth2_authorization WHERE principal_name = ?", username);
+    verify(redisTemplate).scan(any(ScanOptions.class));
+    verify(redisTemplate).delete("session:1");
+    verify(redisTemplate, never()).delete("session:2");
+    verify(redisTemplate, never()).delete("session:3");
+    verify(cursor).close(); // since try-with-resources calls close()
+  }
 
-        when(redisTemplate.scan(any(ScanOptions.class))).thenThrow(new RuntimeException("Redis down"));
+  @Test
+  void testRevokeUserGlobally_ScanThrowsException_HandlesExceptionGracefully() {
+    String username = "testuser";
+    when(jdbcTemplate.update("DELETE FROM oauth2_authorization WHERE principal_name = ?", username))
+        .thenReturn(1);
 
-        UserSessionRevocationService.RevocationResult result = service.revokeUserGlobally(username, null, null);
+    when(redisTemplate.scan(any(ScanOptions.class))).thenThrow(new RuntimeException("Redis down"));
 
-        assertEquals(1, result.purgedAuthorizations());
-        assertFalse(result.sessionEvicted());
-    }
+    UserSessionRevocationService.RevocationResult result =
+        service.revokeUserGlobally(username, null, null);
 
-    @Test
-    void testRevokeUserGlobally_SingleAuthorizationProvided_RemovesAuthorization() {
-        OAuth2Authorization authorization = mock(OAuth2Authorization.class);
+    assertEquals(1, result.purgedAuthorizations());
+    assertFalse(result.sessionEvicted());
+  }
 
-        UserSessionRevocationService.RevocationResult result = service.revokeUserGlobally(null, authorization, null);
+  @Test
+  void testRevokeUserGlobally_SingleAuthorizationProvided_RemovesAuthorization() {
+    OAuth2Authorization authorization = mock(OAuth2Authorization.class);
 
-        assertEquals(1, result.purgedAuthorizations());
-        assertFalse(result.sessionEvicted());
+    UserSessionRevocationService.RevocationResult result =
+        service.revokeUserGlobally(null, authorization, null);
 
-        verify(authorizationService).remove(authorization);
-        verifyNoInteractions(jdbcTemplate);
-        verifyNoInteractions(redisTemplate);
-    }
-    
-    @Test
-    void testRevokeUserGlobally_UsernameBlank_SingleAuthorizationProvided_RemovesAuthorization() {
-        OAuth2Authorization authorization = mock(OAuth2Authorization.class);
+    assertEquals(1, result.purgedAuthorizations());
+    assertFalse(result.sessionEvicted());
 
-        UserSessionRevocationService.RevocationResult result = service.revokeUserGlobally("   ", authorization, null);
+    verify(authorizationService).remove(authorization);
+    verifyNoInteractions(jdbcTemplate);
+    verifyNoInteractions(redisTemplate);
+  }
 
-        assertEquals(1, result.purgedAuthorizations());
-        assertFalse(result.sessionEvicted());
+  @Test
+  void testRevokeUserGlobally_UsernameBlank_SingleAuthorizationProvided_RemovesAuthorization() {
+    OAuth2Authorization authorization = mock(OAuth2Authorization.class);
 
-        verify(authorizationService).remove(authorization);
-        verifyNoInteractions(jdbcTemplate);
-        verifyNoInteractions(redisTemplate);
-    }
+    UserSessionRevocationService.RevocationResult result =
+        service.revokeUserGlobally("   ", authorization, null);
 
-    @Test
-    void testRevokeUserGlobally_NothingProvided_DoesNothing() {
-        UserSessionRevocationService.RevocationResult result = service.revokeUserGlobally(null, null, null);
+    assertEquals(1, result.purgedAuthorizations());
+    assertFalse(result.sessionEvicted());
 
-        assertEquals(0, result.purgedAuthorizations());
-        assertFalse(result.sessionEvicted());
+    verify(authorizationService).remove(authorization);
+    verifyNoInteractions(jdbcTemplate);
+    verifyNoInteractions(redisTemplate);
+  }
 
-        verifyNoInteractions(authorizationService);
-        verifyNoInteractions(jdbcTemplate);
-        verifyNoInteractions(redisTemplate);
-    }
+  @Test
+  void testRevokeUserGlobally_NothingProvided_DoesNothing() {
+    UserSessionRevocationService.RevocationResult result =
+        service.revokeUserGlobally(null, null, null);
 
-    @Test
-    void testRevokeUserGlobally_SessionIdProvided_ValidUuid_EvictsSession() {
-        UUID sessionId = UUID.randomUUID();
-        String sessionIdStr = sessionId.toString();
+    assertEquals(0, result.purgedAuthorizations());
+    assertFalse(result.sessionEvicted());
 
-        when(redisTemplate.delete(redisPrefix + sessionIdStr)).thenReturn(Boolean.TRUE);
+    verifyNoInteractions(authorizationService);
+    verifyNoInteractions(jdbcTemplate);
+    verifyNoInteractions(redisTemplate);
+  }
 
-        UserSessionRevocationService.RevocationResult result = service.revokeUserGlobally(null, null, sessionIdStr);
+  @Test
+  void testRevokeUserGlobally_SessionIdProvided_ValidUuid_EvictsSession() {
+    UUID sessionId = UUID.randomUUID();
+    String sessionIdStr = sessionId.toString();
 
-        assertEquals(0, result.purgedAuthorizations());
-        assertTrue(result.sessionEvicted());
+    when(redisTemplate.delete(redisPrefix + sessionIdStr)).thenReturn(Boolean.TRUE);
 
-        verify(redisTemplate).delete(redisPrefix + sessionIdStr);
-    }
-    
-    @Test
-    void testRevokeUserGlobally_SessionIdProvided_ValidUuidWithSpaces_EvictsSession() {
-        UUID sessionId = UUID.randomUUID();
-        String sessionIdStr = " " + sessionId.toString() + " ";
+    UserSessionRevocationService.RevocationResult result =
+        service.revokeUserGlobally(null, null, sessionIdStr);
 
-        when(redisTemplate.delete(redisPrefix + sessionId)).thenReturn(Boolean.FALSE);
+    assertEquals(0, result.purgedAuthorizations());
+    assertTrue(result.sessionEvicted());
 
-        UserSessionRevocationService.RevocationResult result = service.revokeUserGlobally(null, null, sessionIdStr);
+    verify(redisTemplate).delete(redisPrefix + sessionIdStr);
+  }
 
-        assertEquals(0, result.purgedAuthorizations());
-        assertFalse(result.sessionEvicted());
+  @Test
+  void testRevokeUserGlobally_SessionIdProvided_ValidUuidWithSpaces_EvictsSession() {
+    UUID sessionId = UUID.randomUUID();
+    String sessionIdStr = " " + sessionId.toString() + " ";
 
-        verify(redisTemplate).delete(redisPrefix + sessionId);
-    }
+    when(redisTemplate.delete(redisPrefix + sessionId)).thenReturn(Boolean.FALSE);
 
-    @Test
-    void testRevokeUserGlobally_SessionIdProvided_InvalidUuid_CatchesException() {
-        String invalidSessionId = "not-a-uuid";
+    UserSessionRevocationService.RevocationResult result =
+        service.revokeUserGlobally(null, null, sessionIdStr);
 
-        UserSessionRevocationService.RevocationResult result = service.revokeUserGlobally(null, null, invalidSessionId);
+    assertEquals(0, result.purgedAuthorizations());
+    assertFalse(result.sessionEvicted());
 
-        assertEquals(0, result.purgedAuthorizations());
-        assertFalse(result.sessionEvicted());
+    verify(redisTemplate).delete(redisPrefix + sessionId);
+  }
 
-        verifyNoInteractions(redisTemplate);
-    }
-    
-    @Test
-    void testRevokeUserGlobally_SessionIdProvided_RedisReturnsNull_DoesNotEvict() {
-        UUID sessionId = UUID.randomUUID();
-        String sessionIdStr = sessionId.toString();
+  @Test
+  void testRevokeUserGlobally_SessionIdProvided_InvalidUuid_CatchesException() {
+    String invalidSessionId = "not-a-uuid";
 
-        when(redisTemplate.delete(redisPrefix + sessionIdStr)).thenReturn(null);
+    UserSessionRevocationService.RevocationResult result =
+        service.revokeUserGlobally(null, null, invalidSessionId);
 
-        UserSessionRevocationService.RevocationResult result = service.revokeUserGlobally(null, null, sessionIdStr);
+    assertEquals(0, result.purgedAuthorizations());
+    assertFalse(result.sessionEvicted());
 
-        assertEquals(0, result.purgedAuthorizations());
-        assertFalse(result.sessionEvicted());
+    verifyNoInteractions(redisTemplate);
+  }
 
-        verify(redisTemplate).delete(redisPrefix + sessionIdStr);
-    }
-    
-    @Test
-    void testRevokeUserGlobally_SessionIdBlank_DoesNothing() {
-        UserSessionRevocationService.RevocationResult result = service.revokeUserGlobally(null, null, "  ");
+  @Test
+  void testRevokeUserGlobally_SessionIdProvided_RedisReturnsNull_DoesNotEvict() {
+    UUID sessionId = UUID.randomUUID();
+    String sessionIdStr = sessionId.toString();
 
-        assertEquals(0, result.purgedAuthorizations());
-        assertFalse(result.sessionEvicted());
+    when(redisTemplate.delete(redisPrefix + sessionIdStr)).thenReturn(null);
 
-        verifyNoInteractions(redisTemplate);
-    }
+    UserSessionRevocationService.RevocationResult result =
+        service.revokeUserGlobally(null, null, sessionIdStr);
+
+    assertEquals(0, result.purgedAuthorizations());
+    assertFalse(result.sessionEvicted());
+
+    verify(redisTemplate).delete(redisPrefix + sessionIdStr);
+  }
+
+  @Test
+  void testRevokeUserGlobally_SessionIdBlank_DoesNothing() {
+    UserSessionRevocationService.RevocationResult result =
+        service.revokeUserGlobally(null, null, "  ");
+
+    assertEquals(0, result.purgedAuthorizations());
+    assertFalse(result.sessionEvicted());
+
+    verifyNoInteractions(redisTemplate);
+  }
 }

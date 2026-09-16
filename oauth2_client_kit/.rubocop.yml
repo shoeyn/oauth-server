@@ -1,0 +1,28 @@
+plugins:
+  - rubocop-rspec
+
+AllCops:
+  TargetRubyVersion: 4.0
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - "vendor/**/*"
+    - "coverage/**/*"
+
+RSpec/MultipleExpectations:
+  Enabled: false
+
+RSpec/MultipleMemoizedHelpers:
+  Enabled: false
+
+RSpec/ExampleLength:
+  Enabled: false
+
+Metrics/ClassLength:
+  Max: 200
+
+RSpec/SpecFilePathFormat:
+  CustomTransform:
+    OAuth2: oauth2
+    OAuth2ClientKit: oauth2_client_kit
+

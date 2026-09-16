@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
-require "redis"
-require "json"
+require 'redis'
+require 'json'
 
 module OAuth2ClientKit
+  # Redis and Rails cache token and session store with backchannel logout eviction.
   class TokenStore
     attr_reader :redis
 
@@ -32,9 +33,7 @@ module OAuth2ClientKit
     end
 
     def delete(token_key)
-      if defined?(Rails) && Rails.respond_to?(:cache) && Rails.cache
-        Rails.cache.delete("token:#{token_key}")
-      end
+      Rails.cache.delete("token:#{token_key}") if defined?(Rails) && Rails.respond_to?(:cache) && Rails.cache
       @redis.del("token:#{token_key}")
     end
 
@@ -45,25 +44,30 @@ module OAuth2ClientKit
     # over the serialized blob, so a sub/sid that merely appears as a substring of unrelated data
     # cannot cause cross-user eviction.
     def evict_sessions_for!(sub: nil, sid: nil)
-      evicted_count = 0
-
-      %w[*_session_id:* *token:*].each do |pattern|
-        @redis.scan_each(match: pattern) do |key|
-          raw_val = @redis.get(key)
-          next if raw_val.nil? || raw_val.empty?
-
-          if record_matches?(raw_val, sub: sub, sid: sid)
-            @redis.del(key)
-            evicted_count += 1
-            OAuth2ClientKit.logger.info("Evicted #{key} via Back-Channel Logout")
-          end
-        end
+      %w[*_session_id:* *token:*].sum do |pattern|
+        evict_pattern_keys(pattern, sub: sub, sid: sid)
       end
-
-      evicted_count
     end
 
     private
+
+    def evict_pattern_keys(pattern, sub:, sid:)
+      count = 0
+      @redis.scan_each(match: pattern) do |key|
+        count += 1 if evict_key_if_matched?(key, sub: sub, sid: sid)
+      end
+      count
+    end
+
+    def evict_key_if_matched?(key, sub:, sid:)
+      raw_val = @redis.get(key)
+      return false if raw_val.nil? || raw_val.empty?
+      return false unless record_matches?(raw_val, sub: sub, sid: sid)
+
+      @redis.del(key)
+      OAuth2ClientKit.logger.info("Evicted #{key} via Back-Channel Logout")
+      true
+    end
 
     # Returns true only when the stored record's parsed sub/sid field exactly equals the
     # requested sub/sid. Non-JSON or unparseable values never match (fail-safe: no eviction).
@@ -71,13 +75,16 @@ module OAuth2ClientKit
       data = JSON.parse(raw_val)
       return false unless data.is_a?(Hash)
 
-      record_sub = data["sub"] || data["sub".to_sym]
-      record_sid = data["sid"] || data["sid".to_sym]
-
-      (sid && !sid.to_s.empty? && record_sid.to_s == sid.to_s) ||
-        (sub && !sub.to_s.empty? && record_sub.to_s == sub.to_s)
+      matches_identifier?(data['sid'] || data[:sid], sid) ||
+        matches_identifier?(data['sub'] || data[:sub], sub)
     rescue JSON::ParserError
       false
+    end
+
+    def matches_identifier?(actual, expected)
+      return false if expected.to_s.empty?
+
+      actual.to_s == expected.to_s
     end
   end
 end

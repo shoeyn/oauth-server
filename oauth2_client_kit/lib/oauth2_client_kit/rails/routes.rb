@@ -2,14 +2,16 @@
 
 module OAuth2ClientKit
   module Routing
+    # Routing extensions for mounting OAuth 2.1 client endpoints in Rails routes.
     module RouteSetExtension
-      def mount_oauth2_client_kit(at: "")
-        match "#{at}/auth/start", to: "oauth2_client_kit/auth#start", via: [:get, :post], as: :auth_start
-        get "#{at}/callback", to: "oauth2_client_kit/auth#callback", as: :auth_callback
-        post "#{at}/auth/refresh", to: "oauth2_client_kit/auth#refresh", as: :auth_refresh
-        post "#{at}/auth/revoke", to: "oauth2_client_kit/auth#revoke", as: :auth_revoke
-        post "#{at}/oidc/backchannel_logout", to: "oauth2_client_kit/auth#backchannel_logout", as: :oidc_backchannel_logout
-        post "#{at}/logout", to: "oauth2_client_kit/auth#logout", as: :logout
+      def mount_oauth2_client_kit(at: '')
+        match "#{at}/auth/start", to: 'oauth2_client_kit/auth#start', via: %i[get post], as: :auth_start
+        get "#{at}/callback", to: 'oauth2_client_kit/auth#callback', as: :auth_callback
+        post "#{at}/auth/refresh", to: 'oauth2_client_kit/auth#refresh', as: :auth_refresh
+        post "#{at}/auth/revoke", to: 'oauth2_client_kit/auth#revoke', as: :auth_revoke
+        post "#{at}/oidc/backchannel_logout", to: 'oauth2_client_kit/auth#backchannel_logout',
+                                              as: :oidc_backchannel_logout
+        post "#{at}/logout", to: 'oauth2_client_kit/auth#logout', as: :logout
       end
     end
   end

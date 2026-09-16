@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'capybara/cucumber'
 require 'capybara/cuprite'
 require 'rspec/expectations'

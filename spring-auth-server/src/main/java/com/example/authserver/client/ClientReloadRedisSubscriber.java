@@ -14,26 +14,29 @@ import org.springframework.data.redis.listener.adapter.MessageListenerAdapter;
 @Configuration(proxyBeanMethods = false)
 public class ClientReloadRedisSubscriber {
 
-    @Bean
-    public RedisMessageListenerContainer redisMessageListenerContainer(
-            RedisConnectionFactory connectionFactory,
-            PostgresRegisteredClientRepository registeredClientRepository,
-            @Value("${spring.data.redis.channel.reload:oauth2as:clients:reload}") String reloadTopic) {
+  @Bean
+  public RedisMessageListenerContainer redisMessageListenerContainer(
+      RedisConnectionFactory connectionFactory,
+      PostgresRegisteredClientRepository registeredClientRepository,
+      @Value("${spring.data.redis.channel.reload:oauth2as:clients:reload}") String reloadTopic) {
 
-        RedisMessageListenerContainer container = new RedisMessageListenerContainer();
-        container.setConnectionFactory(connectionFactory);
+    RedisMessageListenerContainer container = new RedisMessageListenerContainer();
+    container.setConnectionFactory(connectionFactory);
 
-        MessageListenerAdapter adapter = new MessageListenerAdapter(
-                (MessageListener) (message, pattern) -> {
-                    String channel = new String(message.getChannel());
-                    String body = new String(message.getBody());
-                    log.info("Received Redis pub/sub reload signal on channel '{}': {}", channel, body);
-                    registeredClientRepository.refresh();
-                }
-        );
+    MessageListenerAdapter adapter =
+        new MessageListenerAdapter(
+            (MessageListener)
+                (message, pattern) -> {
+                  String channel = new String(message.getChannel());
+                  String body = new String(message.getBody());
+                  log.info(
+                      "Received Redis pub/sub reload signal on channel '{}': {}", channel, body);
+                  registeredClientRepository.refresh();
+                });
 
-        container.addMessageListener(adapter, new ChannelTopic(reloadTopic));
-        log.info("Subscribed to Redis pub/sub channel '{}' for dynamic client re-registration", reloadTopic);
-        return container;
-    }
+    container.addMessageListener(adapter, new ChannelTopic(reloadTopic));
+    log.info(
+        "Subscribed to Redis pub/sub channel '{}' for dynamic client re-registration", reloadTopic);
+    return container;
+  }
 }

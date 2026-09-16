@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# Controller providing landing, user profile, and sensitive action demo endpoints
+# leveraging OAuth2ClientKit session and token methods.
 class PagesController < ApplicationController
   include OAuth2ClientKit::ControllerMethods
 
@@ -20,45 +22,54 @@ class PagesController < ApplicationController
     token_data = current_token_data
     if token_data.blank? || token_data[:raw_access_token].blank?
       reset_session
-      flash[:error] = "Session tokens have expired or are unavailable. Please log in again."
-      return redirect_to "/"
+      flash[:error] = I18n.t('pages.profile.tokens_unavailable')
+      return redirect_to '/'
     end
 
     ensure_fresh_access_token!
-    token_data = current_token_data
+    assign_profile_variables
+  end
 
+  # POST /auth/sensitive_action
+  # Demonstrates pre-flight Identity Checkpoint (introspection) before sensitive business actions
+  def sensitive_action
+    require_authentication! or return
+
+    checkpoint = identity_checkpoint!
+    @introspection_result = checkpoint[:claims]
+
+    handle_checkpoint_result(checkpoint)
+  end
+
+  private
+
+  def assign_profile_variables
     @user = current_user
     @id_token_claims = current_id_token_claims
     @token_scopes = current_token_scopes
     @userinfo_claims = current_userinfo_claims
     @access_token_claims = current_access_token_claims
+    assign_token_metadata
+  end
+
+  def assign_token_metadata
     @raw_id_token = current_raw_id_token
     @raw_access_token = current_access_token
     @raw_refresh_token = current_raw_refresh_token
     @auth_flow = current_auth_flow
     @expires_at = current_token_expires_at
     @token_type = current_token_type
-    @dpop_jkt = @access_token_claims.dig("cnf", "jkt")
+    @dpop_jkt = @access_token_claims.dig('cnf', 'jkt')
   end
 
-  # POST /auth/sensitive_action
-  # Demonstrates pre-flight Identity Checkpoint (introspection) before sensitive business actions (e.g. payments)
-  def sensitive_action
-    require_authentication! or return
-
-    # Pre-flight Identity Checkpoint:
-    # Verifies with the Authorization Server via RFC 7662 Introspection that the token is still active and valid.
-    # If the session was revoked early at the AS, identity_checkpoint! clears local state immediately.
-    checkpoint = identity_checkpoint!
-    @introspection_result = checkpoint[:claims]
-
+  def handle_checkpoint_result(checkpoint)
     if checkpoint[:active]
-      flash[:notice] = "🛡️ Sensitive Action Approved! Token Introspection verified active=true (Subject: #{checkpoint[:sub]})."
+      flash[:notice] =
+        "🛡️ Sensitive Action Approved! Token Introspection verified active=true (Subject: #{checkpoint[:sub]})."
+      redirect_to '/profile'
     else
-      flash[:error] = "🚨 SECURITY ALERT: Token Introspection check returned active=false. Authorization Server terminated the session early. Local session cleared."
-      return redirect_to "/"
+      flash[:error] = I18n.t('pages.sensitive_action.alert_revoked')
+      redirect_to '/'
     end
-
-    redirect_to "/profile"
   end
 end
