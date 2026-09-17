@@ -26,6 +26,7 @@ RSpec.describe SessionsController, type: :controller do
     allow(Net::HTTP).to receive(:new).and_return(http_mock)
     allow(http_mock).to receive(:open_timeout=)
     allow(http_mock).to receive(:read_timeout=)
+    allow(http_mock).to receive(:request)
 
     # Allow localhost:9000 as a trusted return host regardless of env at boot.
     allow(Rails.configuration.x.auth_server)

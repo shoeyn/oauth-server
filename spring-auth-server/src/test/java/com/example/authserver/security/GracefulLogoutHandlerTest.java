@@ -203,6 +203,35 @@ public class GracefulLogoutHandlerTest {
   }
 
   @Test
+  void handleGracefully_withBlankStateParameter_doesNotAppendStateQueryParam() throws Exception {
+    String clientId = "demo-client";
+    String redirectUri = "http://localhost:8080/logout-success";
+
+    Date expiredTime = Date.from(Instant.now().minusSeconds(3600));
+    String expiredJwt = createSignedJwt(clientId, expiredTime);
+
+    when(request.getParameter("id_token_hint")).thenReturn(expiredJwt);
+    when(request.getParameter("post_logout_redirect_uri")).thenReturn(redirectUri);
+    when(request.getParameter("state")).thenReturn("   ");
+
+    RegisteredClient client =
+        RegisteredClient.withId(UUID.randomUUID().toString())
+            .clientId(clientId)
+            .clientAuthenticationMethod(ClientAuthenticationMethod.NONE)
+            .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+            .redirectUri("http://localhost:8080/callback")
+            .postLogoutRedirectUri(redirectUri)
+            .build();
+
+    when(registeredClientRepository.findByClientId(clientId)).thenReturn(client);
+
+    boolean handled = handler.handleGracefully(request, response);
+
+    assertTrue(handled);
+    verify(response).sendRedirect(redirectUri);
+  }
+
+  @Test
   void handleGracefully_unregisteredRedirectUri_returnsFalse() throws Exception {
     String clientId = "demo-client";
     String unapprovedUri = "http://evil.com/logout";

@@ -19,8 +19,10 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
   - [Option A: Running with Docker Compose (Recommended)](#option-a-running-with-docker-compose-recommended)
   - [Option B: Running Locally with Mise / Native CLI](#option-b-running-locally-with-mise-native-cli)
 - [Connecting a New Client Application](#connecting-a-new-client-application)
-- [Running the Automated Functional Test Suites](#running-the-automated-functional-test-suites)
-  - [Run Functional Tests from any component directory:](#run-functional-tests-from-any-component-directory)
+- [Running the Automated Test Suites](#running-the-automated-test-suites)
+  - [1. End-to-End Functional Test Suite (Cucumber)](#1-end-to-end-functional-test-suite-cucumber)
+  - [2. Component Unit Test Suites & Code Coverage (100% Enforced)](#2-component-unit-test-suites--code-coverage-100-enforced)
+  - [3. Static Analysis & Linting (RuboCop, Checkstyle, Spotless, Oxlint)](#3-static-analysis--linting-rubocop-checkstyle-spotless-oxlint)
 - [Performance & Concurrency Load Testing (k6)](#performance-concurrency-load-testing-k6)
   - [Run k6 Load Test:](#run-k6-load-test)
   - [Measured Performance Benchmarks:](#measured-performance-benchmarks)
@@ -267,48 +269,62 @@ To onboard a new application or service (e.g. Rails web app or backend microserv
 
 ---
 
-## Running the Automated Functional Test Suites
+## Running the Automated Test Suites
 
-A comprehensive, multi-step automated test harness is provided across all subprojects, verifying both core OAuth 2.1 security features and dynamic PostgreSQL client configuration with Redis hot-reloading:
+The platform employs a rigorous, multi-layered testing strategy combining end-to-end browser journeys, comprehensive unit suites with 100% enforced code coverage across all services, and zero-tolerance static analysis.
 
-1. **Suite 1: OAuth 2.1 & OIDC Advanced Security Features (`test_oauth_security_features.rb`)**
-   - Zero-scope client authorization & server-determined scope assignment
-   - RFC 9126 Pushed Authorization Requests (PAR)
-   - RFC 9207 Authorization Server Issuer Identification (Mix-Up attack defense)
-   - Rejection of weak client authentication (`client_secret_basic`, `client_secret_post`)
-   - Mandatory RFC 9449 DPoP proof enforcement & `cnf.jkt` sender-constraint verification
-   - RFC 7009 token revocation & RFC 7662 token introspection
-   - OpenID Connect Back-Channel Logout 1.0 (signed `logout_token` JWS delivery & session eviction)
+### 1. End-to-End Functional Test Suite (Cucumber)
 
-2. **Suite 2: Dynamic PostgreSQL Client Config & Redis Hot-Reload (`test_s3_dynamic_client_reload.rb`)**
-   - Next.js REST API & Spring Admin REST API connectivity
-   - On-the-fly 2048-bit RSA key pair generation & client creation via `POST /api/clients`
-   - Real-time Redis Pub/Sub notification (`oauth2as:clients:reload`) & Spring dynamic near-cache reload
-   - Dynamic client authentication (PAR + PKCE + `private_key_jwt` + DPoP token exchange)
-   - Dynamic client deletion via `DELETE /api/clients/:id` & immediate HTTP 401 revocation
+The `e2e-tests` directory contains automated **Cucumber** / **Capybara** / **Cuprite** (headless Chrome) end-to-end scenarios executing against the live services (`demo-client :8080`, `rails-app :3000`, `nginx :9000`, `spring-auth-server :9001`):
 
-3. **Suite 3: Performance, In-Memory Caching & Resilience (`test_performance_and_resilience.rb`)**
-   - In-memory response caching on `/.well-known/**` and `/oauth2/jwks` returning HTTP 304 Not Modified
-   - Ephemeral EC P-256 vs RSA-2048 DPoP key generation benchmark (>4,000x speedup)
-   - In-memory thread-safe JWKS cache resolution (< 1 ms lookup)
-   - Automated retry loop with exponential backoff & randomized jitter
+- **`oauth_authorization.feature`**: Full interactive authorization code flow (PAR, PKCE S256, DPoP, Rails SSO redirect, `private_key_jwt` token exchange, and authenticated profile render).
+- **`token_lifecycle.feature`**: Refresh token rotation with DPoP sender constraint, sensitive action authorization via real-time token introspection (`RFC 7662`), and explicit token revocation (`RFC 7009`).
+- **`error_journeys.feature`**: JARM error response mode validation, simulating Account Locked (client custom view override) and Account Suspended (OAuth2ClientKit default error view).
+- **`invalid_login.feature`**: Credential validation failure handling at the Rails IdP with flash error feedback.
+- **`fraud_revocation.feature`**: Admin fraud flag activation via Spring Admin API immediately terminating the user's active session and revoking authorizations across Redis and PostgreSQL.
 
-4. **Suite 4: AWS KMS Cryptographic Signing, Multi-Key Rotation & Strict Algorithm Pinning (`test_kms_signing.rb`)**
-   - Direct AWS KMS HSM asymmetric signing validation (private keys remain within KMS boundary)
-   - Strict Algorithm Pinning negative tests (verifies that `alg: none` and `alg: HS256` client assertions are strictly rejected with HTTP 400)
-   - Graceful multi-key JWKS rotation (verifies dual key publication at `/oauth2/jwks` and validates tokens signed by active vs. previous keys)
-
-### Run Functional Tests from any component directory:
+> **Dynamic Test User Lifecycle:** Test users are dynamically created before each scenario via Spring's authenticated Admin API (`POST /api/admin/users`) using the two-stage SHA-256 $\rightarrow$ BCrypt password pipeline, and cleaned up automatically in the Cucumber `After` hook.
 
 ```bash
-# From Spring Authorization Server:
-bash spring-auth-server/functional_tests/run_functional_tests.sh
+# Run all 8 Cucumber end-to-end scenarios (requires Docker containers running)
+cd e2e-tests
+mise exec -- bundle install
+mise exec -- bundle exec cucumber
 
-# From Demo Client:
-bash demo-client/functional_tests/run_functional_tests.sh
+# Dry-run validation (validates steps under --strict without browser execution)
+mise exec -- bundle exec cucumber --dry-run
+```
 
-# From Client Manager:
-bash client-manager/functional_tests/run_functional_tests.sh
+### 2. Component Unit Test Suites & Code Coverage (100% Enforced)
+
+Strict 100% test coverage is enforced by CI across every component:
+
+| Component | Test Framework | Coverage Tool | Target | Execution Command |
+|---|---|---|---|---|
+| **`oauth2_client_kit`** | RSpec + WebMock | SimpleCov | **100.0% Lines** (115/115 specs) | `cd oauth2_client_kit && mise exec -- bundle exec rspec` |
+| **`rails-app`** | RSpec-Rails | SimpleCov | **100.0% Lines** (26/26 specs) | `cd rails-app && mise exec -- bundle exec rspec` |
+| **`demo-client`** | RSpec-Rails | SimpleCov | **100.0% Lines** (8/8 specs) | `cd demo-client && mise exec -- bundle exec rspec` |
+| **`client-manager`** | Vitest + React Testing Library | `@vitest/coverage-v8` | **100% All** (47/47 tests) | `cd client-manager && pnpm test` |
+| **`spring-auth-server`** | JUnit 5 + Mockito | JaCoCo | **100% Branches/Lines** (182/182 tests) | `cd spring-auth-server && mise exec -- mvn test` |
+
+### 3. Static Analysis & Linting (RuboCop, Checkstyle, Spotless, Oxlint)
+
+Zero linter offenses or formatting deviations are tolerated across all repositories:
+
+```bash
+# Ruby linting (TargetRubyVersion: 4.0 across all gems, apps, and e2e suites):
+cd oauth2_client_kit && mise exec -- rubocop
+cd rails-app && mise exec -- rubocop
+cd demo-client && mise exec -- rubocop
+cd e2e-tests && mise exec -- rubocop
+
+# Java formatting and style checks (Spotless Google Java Format + Checkstyle):
+cd spring-auth-server && mise exec -- mvn spotless:check checkstyle:check
+# To automatically apply Spotless formatting:
+cd spring-auth-server && mise exec -- mvn spotless:apply
+
+# TypeScript / Next.js linting & formatting (Oxlint + Oxfmt):
+cd client-manager && pnpm lint && pnpm format:check
 ```
 
 ---
@@ -374,22 +390,27 @@ k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 │       └── testing_and_troubleshooting.md   # Security testing and debugging runbooks
 ├── localstack/                     # LocalStack AWS KMS initialization & key provisioning
 │   └── init/02-init-kms.sh         # Provisions RSA_2048 signing keys in KMS with alias
-├── client-manager/                 # Next.js 15 OAuth 2.1 Client Configuration Manager
+├── e2e-tests/                      # End-to-End Cucumber & Capybara/Cuprite test suite
+│   ├── cucumber.yml                # Strict mode Cucumber runner profile
+│   ├── Gemfile                     # Cucumber, Capybara, Cuprite, RSpec expectations
+│   ├── features/                   # 5 Gherkin feature files (8 scenarios)
+│   │   ├── oauth_authorization.feature # PAR + DPoP + PKCE + Rails SSO login flow
+│   │   ├── token_lifecycle.feature     # Refresh rotation, introspection guard, RFC 7009 revocation
+│   │   ├── error_journeys.feature      # Account locked/suspended JARM error flows
+│   │   ├── invalid_login.feature       # Credential rejection at Rails IdP
+│   │   ├── fraud_revocation.feature    # Admin fraud flag -> distributed session & token purge
+│   │   ├── step_definitions/           # Capybara browser interaction steps
+│   │   └── support/                    # Driver setup (Cuprite) & dynamic test user hooks
+│   └── README.md                   # E2E test execution documentation
+├── client-manager/                 # Next.js 16 OAuth 2.1 Client Configuration Manager
 │   ├── app/                        # Dashboard UI, client modals, raw JSON viewer
 │   ├── app/api/clients/            # Proxy endpoints forwarding to Spring Admin REST API
-│   ├── functional_tests/           # Client manager copy of functional test suite
-│   │   ├── run_functional_tests.sh
-│   │   ├── test_oauth_security_features.rb
-│   │   ├── test_s3_dynamic_client_reload.rb
-│   │   └── test_performance_and_resilience.rb
-│   └── lib/clients.ts              # Spring Admin API proxy client & X-Admin-Api-Key authentication
+│   ├── lib/clients.ts              # Spring Admin API proxy client & X-Admin-Api-Key authentication
+│   ├── __tests__/                  # Vitest unit tests (100% coverage enforced)
+│   └── README.md                   # Client manager documentation & script reference
 ├── spring-auth-server/             # Spring Boot 4 / Spring Security 7 Authorization Server
-│   ├── functional_tests/           # Automated security test suite & shell runner
-│   │   ├── run_functional_tests.sh
-│   │   ├── test_oauth_security_features.rb
-│   │   ├── test_s3_dynamic_client_reload.rb
-│   │   └── test_performance_and_resilience.rb
-│   ├── pom.xml
+│   ├── pom.xml                     # Maven dependencies, Checkstyle, Spotless, and JaCoCo gates
+│   ├── src/test/                   # JUnit 5 + Mockito unit tests (100% coverage enforced)
 │   └── src/main/
 │       ├── java/com/example/authserver/
 │       │   ├── client/

@@ -105,10 +105,25 @@ Visit: **`http://localhost:3001`**
 
 ---
 
-## Running Functional Tests
+## Testing & Code Quality
 
+### Unit Tests & Coverage (100% Enforced)
+Run Vitest with React Testing Library and v8 coverage:
 ```bash
-bash functional_tests/run_functional_tests.sh
+pnpm test
 ```
 
-Verifies client creation, near-cache synchronization, OAuth 2.1 code exchange authentication against Spring, and dynamic client deletion.
+### Static Analysis & Formatting
+Run Oxlint and Oxfmt:
+```bash
+pnpm lint
+pnpm format:check
+pnpm format        # Auto-formats TypeScript and TSX files
+```
+
+### End-to-End Tests
+Client management and OAuth flows are validated end-to-end via Cucumber:
+```bash
+cd ../e2e-tests
+mise exec -- bundle exec cucumber
+```

@@ -119,8 +119,8 @@ export function testFullAuthFlow() {
   // Step 3: Authenticate at Rails IdP (POST /login)
   // Rails sets SHARED_SESSION_ID cookie and redirects back to Spring AS return_to
   const payload = {
-    username: `load_user_${__VU}_${__ITER}`,
-    password: 'password',
+    email: 'alice_smith@example.com',
+    password: 'secret123',
     return_to: returnToParam,
     authenticity_token: railsCsrfToken,
   };
