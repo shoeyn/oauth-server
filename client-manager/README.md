@@ -108,13 +108,17 @@ Visit: **`http://localhost:3001`**
 ## Testing & Code Quality
 
 ### Unit Tests & Coverage (100% Enforced)
+
 Run Vitest with React Testing Library and v8 coverage:
+
 ```bash
 pnpm test
 ```
 
 ### Static Analysis & Formatting
+
 Run Oxlint and Oxfmt:
+
 ```bash
 pnpm lint
 pnpm format:check
@@ -122,7 +126,9 @@ pnpm format        # Auto-formats TypeScript and TSX files
 ```
 
 ### End-to-End Tests
+
 Client management and OAuth flows are validated end-to-end via Cucumber:
+
 ```bash
 cd ../e2e-tests
 mise exec -- bundle exec cucumber

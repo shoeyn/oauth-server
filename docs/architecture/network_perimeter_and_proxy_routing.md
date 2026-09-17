@@ -61,9 +61,9 @@ All routes served by `spring-auth-server` fall into one of two exposure categori
 
 | Endpoint Path | Method | Purpose | Exposure Classification | Edge Proxy Action | In-App Security Enforced |
 |---|---|---|---|---|---|
-| `/.well-known/openid-configuration` | `GET` | OIDC Provider Discovery | **Public** | **ALLOW** | Byte-array cache + ETag / 304 |
-| `/.well-known/oauth-authorization-server` | `GET` | OAuth 2.1 Metadata Discovery | **Public** | **ALLOW** | Byte-array cache + ETag / 304 |
-| `/oauth2/jwks` | `GET` | Public key set for token verification | **Public** | **ALLOW** | Multi-Key JWKS + ETag / 304 |
+| `/.well-known/openid-configuration` | `GET` | OIDC Provider Discovery | **Public** | **ALLOW** | Native OIDC metadata customizer |
+| `/.well-known/oauth-authorization-server` | `GET` | OAuth 2.1 Metadata Discovery | **Public** | **ALLOW** | Native OAuth 2.1 metadata customizer |
+| `/oauth2/jwks` | `GET` | Public key set for token verification | **Public** | **ALLOW** | In-memory Multi-Key JWKS |
 | `/oauth2/authorize` | `GET` | Interactive authorization start | **Public** | **ALLOW** | Shared session / Rails SSO check |
 | `/oauth2/par` | `POST` | Pushed Authorization Requests | **Public** | **ALLOW** | `private_key_jwt` + DPoP + PKCE |
 | `/oauth2/token` | `POST` | Authorization code exchange | **Public** | **ALLOW** | `private_key_jwt` + DPoP + PKCE |
