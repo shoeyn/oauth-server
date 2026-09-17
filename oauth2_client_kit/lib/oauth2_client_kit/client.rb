@@ -24,7 +24,7 @@ module OAuth2ClientKit
 
     def initialize(client_id, private_key_pem, options = {})
       resolve_urls(options)
-      @private_key = parse_rsa_key(private_key_pem)
+      @private_key = parse_key(private_key_pem)
       @par_url = options.delete(:par_url) || "#{@internal_issuer_url}/oauth2/par"
       @token_validator = TokenValidator.new(client_id, @public_issuer_url, @internal_issuer_url) do |kid|
         fetch_jwks(kid)
@@ -39,8 +39,8 @@ module OAuth2ClientKit
       payload = {
         iss: id, sub: id, aud: aud, jti: SecureRandom.uuid, iat: now, exp: now + 60
       }
-      headers = { kid: "#{id}-key-1", alg: 'RS256', typ: 'JWT' }
-      JWT.encode(payload, @private_key, 'RS256', headers)
+      headers = { kid: "#{id}-key-1", alg: 'ES256', typ: 'JWT' }
+      JWT.encode(payload, @private_key, 'ES256', headers)
     end
 
     def self.generate_pkce_codes
@@ -132,9 +132,12 @@ module OAuth2ClientKit
       @issuer_url = @public_issuer_url
     end
 
-    def parse_rsa_key(key)
-      key.is_a?(OpenSSL::PKey::RSA) ? key : OpenSSL::PKey::RSA.new(key)
+    def parse_key(key)
+      return key if key.is_a?(OpenSSL::PKey::PKey)
+
+      OpenSSL::PKey.read(key)
     end
+    alias parse_rsa_key parse_key
 
     def build_client_options(options)
       conn_opts = { request: { timeout: 5, open_timeout: 2 } }.merge(options[:connection_opts] || {})

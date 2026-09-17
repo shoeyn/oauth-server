@@ -54,7 +54,7 @@ class OidcBackChannelLogoutServiceTest {
   private Jwt sampleJwt() {
     Instant now = Instant.now();
     return Jwt.withTokenValue("signed.logout.token")
-        .header("alg", "RS256")
+        .header("alg", "ES256")
         .issuer(ISSUER)
         .issuedAt(now)
         .expiresAt(now.plusSeconds(120))

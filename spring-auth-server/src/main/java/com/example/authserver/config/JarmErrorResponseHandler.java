@@ -138,7 +138,7 @@ public class JarmErrorResponseHandler implements AuthenticationFailureHandler {
       claimsBuilder.claim("state", state);
     }
 
-    JwsHeader jwsHeader = JwsHeader.with(SignatureAlgorithm.RS256).build();
+    JwsHeader jwsHeader = JwsHeader.with(SignatureAlgorithm.ES256).build();
     Jwt jarmJwt = jwtEncoder.encode(JwtEncoderParameters.from(jwsHeader, claimsBuilder.build()));
 
     String location =

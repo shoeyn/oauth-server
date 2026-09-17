@@ -161,16 +161,14 @@ export default function Home() {
     reader.readAsText(file);
   }
 
-  // Browser-based RSA Key Pair Generation
-  async function generateRsaKeyPair() {
+  // Browser-based ECDSA P-256 (ES256) Key Pair Generation
+  async function generateEcKeyPair() {
     try {
-      setGeneratedKeyNotice("Generating 2048-bit RSA key pair in browser...");
+      setGeneratedKeyNotice("Generating ECDSA P-256 (ES256) key pair in browser...");
       const keyPair = await window.crypto.subtle.generateKey(
         {
-          name: "RSASSA-PKCS1-v1_5",
-          modulusLength: 2048,
-          publicExponent: new Uint8Array([1, 0, 1]),
-          hash: "SHA-256",
+          name: "ECDSA",
+          namedCurve: "P-256",
         },
         true,
         ["sign", "verify"],
@@ -198,7 +196,7 @@ export default function Home() {
       URL.revokeObjectURL(url);
 
       setGeneratedKeyNotice(
-        "Generated RSA key pair! Private key downloaded to your browser. Public key populated below.",
+        "Generated ECDSA P-256 key pair! Private key downloaded to your browser. Public key populated below.",
       );
     } catch (err) {
       alert(`Key generation error: ${(err as Error).message}`);
@@ -213,7 +211,7 @@ export default function Home() {
       return;
     }
     if (!formData.publicKeyPem.includes("BEGIN PUBLIC KEY")) {
-      alert("A valid RSA Public Key (PEM format) is required");
+      alert("A valid Public Key (PEM format) is required");
       return;
     }
 
@@ -487,7 +485,7 @@ export default function Home() {
                       {c.publicKeyPem ? (
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          RSA 2048 Loaded
+                          ES256 Loaded
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 text-xs text-rose-400">
@@ -708,15 +706,15 @@ export default function Home() {
                     className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5"
                   >
                     <Key className="w-3.5 h-3.5 text-amber-400" />
-                    Client RSA Public Key (PEM format) *
+                    Client Public Key (EC P-256 PEM format) *
                   </label>
                   <button
                     type="button"
-                    onClick={generateRsaKeyPair}
+                    onClick={generateEcKeyPair}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/30 transition"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    Generate Key Pair in Browser
+                    Generate ECDSA P-256 Key Pair in Browser
                   </button>
                 </div>
 

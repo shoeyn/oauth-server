@@ -44,11 +44,11 @@ therefore require **custom, cross-cutting work on both server and clients**:
 
 1. **Server:** a custom converter/filter on `/oauth2/par` (and/or `/oauth2/authorize`) that detects a
    `request` parameter, resolves the client's registered public key, verifies the JWS (with strict
-   algorithm pinning — RS256/ES256), rejects `alg: none`, validates `iss`/`aud`/`exp`, and then unpacks
+   algorithm pinning — ES256), rejects `alg: none`, validates `iss`/`aud`/`exp`, and then unpacks
    the claims into the standard authorization request before handing off to the existing
    `ClientPreDeterminedScopeAuthorizationRequestConverter`.
 2. **Client (Ruby `oauth2_client_kit`):** a new signing path in `push_authorization_request` to build and
-   RS256-sign the request object, plus configuration for which clients use it.
+   ES256-sign the request object, plus configuration for which clients use it.
 3. **Client Manager (Next.js):** a per-client toggle and validation surface.
 4. **Tests:** new server verification unit tests, negative tests (forged signature, `alg:none`,
    expired/aud-mismatch), client-kit specs, and e2e coverage.

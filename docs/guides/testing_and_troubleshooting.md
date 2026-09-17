@@ -14,8 +14,8 @@ The development and test environments are provisioned with standard fixtures and
 | **Dynamic E2E User** | `test_user_<hex>@example.com` | `password123` | Dynamically created per scenario | Isolated test user created by Cucumber `hooks.rb` via Spring Admin API |
 | **Dynamic k6 User Pool** | `load_user_<idx>_<runId>@example.com` | `loadpassword123` | Dynamically created pool (15 users) | Isolated concurrent sessions created in k6 `setup()` via Spring Admin API (cleaned in `teardown()`) |
 | **Admin Key** | N/A | `secret-admin-key` | Header `X-Admin-Api-Key` | Admin REST API authentication (`/api/admin/*`) |
-| **Default Client** | `demo-client` | Asymmetric RSA Private Key | `demo-client/keys/client_private_key.pem` | Main test client (`private_key_jwt`, DPoP, PAR) |
-| **KMS Signing Key** | `kms-auth-server-key-1` | LocalStack KMS HSM (RSA_2048) | Alias: `alias/oauth2-signing-key` | Token signing & JWKS public key verification |
+| **Default Client** | `demo-client` | Asymmetric EC Private Key | `demo-client/keys/client_private_key.pem` | Main test client (`private_key_jwt`, DPoP, PAR) |
+| **KMS Signing Key** | `kms-auth-server-key-1` | LocalStack KMS HSM (ECC_NIST_P256) | Alias: `alias/oauth2-signing-key` | Token signing & JWKS public key verification |
 
 ---
 

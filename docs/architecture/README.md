@@ -47,7 +47,7 @@ flowchart TB
 
     %% PostgreSQL and KMS
     SpringAS -->|"JDBC Connection Pool (HikariCP)<br/>Only Java connects to DB"| PostgresDB
-    SpringAS -->|"Sign JWT Access Tokens (RS256)"| LocalStackKMS
+    SpringAS -->|"Sign JWT Access Tokens (ES256)"| LocalStackKMS
 ```
 
 ---
@@ -57,7 +57,7 @@ flowchart TB
 Click the links below to inspect specific end-to-end communication flows:
 
 1. [**OAuth 2.1 Authorization Code Flow with PAR, DPoP & Rails SSO**](oauth2_par_dpop_flow.md)
-   - Step-by-step breakdown of RFC 9126 PAR backchannel submission, RFC 7523 client assertion verification, Rails IdP SSO session creation, RFC 9221 JARM response signing (AWS KMS RS256), RFC 9207 issuer identification, and RFC 9449 sender-constrained DPoP token minting.
+   - Step-by-step breakdown of RFC 9126 PAR backchannel submission, RFC 7523 client assertion verification, Rails IdP SSO session creation, RFC 9221 JARM response signing (AWS KMS ES256), RFC 9207 issuer identification, and RFC 9449 sender-constrained DPoP token minting.
 
 2. [**Client Configuration, Persistence & Near-Caching Flow**](client_config_and_caching_flow.md)
    - Deep dive into the **PostgreSQL Persistence $\rightarrow$ L1 JVM Near-Cache $\rightarrow$ Redis Pub/Sub Cluster Invalidation** hierarchy, demonstrating sub-millisecond lookups and secure HTTP Admin API integration without direct DB exposure.
@@ -72,7 +72,7 @@ Click the links below to inspect specific end-to-end communication flows:
    - Concurrency bottleneck identification, benchmark metrics (EC vs RSA DPoP, in-memory JWKS, multi-session pool), resilience/retry patterns, and high-scale roadmap.
 
 6. [**AWS KMS Key Management, Multi-Key JWKS Rotation & Algorithm Pinning**](kms_multi_key_rotation_flow.md)
-   - Hardware Security Module (HSM) boundary **(FIPS 140-2 Level 3 when deployed against real AWS KMS; LocalStack is a software emulation locally)**, zero-downtime multi-key JWKS rotation lifecycle, automated rotation tooling, and strict RFC 8725 algorithm pinning.
+   - Hardware Security Module (HSM) boundary **(FIPS 140-2 / FIPS 140-3 Level 3 when deployed against real AWS KMS; LocalStack is a software emulation locally)**, zero-downtime multi-key JWKS rotation lifecycle, automated rotation tooling, and strict RFC 8725 algorithm pinning.
 
 7. [**Network Perimeter & Reverse Proxy Routing Architecture**](network_perimeter_and_proxy_routing.md)
    - External reverse proxy / ALB path routing specification isolating internal administrative APIs (`/api/admin/**`) from public OAuth 2.1 traffic, with configuration templates for AWS ALB, Nginx, Kubernetes Ingress, and Cloudflare WAF.
@@ -83,8 +83,8 @@ Click the links below to inspect specific end-to-end communication flows:
 9. [**User Management, Authentication & Fraud Revocation**](user_management_and_authentication.md)
    - The `app_users` store, the `/api/admin/users` administrative API, the two-stage SHA-256 → BCrypt password pipeline, the Rails IdP `/authenticate` integration, and the fraud-flag → global session revocation flow.
 
-10. [**Higher Key & Cryptographic Standards (Design Options)**](higher_key_and_crypto_standards.md)
-    - Pros/cons of stronger signing algorithms (ES256, RSA-3072, PS256, Ed25519), Argon2id/PBKDF2 password hashing, and an accurate FIPS 140-2/140-3 posture. Decision aid only — not implemented.
+10. [**Higher Key & Cryptographic Standards**](higher_key_and_crypto_standards.md)
+    - Rationale for the completed ES256 (ECDSA NIST P-256) migration, FIPS 140-3 posture and 5-step production roadmap, and future hardening options (Argon2id/PBKDF2, mTLS).
 
 11. [**JWT-Secured Authorization Requests (JAR, RFC 9101) — Design Option**](jar_rfc9101_design_option.md)
     - Evaluation of JAR signed request objects vs the implemented RFC 9126 PAR flow, why it is documented rather than implemented, a recommended PAR + JAR shape, and pros/cons.

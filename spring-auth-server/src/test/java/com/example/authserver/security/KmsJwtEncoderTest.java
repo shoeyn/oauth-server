@@ -27,7 +27,7 @@ import org.springframework.security.oauth2.jwt.JwtEncodingException;
 @ExtendWith(MockitoExtension.class)
 class KmsJwtEncoderTest {
 
-  @Mock private KmsRsaSigner kmsRsaSigner;
+  @Mock private KmsEcSigner kmsEcSigner;
 
   private JwtClaimsSet sampleClaims() {
     Instant now = Instant.now();
@@ -41,33 +41,34 @@ class KmsJwtEncoderTest {
   }
 
   private void stubSuccessfulSigner() throws Exception {
-    when(kmsRsaSigner.supportedJWSAlgorithms()).thenReturn(Set.of(JWSAlgorithm.RS256));
-    when(kmsRsaSigner.sign(any(JWSHeader.class), any(byte[].class)))
-        .thenReturn(Base64URL.encode(new byte[] {1, 2, 3, 4}));
+    when(kmsEcSigner.supportedJWSAlgorithms()).thenReturn(Set.of(JWSAlgorithm.ES256));
+    when(kmsEcSigner.sign(any(JWSHeader.class), any(byte[].class)))
+        .thenReturn(Base64URL.encode(new byte[64]));
   }
 
   @Test
   void encode_ProducesSignedJwt_UsingDefaultKeyId() throws Exception {
     stubSuccessfulSigner();
-    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsRsaSigner, "kms-default-key");
+    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsEcSigner, "kms-default-key");
 
-    JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).build();
+    JwsHeader header = JwsHeader.with(SignatureAlgorithm.ES256).build();
     Jwt jwt = encoder.encode(JwtEncoderParameters.from(header, sampleClaims()));
 
     assertNotNull(jwt.getTokenValue());
     // Token value is a serialized JWS (three dot-separated segments)
     assertEquals(3, jwt.getTokenValue().split("\\.").length);
     assertEquals("kms-default-key", jwt.getHeaders().get("kid"));
+    assertEquals("ES256", jwt.getHeaders().get("alg"));
     assertEquals("value", jwt.getClaims().get("custom"));
   }
 
   @Test
   void encode_PrefersHeaderKeyId_OverDefaultAndCopiesCustomHeaders() throws Exception {
     stubSuccessfulSigner();
-    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsRsaSigner, "kms-default-key");
+    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsEcSigner, "kms-default-key");
 
     JwsHeader header =
-        JwsHeader.with(SignatureAlgorithm.RS256)
+        JwsHeader.with(SignatureAlgorithm.ES256)
             .keyId("explicit-key")
             .header("customHeader", "hv")
             .build();
@@ -79,12 +80,12 @@ class KmsJwtEncoderTest {
 
   @Test
   void encode_WrapsSignerFailure_InJwtEncodingException() throws Exception {
-    when(kmsRsaSigner.supportedJWSAlgorithms()).thenReturn(Set.of(JWSAlgorithm.RS256));
-    when(kmsRsaSigner.sign(any(JWSHeader.class), any(byte[].class)))
+    when(kmsEcSigner.supportedJWSAlgorithms()).thenReturn(Set.of(JWSAlgorithm.ES256));
+    when(kmsEcSigner.sign(any(JWSHeader.class), any(byte[].class)))
         .thenThrow(new RuntimeException("kms exploded"));
-    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsRsaSigner, "kms-default-key");
+    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsEcSigner, "kms-default-key");
 
-    JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).build();
+    JwsHeader header = JwsHeader.with(SignatureAlgorithm.ES256).build();
     JwtEncoderParameters params = JwtEncoderParameters.from(header, sampleClaims());
 
     JwtEncodingException ex =
@@ -96,9 +97,9 @@ class KmsJwtEncoderTest {
   @Test
   void encode_HandlesNullDefaultKeyId_WhenHeaderHasNoKid() throws Exception {
     stubSuccessfulSigner();
-    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsRsaSigner, null);
+    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsEcSigner, null);
 
-    JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).build();
+    JwsHeader header = JwsHeader.with(SignatureAlgorithm.ES256).build();
     Jwt jwt = encoder.encode(JwtEncoderParameters.from(header, sampleClaims()));
 
     assertNotNull(jwt.getTokenValue());
@@ -107,9 +108,9 @@ class KmsJwtEncoderTest {
   @Test
   void encode_HandlesBlankHeaderKid_FallsBackToDefault() throws Exception {
     stubSuccessfulSigner();
-    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsRsaSigner, "kms-default-key");
+    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsEcSigner, "kms-default-key");
 
-    JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).keyId("  ").build();
+    JwsHeader header = JwsHeader.with(SignatureAlgorithm.ES256).keyId("  ").build();
     Jwt jwt = encoder.encode(JwtEncoderParameters.from(header, sampleClaims()));
 
     assertEquals("kms-default-key", jwt.getHeaders().get("kid"));
@@ -118,14 +119,14 @@ class KmsJwtEncoderTest {
   @Test
   void encode_HandlesNonInstantClaims() throws Exception {
     stubSuccessfulSigner();
-    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsRsaSigner, "kms-default-key");
+    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsEcSigner, "kms-default-key");
 
     JwtClaimsSet claims =
         JwtClaimsSet.builder()
             .issuer("http://localhost:9000")
             .claim("scope", Collections.singletonList("openid"))
             .build();
-    JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).build();
+    JwsHeader header = JwsHeader.with(SignatureAlgorithm.ES256).build();
     Jwt jwt = encoder.encode(JwtEncoderParameters.from(header, claims));
 
     assertNotNull(jwt.getTokenValue());
@@ -134,12 +135,12 @@ class KmsJwtEncoderTest {
   @Test
   void encode_SkipsReservedHeaders_AlgKidTyp() throws Exception {
     stubSuccessfulSigner();
-    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsRsaSigner, "kms-default-key");
+    KmsJwtEncoder encoder = new KmsJwtEncoder(kmsEcSigner, "kms-default-key");
 
     // Reserved headers (alg/kid/typ) present on the source header must be filtered out
     // (they are set explicitly by the encoder), while other custom headers are copied.
     JwsHeader header =
-        JwsHeader.with(SignatureAlgorithm.RS256)
+        JwsHeader.with(SignatureAlgorithm.ES256)
             .header("kid", "source-kid")
             .header("typ", "at+jwt")
             .header("extra", "kept")

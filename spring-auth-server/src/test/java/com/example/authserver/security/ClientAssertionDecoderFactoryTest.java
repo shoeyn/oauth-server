@@ -14,14 +14,14 @@ import static org.mockito.Mockito.when;
 import com.example.authserver.client.PostgresRegisteredClientRepository;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.crypto.MACSigner;
-import com.nimbusds.jose.crypto.RSASSASigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
-import java.security.interfaces.RSAPrivateKey;
-import java.security.interfaces.RSAPublicKey;
+import java.security.interfaces.ECPrivateKey;
+import java.security.interfaces.ECPublicKey;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
@@ -55,18 +55,18 @@ class ClientAssertionDecoderFactoryTest {
 
   @Mock private ValueOperations<String, String> valueOperations;
 
-  private RSAPublicKey publicKey;
-  private RSAPrivateKey privateKey;
+  private ECPublicKey publicKey;
+  private ECPrivateKey privateKey;
   private ClientAssertionDecoderFactory factory;
   private RegisteredClient registeredClient;
 
   @BeforeEach
   void setUp() throws Exception {
-    KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
-    gen.initialize(2048);
+    KeyPairGenerator gen = KeyPairGenerator.getInstance("EC");
+    gen.initialize(256);
     KeyPair pair = gen.generateKeyPair();
-    publicKey = (RSAPublicKey) pair.getPublic();
-    privateKey = (RSAPrivateKey) pair.getPrivate();
+    publicKey = (ECPublicKey) pair.getPublic();
+    privateKey = (ECPrivateKey) pair.getPrivate();
 
     factory = new ClientAssertionDecoderFactory(repository, redisTemplate, ISSUER);
     registeredClient =
@@ -83,8 +83,8 @@ class ClientAssertionDecoderFactoryTest {
   }
 
   private String signedAssertion(JWTClaimsSet claims) throws Exception {
-    SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.RS256), claims);
-    jwt.sign(new RSASSASigner(privateKey));
+    SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.ES256), claims);
+    jwt.sign(new ECDSASigner(privateKey));
     return jwt.serialize();
   }
 
@@ -219,7 +219,7 @@ class ClientAssertionDecoderFactoryTest {
   }
 
   @Test
-  void decoder_RejectsAssertion_WhenAlgorithmNotRs256() throws Exception {
+  void decoder_RejectsAssertion_WhenAlgorithmNotEs256() throws Exception {
     when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
     JwtDecoder decoder = factory.createDecoder(registeredClient);
 
@@ -228,5 +228,28 @@ class ClientAssertionDecoderFactoryTest {
     hs.sign(new MACSigner(new byte[32]));
 
     assertThrows(JwtException.class, () -> decoder.decode(hs.serialize()));
+  }
+
+  @Test
+  void decoder_DecodesValidAssertion_WithKidInHeader() throws Exception {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    JwtDecoder decoder = factory.createDecoder(registeredClient);
+
+    JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.ES256).keyID("demo-client-key-1").build();
+    SignedJWT jwt = new SignedJWT(header, validClaimsBuilder().build());
+    jwt.sign(new ECDSASigner(privateKey));
+
+    assertNotNull(decoder.decode(jwt.serialize()).getSubject());
+  }
+
+  @Test
+  void decoder_AcceptsAssertion_WhenAudienceEndsWithPar() throws Exception {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    JwtDecoder decoder = factory.createDecoder(registeredClient);
+
+    String token =
+        signedAssertion(
+            validClaimsBuilder().audience("http://spring-auth-server:9000/oauth2/par").build());
+    assertNotNull(decoder.decode(token));
   }
 }

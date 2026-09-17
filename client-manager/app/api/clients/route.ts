@@ -21,7 +21,7 @@ export async function POST(req: Request) {
 
     if (!body.publicKeyPem || !body.publicKeyPem.includes("BEGIN PUBLIC KEY")) {
       return NextResponse.json(
-        { error: "A valid RSA public key in PEM format is required" },
+        { error: "A valid public key in PEM format is required" },
         { status: 400 },
       );
     }

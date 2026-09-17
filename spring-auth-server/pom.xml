@@ -148,9 +148,9 @@
                                         <!-- Immutable Jackson DTO record - no logic. -->
                                         <exclude>com.example.authserver.client.ClientConfigDto</exclude>
                                         <!--
-                                            The redundant defence-in-depth RS256 algorithm-pinning validator lambda
-                                            only ever executes AFTER NimbusJwtDecoder has already enforced RS256 at
-                                            signature-verification time, so its `alg == null` / `alg != RS256`
+                                            The redundant defence-in-depth ES256 algorithm-pinning validator lambda
+                                            only ever executes AFTER NimbusJwtDecoder has already enforced ES256 at
+                                            signature-verification time, so its `alg == null` / `alg != ES256`
                                             branches are unreachable through the public decode() API and cannot be
                                             covered without reflecting into decoder internals. Its behavioural
                                             contract (subject/issuer/audience/JTI-replay validation) is exercised by
@@ -196,9 +196,9 @@
                                             else-branch is unreachable; we KEEP the null-guard rather than risk an NPE that
                                             would mask the real KMS failure in a security-critical fail-closed path. This
                                             leaves one uncoverable branch. Reachable signing/retry/fail-closed behaviour is
-                                            covered by KmsRsaSignerTest.
+                                            covered by KmsEcSignerTest.
                                         -->
-                                        <exclude>com.example.authserver.security.KmsRsaSigner</exclude>
+                                        <exclude>com.example.authserver.security.KmsEcSigner</exclude>
                                     </excludes>
                                     <limits>
                                         <limit>

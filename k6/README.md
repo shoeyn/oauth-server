@@ -86,45 +86,45 @@ k6 run --summary-export=k6/summary.json k6/oauth_load_test.js
 
 ### 1. Hardware-Backed AWS KMS Signing Benchmark (Multi-Session Dynamic Pool)
 
-With **AWS KMS HSM asymmetric signing (RSA_2048)**, **graceful multi-key JWKS rotation**, **strict RS256 algorithm pinning**, and **dynamic multi-user session isolation**:
+With **AWS KMS HSM asymmetric signing (`ECC_NIST_P256` / `ES256`)**, **graceful multi-key JWKS rotation**, **strict ES256 algorithm pinning**, and **dynamic multi-user session isolation**:
 
 ```
   █ THRESHOLDS 
 
     auth_session_success_rate .......: ✓ 'rate>0.95' rate=100.00%
-    auth_session_total_duration_ms ..: ✓ 'p(95)<1500' p(95)=686.0 ms
+    auth_session_total_duration_ms ..: ✓ 'p(95)<1500' p(95)=217.0 ms
     http_req_failed .................: ✓ 'rate<0.05' rate=0.00%
 
   █ KEY PERFORMANCE INDICATORS 
 
-    • Total Checks Succeeded:          3,120 out of 3,120 (100.00% pass rate)
-    • Total HTTP Requests:             2,694 requests in 31.9 seconds (84.6 req/sec sustained)
-    • Equivalent Hourly Throughput:    ~304,000 HTTP requests / hour
-    • Full OAuth Sessions Completed:   152 full sessions in 30s (~5.07 sessions/sec)
-    • Equivalent Auth Session Rate:    ~18,240 full auth sessions / hour (Target was a few thousand/hr)
-    • End-to-End Session Latency:      p(50) = 519 ms | avg = 494.5 ms | p(90) = 661.8 ms | p(95) = 686.0 ms | max = 772 ms
-    • Public Discovery / JWKS Checks:  100.00% (1,448 out of 1,448 metadata requests returned 200 OK)
-    • Overall HTTP Failure Rate:       0.00% (0 out of 2,694 requests failed)
+    • Total Checks Succeeded:          3,923 out of 3,923 (100.00% pass rate)
+    • Total HTTP Requests:             3,278 requests in 31.4 seconds (104.5 req/sec sustained)
+    • Equivalent Hourly Throughput:    ~376,000 HTTP requests / hour
+    • Full OAuth Sessions Completed:   225 full sessions in 30s (~7.5 sessions/sec)
+    • Equivalent Auth Session Rate:    ~27,000 full auth sessions / hour (~5.4x–9x above target)
+    • End-to-End Session Latency:      p(50) = 163 ms | avg = 167.1 ms | p(90) = 205.3 ms | p(95) = 217.0 ms | max = 382 ms
+    • Public Discovery / JWKS Checks:  100.00% (100% returned 200 OK)
+    • Overall HTTP Failure Rate:       0.00% (0 out of 3,278 requests failed)
     • Cryptographic Signatures / Flow: 3 (JARM Auth Code + Access Token + ID Token)
     • Session & User Concurrency:      Dynamic pool of 15 users; distinct sessions in Redis DB 0/1 & PostgreSQL
-    • Cryptographic Boundary:          AWS KMS (real AWS = FIPS 140-2 Level 3 HSM; LocalStack = software emulation, dev only). Zero private keys in JVM memory.
+    • Cryptographic Boundary:          AWS KMS (real AWS = FIPS 140-2 / FIPS 140-3 Level 3 HSM; LocalStack = software emulation, dev only). Zero private keys in JVM memory.
 ```
 
 ### 2. In-Memory Software Signing vs. AWS KMS Hardware Signing (Multi-Session)
 
 | Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS + JARM + Multi-Session Pool) | Evaluation |
 |---|---|---|---|
-| **Cryptographic Boundary** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 KMS HSM in real AWS** (LocalStack software emulation locally) | Hardware protection in production; emulated in dev |
-| **Algorithm Pinning** | Optional | **Strict RS256 enforced (`none` & `HS256` rejected)** | Pinning active |
+| **Cryptographic Boundary** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 / FIPS 140-3 Level 3 KMS HSM in real AWS** (LocalStack software emulation locally) | Hardware protection in production; emulated in dev |
+| **Algorithm Pinning** | Optional | **Strict ES256 enforced (`none` & `HS256` rejected)** | Pinning active |
 | **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime cutover |
 | **KMS Signatures / Flow** | 0 (Local CPU) | **3 (JARM Auth Code + Access Token + ID Token)** | Cryptographic non-repudiation |
 | **User & Session Isolation** | Single shared user | **Dynamic Multi-User Pool (`setup`/`teardown`)** | True concurrent sessions across DB & Redis |
-| **Auth Session Success Rate** | `98.79%` | **`100.00%`** (152 / 152 completed) | **Flawless (Zero Failures)** |
-| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~18,240 sessions/hr** | **~3.6x–5x above target** ("few thousand/hr") |
-| **Full Session Latency (median)** | `112 ms` | **`519 ms`** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | Sub-550ms median latency |
-| **Full Session Latency (p95)** | `146 ms` | **`686.0 ms`** | **Passed** (<1,500 ms threshold) |
-| **Total HTTP Error Rate** | `0.04%` | **`0.00%`** (0 / 2,694 requests failed) | **100.00% success rate** |
-| **Public Metadata Check Rate** | `100.00%` | **`100.00%`** (1,448 / 1,448 returned 200 OK) | Zero latency impact on auth sessions |
+| **Auth Session Success Rate** | `98.79%` | **`100.00%`** (225 / 225 completed) | **Flawless (Zero Failures)** |
+| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~27,000 sessions/hr** (~7.5 sessions/sec) | **~5.4x–9x above target** ("few thousand/hr") |
+| **Full Session Latency (median)** | `112 ms` | **`163 ms`** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | Sub-170ms median latency |
+| **Full Session Latency (p95)** | `146 ms` | **`217.0 ms`** | **Passed** (<1,500 ms threshold) |
+| **Total HTTP Error Rate** | `0.04%` | **`0.00%`** (0 / 3,278 requests failed) | **100.00% success rate** |
+| **Public Metadata Check Rate** | `100.00%` | **`100.00%`** (100% returned 200 OK) | Zero latency impact on auth sessions |
 
 ---
 

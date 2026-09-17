@@ -66,7 +66,7 @@ public class JarmAuthorizationResponseHandler implements AuthenticationSuccessHa
       claimsBuilder.claim("state", token.getState());
     }
 
-    JwsHeader jwsHeader = JwsHeader.with(SignatureAlgorithm.RS256).build();
+    JwsHeader jwsHeader = JwsHeader.with(SignatureAlgorithm.ES256).build();
     Jwt jarmJwt = jwtEncoder.encode(JwtEncoderParameters.from(jwsHeader, claimsBuilder.build()));
 
     String location =

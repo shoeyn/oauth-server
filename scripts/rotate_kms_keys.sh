@@ -27,9 +27,9 @@ fi
 echo "   Current Active Key ID: $CURRENT_KEY_ID"
 
 echo ""
-echo ">> 2. Generating new asymmetric RSA_2048 signing key in AWS KMS..."
+echo ">> 2. Generating new asymmetric ECC_NIST_P256 (ES256) signing key in AWS KMS..."
 NEW_KEY_ID=$($AWS_CMD kms create-key \
-  --key-spec RSA_2048 \
+  --key-spec ECC_NIST_P256 \
   --key-usage SIGN_VERIFY \
   --description "Rotated OAuth 2.1 Server Signing Key ($(date -u +%Y-%m-%dT%H:%M:%SZ))" \
   --query 'KeyMetadata.KeyId' \

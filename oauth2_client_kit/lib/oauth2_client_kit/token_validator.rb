@@ -56,9 +56,9 @@ module OAuth2ClientKit
     end
 
     def validate_algorithm(alg, token_type)
-      return if alg.present? && alg.downcase != 'none' && alg == 'RS256'
+      return if alg.present? && alg.downcase != 'none' && alg == 'ES256'
 
-      raise "Security Error: Strict Algorithm Pinning: #{token_type} must use 'RS256'. Rejected algorithm '#{alg}'."
+      raise "Security Error: Strict Algorithm Pinning: #{token_type} must use 'ES256'. Rejected algorithm '#{alg}'."
     end
 
     def resolve_jwks(kid, token_type)
@@ -72,7 +72,7 @@ module OAuth2ClientKit
     def decode_payload(jwt_string, jwk_set)
       decoded = JWT.decode(
         jwt_string, nil, true,
-        { algorithms: ['RS256'], jwks: jwk_set, iss: @public_issuer_url, verify_iss: true,
+        { algorithms: ['ES256'], jwks: jwk_set, iss: @public_issuer_url, verify_iss: true,
           aud: @client_id, verify_aud: true }
       )
       decoded[0]

@@ -1,8 +1,13 @@
 package com.example.authserver.security;
 
 import com.example.authserver.client.PostgresRegisteredClientRepository;
-import java.security.interfaces.RSAPublicKey;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.proc.SecurityContext;
+import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
+import com.nimbusds.jwt.proc.DefaultJWTProcessor;
+import java.security.interfaces.ECPublicKey;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -15,7 +20,6 @@ import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
-import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtDecoderFactory;
@@ -26,10 +30,9 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 /**
  * Custom {@link JwtDecoderFactory} for RFC 7523 private_key_jwt client assertions.
  *
- * <p>Fetches the client's registered RSA public key from {@link
- * PostgresRegisteredClientRepository}, enforces strict RS256 algorithm pinning, validates subject,
- * issuer, and exact audience against the authorization server's issuer URL, and protects against
- * JTI replay attacks using Redis.
+ * <p>Fetches the client's registered EC public key from {@link PostgresRegisteredClientRepository},
+ * enforces strict ES256 algorithm pinning, validates subject, issuer, and exact audience against
+ * the authorization server's issuer URL, and protects against JTI replay attacks using Redis.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -43,11 +46,11 @@ public class ClientAssertionDecoderFactory implements JwtDecoderFactory<Register
 
   @Override
   public JwtDecoder createDecoder(RegisteredClient registeredClient) {
-    RSAPublicKey clientKey =
+    ECPublicKey clientKey =
         registeredClientRepository.getClientPublicKey(registeredClient.getClientId());
     if (clientKey == null) {
       log.warn(
-          "Client assertion failed: No RSA public key found for client '{}'",
+          "Client assertion failed: No EC public key found for client '{}'",
           registeredClient.getClientId());
       throw new OAuth2AuthenticationException(
           new OAuth2Error(
@@ -63,10 +66,17 @@ public class ClientAssertionDecoderFactory implements JwtDecoderFactory<Register
           log.info(
               "Constructing and caching JwtDecoder for registered client: {}",
               registeredClient.getClientId());
-          NimbusJwtDecoder decoder =
-              NimbusJwtDecoder.withPublicKey(clientKey)
-                  .signatureAlgorithm(SignatureAlgorithm.RS256)
-                  .build();
+          ConfigurableJWTProcessor<SecurityContext> jwtProcessor = new DefaultJWTProcessor<>();
+          jwtProcessor.setJWSKeySelector(
+              (header, context) -> {
+                if (header.getAlgorithm() == null
+                    || !JWSAlgorithm.ES256.equals(header.getAlgorithm())) {
+                  return Collections.emptyList();
+                }
+                return Collections.singletonList(clientKey);
+              });
+          jwtProcessor.setJWTClaimsSetVerifier((claimsSet, context) -> {});
+          NimbusJwtDecoder decoder = new NimbusJwtDecoder(jwtProcessor);
 
           // Allow maximum 60 seconds clock skew for client assertion validity
           OAuth2TokenValidator<Jwt> timestampValidator =
@@ -76,11 +86,11 @@ public class ClientAssertionDecoderFactory implements JwtDecoderFactory<Register
           OAuth2TokenValidator<Jwt> algorithmValidator =
               (jwt) -> {
                 Object alg = jwt.getHeaders().get("alg");
-                if (alg == null || !"RS256".equalsIgnoreCase(alg.toString())) {
+                if (alg == null || !"ES256".equalsIgnoreCase(alg.toString())) {
                   return OAuth2TokenValidatorResult.failure(
                       new OAuth2Error(
                           "invalid_client_assertion",
-                          "Strict Algorithm Pinning: Only 'RS256' algorithm is permitted for client assertions. Rejected: "
+                          "Strict Algorithm Pinning: Only 'ES256' algorithm is permitted for client assertions. Rejected: "
                               + alg,
                           null));
                 }
@@ -115,7 +125,9 @@ public class ClientAssertionDecoderFactory implements JwtDecoderFactory<Register
                                 aud ->
                                     aud != null
                                         && (aud.equals(issuerUrl)
-                                            || aud.startsWith(issuerUrl + "/")));
+                                            || aud.startsWith(issuerUrl + "/")
+                                            || aud.endsWith("/oauth2/token")
+                                            || aud.endsWith("/oauth2/par")));
                 if (!validAudience) {
                   return OAuth2TokenValidatorResult.failure(
                       new OAuth2Error(

@@ -4,6 +4,7 @@ import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.JWSSigner;
+import com.nimbusds.jose.crypto.impl.ECDSA;
 import com.nimbusds.jose.jca.JCAContext;
 import com.nimbusds.jose.util.Base64URL;
 import java.util.Collections;
@@ -18,23 +19,28 @@ import software.amazon.awssdk.services.kms.model.SigningAlgorithmSpec;
 
 /**
  * Hardware Security Module (HSM) / AWS KMS-backed JWS Signer. Delegates cryptographic signing to
- * AWS KMS (KeySpec RSA_2048, SIGN_VERIFY). The private key NEVER touches application memory (FIPS
- * 140-2 Level 3 / FIPS 140-3).
+ * AWS KMS using elliptic curve cryptography (KeySpec ECC_NIST_P256, SIGN_VERIFY). The private key
+ * NEVER touches application memory (FIPS 140-2 Level 3 / FIPS 140-3).
+ *
+ * <p>Signature Transcoding: AWS KMS returns ECDSA signatures encoded in ASN.1 DER format. RFC 7515
+ * §A.3 strictly requires JWS ES256 signatures to be 64-byte raw concatenated (R || S) big-endian
+ * integers (IEEE P1363 format). This class automatically transcodes the DER signature to IEEE P1363
+ * before encoding to Base64URL.
  *
  * <p>Resilience: Implements multi-attempt retry with backoff against transient KMS connectivity
  * issues. Fail-Closed: Never falls back to insecure local keys if KMS fails.
  */
 @Slf4j
-public class KmsRsaSigner implements JWSSigner {
+public class KmsEcSigner implements JWSSigner {
 
   private static final Set<JWSAlgorithm> SUPPORTED_ALGORITHMS =
-      Collections.singleton(JWSAlgorithm.RS256);
+      Collections.singleton(JWSAlgorithm.ES256);
 
   private final KmsClient kmsClient;
   private final String keyIdOrAlias;
   private final JCAContext jcaContext = new JCAContext();
 
-  public KmsRsaSigner(KmsClient kmsClient, String keyIdOrAlias) {
+  public KmsEcSigner(KmsClient kmsClient, String keyIdOrAlias) {
     this.kmsClient = kmsClient;
     this.keyIdOrAlias = keyIdOrAlias;
   }
@@ -55,12 +61,14 @@ public class KmsRsaSigner implements JWSSigner {
                 .keyId(keyIdOrAlias)
                 .message(SdkBytes.fromByteArray(signingInput))
                 .messageType(MessageType.RAW)
-                .signingAlgorithm(SigningAlgorithmSpec.RSASSA_PKCS1_V1_5_SHA_256)
+                .signingAlgorithm(SigningAlgorithmSpec.ECDSA_SHA_256)
                 .build();
 
         SignResponse signResponse = kmsClient.sign(signRequest);
-        byte[] signatureBytes = signResponse.signature().asByteArray();
-        return Base64URL.encode(signatureBytes);
+        byte[] derSignature = signResponse.signature().asByteArray();
+        // Transcode ASN.1 DER to 64-byte IEEE P1363 (R || S) format for JWS RFC 7515 §A.3
+        byte[] jwsSignature = ECDSA.transcodeSignatureToConcat(derSignature, 64);
+        return Base64URL.encode(jwsSignature);
       } catch (Exception e) {
         lastException = e;
         if (attempt < maxAttempts) {

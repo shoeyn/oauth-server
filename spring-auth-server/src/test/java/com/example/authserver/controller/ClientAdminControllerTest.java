@@ -120,13 +120,13 @@ public class ClientAdminControllerTest {
                 .refreshTokenTimeToLive(Duration.ofDays(30))
                 .build());
 
-    java.security.interfaces.RSAPublicKey mockPubKey =
-        mock(java.security.interfaces.RSAPublicKey.class);
+    java.security.interfaces.ECPublicKey mockPubKey =
+        mock(java.security.interfaces.ECPublicKey.class);
     when(mockPubKey.getEncoded()).thenReturn("dummy-key".getBytes());
     when(clientRepository.getClientPublicKey("client1")).thenReturn(mockPubKey);
 
-    java.security.interfaces.RSAPublicKey errorPubKey =
-        mock(java.security.interfaces.RSAPublicKey.class);
+    java.security.interfaces.ECPublicKey errorPubKey =
+        mock(java.security.interfaces.ECPublicKey.class);
     when(errorPubKey.getEncoded()).thenThrow(new RuntimeException("key error"));
     when(clientRepository.getClientPublicKey("client2")).thenReturn(errorPubKey);
 
