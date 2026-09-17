@@ -72,14 +72,10 @@ A hardened, enterprise **OAuth 2.1 Authorization Server** built with **Spring Bo
     - `SharedRedisSessionFilter` inspects `SHARED_SESSION_ID` cookie, loads user authentication claims from `session:<id>` in Redis DB 0, and establishes a Spring `SecurityContext`.
     - **M2M Performance Bypass (`shouldNotFilter`)**: Bypasses Redis queries on machine-to-machine endpoints (`/oauth2/token`, `/oauth2/par`, `/oauth2/jwks`, `/oauth2/introspect`, `/oauth2/revoke`, `/.well-known/**`).
 
-16. **In-Memory Discovery & JWKS Caching with ETag / HTTP 304**:
-    - `DiscoveryAndJwksCacheFilter` caches pre-rendered byte arrays for `/.well-known/openid-configuration` and `/oauth2/jwks` with `Cache-Control: public, max-age=3600`.
-    - Returns **HTTP 304 Not Modified with 0 body bytes** on conditional `If-None-Match` requests.
-
-17. **Cached Client Assertion `JwtDecoder`**:
+16. **Cached Client Assertion `JwtDecoder`**:
     - Reuses `NimbusJwtDecoder` instances in a `ConcurrentHashMap` keyed by `clientId:keyHash`, eliminating RSA key re-parsing on every client assertion.
 
-18. **Native HTTP/2 Stream Multiplexing (`h2c` / ALPN)**:
+17. **Native HTTP/2 Stream Multiplexing (`h2c` / ALPN)**:
     - Enabled via `server.http2.enabled: true` in `application.yml`, allowing multiple concurrent requests over a single TCP socket.
 
 ---

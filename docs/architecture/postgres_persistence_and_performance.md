@@ -211,4 +211,4 @@ k6 run --vus 2 --iterations 10 k6/oauth_load_test.js
 - **HTTP Failure Rate:** **0.00%** (0 out of 120 requests failed)
 - **Auth Session Success Rate:** **100.00%**
 - **Auth Session Duration:** `avg = 260 ms`, `p(95) = 277 ms`
-- **Public Discovery & JWKS 304 Rate:** **100.00%**
+- **Public Discovery & JWKS Check Rate:** **100.00%** (200 OK)

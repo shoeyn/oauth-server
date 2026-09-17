@@ -69,7 +69,7 @@ Click the links below to inspect specific end-to-end communication flows:
    - Architectural deep-dive on PostgreSQL durability, AWS S3 decommissioning rationale, HikariCP configuration, Flyway schema migrations, and zero-loss horizontal scaling.
 
 5. [**Performance, Scalability & Bottleneck Analysis**](performance_and_scalability.md)
-   - Concurrency bottleneck identification, benchmark metrics (EC vs RSA DPoP, response caching, ETag 304s), resilience/retry patterns, and high-scale roadmap.
+   - Concurrency bottleneck identification, benchmark metrics (EC vs RSA DPoP, in-memory JWKS, multi-session pool), resilience/retry patterns, and high-scale roadmap.
 
 6. [**AWS KMS Key Management, Multi-Key JWKS Rotation & Algorithm Pinning**](kms_multi_key_rotation_flow.md)
    - Hardware Security Module (HSM) boundary **(FIPS 140-2 Level 3 when deployed against real AWS KMS; LocalStack is a software emulation locally)**, zero-downtime multi-key JWKS rotation lifecycle, automated rotation tooling, and strict RFC 8725 algorithm pinning.

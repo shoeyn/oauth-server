@@ -37,14 +37,8 @@ public class CorsConfig {
 
     config.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
     config.setAllowedHeaders(
-        List.of(
-            "Authorization",
-            "DPoP",
-            "Content-Type",
-            "If-None-Match",
-            "X-Requested-With",
-            "Accept"));
-    config.setExposedHeaders(List.of("ETag", "DPoP-Nonce"));
+        List.of("Authorization", "DPoP", "Content-Type", "X-Requested-With", "Accept"));
+    config.setExposedHeaders(List.of("DPoP-Nonce"));
     config.setMaxAge(3600L);
     config.setAllowCredentials(false);
 

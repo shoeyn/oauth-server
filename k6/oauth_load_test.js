@@ -1,12 +1,11 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
+import crypto from 'k6/crypto';
 
 // Custom Metrics
 const authSessionSuccess = new Rate('auth_session_success_rate');
 const authSessionDuration = new Trend('auth_session_total_duration_ms');
-const discovery304Rate = new Rate('discovery_etag_304_rate');
-const jwks304Rate = new Rate('jwks_etag_304_rate');
 
 export const options = {
   scenarios: {
@@ -18,8 +17,8 @@ export const options = {
       duration: '30s',
       exec: 'testFullAuthFlow',
     },
-    // Scenario 2: High-Throughput Discovery & JWKS Caching (ETag validation)
-    // Simulates resource servers and microservices constantly querying keys/metadata
+    // Scenario 2: High-Throughput Discovery & JWKS Metadata Querying
+    // Simulates resource servers and microservices querying public keys/metadata under load
     discovery_and_jwks_burst: {
       executor: 'ramping-arrival-rate',
       startRate: 10,
@@ -37,19 +36,62 @@ export const options = {
   thresholds: {
     auth_session_success_rate: ['rate>0.95'], // At least 95% of full auth sessions must succeed
     auth_session_total_duration_ms: ['p(95)<1500'], // 95% of full multi-hop auth flows under 1.5s
-    discovery_etag_304_rate: ['rate>0.90'], // At least 90% of repeat discovery requests return 304
-    jwks_etag_304_rate: ['rate>0.90'], // At least 90% of repeat JWKS requests return 304
     http_req_failed: ['rate<0.05'], // Overall HTTP failure rate below 5%
   },
 };
 
-export default function () {
-  testFullAuthFlow();
+// Pre-provision an isolated pool of test users for concurrent Virtual Users (VUs)
+export function setup() {
+  const adminUrl = 'http://localhost:9001/api/admin/users';
+  const adminKey = 'secret-admin-key';
+  const password = 'loadpassword123';
+  const passwordHash = crypto.sha256(password, 'hex');
+
+  // Default to 15 users (matches max default VUs in stress scenario), configurable via LOAD_USERS env var
+  const poolSize = parseInt(__ENV.LOAD_USERS || '15', 10);
+  const runId = Date.now().toString(36);
+  const users = [];
+
+  for (let i = 1; i <= poolSize; i++) {
+    const email = `load_user_${i}_${runId}@example.com`;
+    const res = http.post(
+      adminUrl,
+      JSON.stringify({ email: email, password: passwordHash }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Api-Key': adminKey,
+        },
+      }
+    );
+    if (res.status === 201) {
+      users.push(email);
+    }
+  }
+
+  return { users, password };
+}
+
+// Automatically clean up provisioned test users upon test completion
+export function teardown(data) {
+  if (!data || !data.users || data.users.length === 0) return;
+  const adminUrl = 'http://localhost:9001/api/admin/users';
+  const adminKey = 'secret-admin-key';
+
+  for (const email of data.users) {
+    http.del(`${adminUrl}/${email}`, null, {
+      headers: { 'X-Admin-Api-Key': adminKey },
+    });
+  }
+}
+
+export default function (data) {
+  testFullAuthFlow(data);
   testDiscoveryAndJwks();
 }
 
 // Scenario 1: Complete 6-Hop End-to-End OAuth 2.1 Session Flow
-export function testFullAuthFlow() {
+export function testFullAuthFlow(data) {
   const startTime = new Date().getTime();
   const jar = http.cookieJar();
   jar.clear('http://localhost:8080');
@@ -117,10 +159,15 @@ export function testFullAuthFlow() {
   let railsCsrfToken = railsCsrfMatch ? railsCsrfMatch[1] : '';
 
   // Step 3: Authenticate at Rails IdP (POST /login)
-  // Rails sets SHARED_SESSION_ID cookie and redirects back to Spring AS return_to
+  // Each Virtual User logs in as its own dedicated user from the pre-provisioned pool
+  const userEmail = (data && data.users && data.users.length > 0)
+    ? data.users[(__VU > 0 ? __VU - 1 : 0) % data.users.length]
+    : 'alice_smith@example.com';
+  const userPassword = (data && data.password) ? data.password : 'secret123';
+
   const payload = {
-    email: 'alice_smith@example.com',
-    password: 'secret123',
+    email: userEmail,
+    password: userPassword,
     return_to: returnToParam,
     authenticity_token: railsCsrfToken,
   };
@@ -199,36 +246,19 @@ export function testFullAuthFlow() {
   sleep(0.5);
 }
 
-// Scenario 2: Discovery & JWKS Caching and HTTP 304 Validation
+// Scenario 2: High-Throughput Discovery & JWKS Metadata Querying
 export function testDiscoveryAndJwks() {
   // Test Discovery Endpoint
   const discUrl = 'http://localhost:9000/.well-known/openid-configuration';
-  let discRes = http.get(discUrl);
-
-  let etag = discRes.headers['Etag'] || discRes.headers['ETag'];
-  if (etag) {
-    // Send conditional request
-    let cachedRes = http.get(discUrl, {
-      headers: { 'If-None-Match': etag },
-    });
-    discovery304Rate.add(cachedRes.status === 304 ? 1 : 0);
-    check(cachedRes, {
-      'Discovery returns 304 on matching ETag': (r) => r.status === 304,
-    });
-  }
+  const discRes = http.get(discUrl);
+  check(discRes, {
+    'Discovery returns 200 OK': (r) => r.status === 200,
+  });
 
   // Test JWKS Endpoint
   const jwksUrl = 'http://localhost:9000/oauth2/jwks';
-  let jwksRes = http.get(jwksUrl);
-
-  let jwksEtag = jwksRes.headers['Etag'] || jwksRes.headers['ETag'];
-  if (jwksEtag) {
-    let cachedJwksRes = http.get(jwksUrl, {
-      headers: { 'If-None-Match': jwksEtag },
-    });
-    jwks304Rate.add(cachedJwksRes.status === 304 ? 1 : 0);
-    check(cachedJwksRes, {
-      'JWKS returns 304 on matching ETag': (r) => r.status === 304,
-    });
-  }
+  const jwksRes = http.get(jwksUrl);
+  check(jwksRes, {
+    'JWKS returns 200 OK': (r) => r.status === 200,
+  });
 }
