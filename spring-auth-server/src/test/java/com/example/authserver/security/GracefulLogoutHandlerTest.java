@@ -7,9 +7,10 @@ import static org.mockito.Mockito.*;
 import com.example.authserver.client.PostgresRegisteredClientRepository;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
-import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.crypto.ECDSASigner;
+import com.nimbusds.jose.jwk.Curve;
+import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.JWKSet;
-import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
@@ -20,8 +21,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
-import java.security.interfaces.RSAPrivateKey;
-import java.security.interfaces.RSAPublicKey;
+import java.security.interfaces.ECPrivateKey;
+import java.security.interfaces.ECPublicKey;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
@@ -52,21 +53,21 @@ public class GracefulLogoutHandlerTest {
 
   private GracefulLogoutHandler handler;
   private KeyPair keyPair;
-  private RSAKey rsaKey;
+  private ECKey ecKey;
 
   @BeforeEach
   void setUp() throws Exception {
-    KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-    generator.initialize(2048);
+    KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+    generator.initialize(256);
     keyPair = generator.generateKeyPair();
 
-    rsaKey =
-        new RSAKey.Builder((RSAPublicKey) keyPair.getPublic())
-            .privateKey((RSAPrivateKey) keyPair.getPrivate())
+    ecKey =
+        new ECKey.Builder(Curve.P_256, (ECPublicKey) keyPair.getPublic())
+            .privateKey((ECPrivateKey) keyPair.getPrivate())
             .keyID("test-key-id")
             .build();
 
-    JWKSource<SecurityContext> jwkSource = new ImmutableJWKSet<>(new JWKSet(rsaKey));
+    JWKSource<SecurityContext> jwkSource = new ImmutableJWKSet<>(new JWKSet(ecKey));
     handler =
         new GracefulLogoutHandler(registeredClientRepository, redisTemplate, jwkSource, "session:");
   }
@@ -82,9 +83,9 @@ public class GracefulLogoutHandlerTest {
 
     SignedJWT signedJWT =
         new SignedJWT(
-            new JWSHeader.Builder(JWSAlgorithm.RS256).keyID("test-key-id").build(), claims);
+            new JWSHeader.Builder(JWSAlgorithm.ES256).keyID("test-key-id").build(), claims);
 
-    signedJWT.sign(new RSASSASigner((RSAPrivateKey) keyPair.getPrivate()));
+    signedJWT.sign(new ECDSASigner((ECPrivateKey) keyPair.getPrivate()));
     return signedJWT.serialize();
   }
 
@@ -124,8 +125,8 @@ public class GracefulLogoutHandlerTest {
             .build();
     SignedJWT signedJWT =
         new SignedJWT(
-            new JWSHeader.Builder(JWSAlgorithm.RS256).keyID("test-key-id").build(), claims);
-    signedJWT.sign(new RSASSASigner((RSAPrivateKey) keyPair.getPrivate()));
+            new JWSHeader.Builder(JWSAlgorithm.ES256).keyID("test-key-id").build(), claims);
+    signedJWT.sign(new ECDSASigner((ECPrivateKey) keyPair.getPrivate()));
 
     when(request.getParameter("id_token_hint")).thenReturn(signedJWT.serialize());
     when(request.getParameter("post_logout_redirect_uri"))
@@ -302,8 +303,8 @@ public class GracefulLogoutHandlerTest {
             .build();
     SignedJWT signedJWT =
         new SignedJWT(
-            new JWSHeader.Builder(JWSAlgorithm.RS256).keyID("test-key-id").build(), claims);
-    signedJWT.sign(new RSASSASigner((RSAPrivateKey) keyPair.getPrivate()));
+            new JWSHeader.Builder(JWSAlgorithm.ES256).keyID("test-key-id").build(), claims);
+    signedJWT.sign(new ECDSASigner((ECPrivateKey) keyPair.getPrivate()));
 
     when(request.getParameter("id_token_hint")).thenReturn(signedJWT.serialize());
     when(request.getParameter("post_logout_redirect_uri"))

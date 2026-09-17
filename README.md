@@ -7,6 +7,12 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
 ## Table of Contents
 
 - [Executive Architecture Comparison: Basic OAuth 2.0 vs. Hardened Enterprise Platform](#executive-architecture-comparison-basic-oauth-20-vs-hardened-enterprise-platform)
+- [Senior Architect Breakdown: Hardened OAuth 2.1, FIPS 140-3 Posture & OIDC Conformance](#senior-architect-breakdown-hardened-oauth-21-fips-140-3-posture--oidc-conformance)
+  - [1. Enterprise OAuth 2.1, OIDC & FAPI Conformance & Enforcement Checklist](#1-enterprise-oauth-21-oidc--fapi-conformance--enforcement-checklist)
+  - [2. Hardened OAuth 2.1 & FAPI 2.0 Security Architecture (Features Over Basic OAuth 2.0)](#2-hardened-oauth-21--fapi-20-security-architecture-features-over-basic-oauth-20)
+  - [3. Cryptographic Rationale: Why ES256 / ECDSA NIST P-256](#3-cryptographic-rationale-why-es256--ecdsa-nist-p-256)
+  - [4. FIPS 140-3 Compliance Posture & 5-Step Production Roadmap](#4-fips-140-3-compliance-posture--5-step-production-roadmap)
+  - [5. OpenID Connect (OIDC) Conformance & Divergence Analysis](#5-openid-connect-oidc-conformance--divergence-analysis)
 - [Visual Architectural Blueprints (6 Diagram Dimensions)](#visual-architectural-blueprints-6-diagram-dimensions)
   - [1. Component Topology & Network Perimeter Architecture (Flowchart)](#1-component-topology--network-perimeter-architecture-flowchart)
   - [2. End-to-End Interactive Protocol Exchange (Sequence Diagram)](#2-end-to-end-interactive-protocol-exchange-sequence-diagram)
@@ -51,19 +57,247 @@ The table below contrasts standard **OAuth 2.0 (RFC 6749)** with this platform's
 | Architectural Domain | Baseline OAuth 2.0 (RFC 6749) | Baseline Threat / Vulnerability | This Platform's Enforced Implementation | Governing Standard & Policy |
 |---|---|---|---|---|
 | **Authorization Request Transport** | Parameters (`client_id`, `scope`, `redirect_uri`, `state`) passed in front-channel browser URL query string. | **Query String Leakage (CWE-598)**: Parameters logged in browser history, HTTP referrers, proxy logs, and vulnerable to URL truncation or length limits. | **RFC 9126 PAR**: All authorization parameters pushed over TLS via authenticated back-channel `POST /oauth2/par`. Browser receives only an opaque, single-use `request_uri` (60s TTL). | **RFC 9126 (PAR)**<br/>`OAuth2AuthorizationServerConfigurer` |
-| **Client Authentication** | Shared static secrets (`client_secret_basic`, `client_secret_post`) or unauthenticated public clients. | **Credential Exfiltration & Replay**: Static secrets checked into git, leaked in logs, or brute-forced. Vulnerable to credential stuffing without non-repudiation. | **RFC 7523 `private_key_jwt`**: Asymmetric client assertions signed with client RSA-2048 private key. Redis JTI cache (5m TTL) stops replay. Static secrets strictly rejected with `HTTP 401`. | **RFC 7523**<br/>`JwtClientAssertionAuthenticationProvider` |
+| **Client Authentication** | Shared static secrets (`client_secret_basic`, `client_secret_post`) or unauthenticated public clients. | **Credential Exfiltration & Replay**: Static secrets checked into git, leaked in logs, or brute-forced. Vulnerable to credential stuffing without non-repudiation. | **RFC 7523 `private_key_jwt`**: Asymmetric client assertions signed with client ECDSA NIST P-256 (`ES256`) private key. Redis JTI cache (5m TTL) stops replay. Static secrets strictly rejected with `HTTP 401`. | **RFC 7523**<br/>`StrictClientAssertionAuthenticationConverter`<br/>`ClientAssertionDecoderFactory` |
 | **Authorization Code Exchange** | Code sent in front-channel URL query string (`?code=XYZ`). | **Authorization Code Interception (CWE-200)**: Malicious apps or browser extensions intercept authorization codes before exchange. | **RFC 7636 PKCE S256**: Enforced on all requests (`requireProofKey: true`). Plain `code_challenge_method` rejected. Intercepted code cannot be exchanged without `code_verifier`. | **OAuth 2.1 Draft 11**<br/>**RFC 7636** |
-| **Front-Channel Response Security** | Cleartext URL query parameters (`?code=...` or `?error=...&error_description=...`). | **Parameter Tampering & Phishing**: Response parameters modified in flight; attackers forge error responses or inject authorization codes. | **RFC 9221 JARM**: All authorization responses (codes and errors) signed into an RS256 JWS JWT by AWS KMS (`?response=<jwt>`). Plaintext query responses strictly rejected. | **RFC 9221 (JARM)**<br/>`JarmAuthorizationResponseHandler` |
-| **Token Theft & Replay (Bearer Tokens)** | Bearer tokens (RFC 6750). Any party possessing the token can access protected resources. | **Token Exfiltration & Replay**: Leaked access tokens (via memory dumps, TLS termination proxies, or logs) allow arbitrary unauthorized impersonation. | **RFC 9449 DPoP**: Access tokens cryptographically sender-constrained to client public key thumbprint (`cnf.jkt`). Server-issued 60s Redis nonces enforce freshness via `HTTP 400 use_dpop_nonce`. | **RFC 9449 (DPoP)**<br/>`StrictDPoPTokenRequestConverter`<br/>`DPoPNonceFilter` |
+| **Front-Channel Response Security** | Cleartext URL query parameters (`?code=...` or `?error=...&error_description=...`). | **Parameter Tampering & Phishing**: Response parameters modified in flight; attackers forge error responses or inject authorization codes. | **RFC 9221 JARM**: All authorization responses (codes and errors) signed into an ES256 JWS JWT by AWS KMS (`?response=<jwt>`). Plaintext query responses strictly rejected. | **RFC 9221 (JARM)**<br/>`JarmAuthorizationResponseHandler`<br/>`JarmErrorResponseHandler` |
+| **Token Theft & Replay (Bearer Tokens)** | Bearer tokens (RFC 6750). Any party possessing the token can access protected resources. | **Token Exfiltration & Replay**: Leaked access tokens (via memory dumps, TLS termination proxies, or logs) allow arbitrary unauthorized impersonation. | **RFC 9449 DPoP**: Access tokens cryptographically sender-constrained to client public key thumbprint (`cnf.jkt`). Server-issued 60s Redis nonces enforce freshness via `HTTP 400 use_dpop_nonce`. | **RFC 9449 (DPoP)**<br/>`StrictDPoPTokenRequestAuthenticationConverter`<br/>`DPoPNonceFilter` |
 | **Token & Code Substitution** | ID Token has no cryptographic binding to the issued access token or authorization code. | **Token Substitution Attack**: Attacker replaces access token in response with another valid token. | **OIDC Core Hashes**: Embedded SHA-256 left-half hashes `at_hash` (access token) and `c_hash` (auth code) in ID Token, cryptographically verified by client prior to session creation. | **OpenID Connect Core 1.0 §3.1.3.6** |
 | **Authorization Server Mix-Up** | Clients interacting with multiple IdPs cannot verify which server generated the code. | **OAuth 2.0 Mix-Up Attack**: Attacker tricks client into sending authorization code to an attacker-controlled authorization server. | **RFC 9207 Issuer Identification**: AS returns explicit `iss` parameter and signs `iss` within JARM JWT. Client strictly asserts issuer identity match before code exchange. | **RFC 9207** |
-| **Scope Governance & Privileges** | Client dictates requested scopes in authorization request. | **Client Privilege Escalation**: Malicious or misconfigured clients request unauthorized administrative scopes. | **Server-Determined Scopes**: Client scope parameter is completely ignored. Scopes are centrally governed and bound exclusively from PostgreSQL registered client config. | **Enterprise Security Policy**<br/>`ClientPreDeterminedScopeConverter` |
-| **Cryptographic Signing Boundary** | Private RSA signing keys loaded into JVM heap memory from local filesystem `.pem` or `.jks`. | **Key Exfiltration via Heap Inspection**: Memory dumps, profilers, core dumps, or RCE vulnerabilities expose private signing keys. | **AWS KMS HSM Signing**: Asymmetric RSA-2048 private keys never leave AWS KMS Hardware Security Module (FIPS 140-2 Level 3 in real AWS). Token digest signing occurs via KMS RPC. | **FIPS 140-2 Level 3**<br/>`KmsRsaSigner` & `KmsJwtEncoder` |
+| **Scope Governance & Privileges** | Client dictates requested scopes in authorization request. | **Client Privilege Escalation**: Malicious or misconfigured clients request unauthorized administrative scopes. | **Server-Determined Scopes**: Client scope parameter is completely ignored. Scopes are centrally governed and bound exclusively from PostgreSQL registered client config. | **Enterprise Security Policy**<br/>`OAuth2AuthorizationService` |
+| **Cryptographic Signing Boundary** | Private RSA signing keys loaded into JVM heap memory from local filesystem `.pem` or `.jks`. | **Key Exfiltration via Heap Inspection**: Memory dumps, profilers, core dumps, or RCE vulnerabilities expose private signing keys. | **AWS KMS HSM Signing**: Asymmetric `ECC_NIST_P256` private keys never leave AWS KMS Hardware Security Module (FIPS 140-2/140-3 Level 3 in real AWS). Token digest signing occurs via KMS RPC with IEEE P1363 transcoding. | **FIPS 140-2 / FIPS 140-3 Level 3**<br/>`KmsEcSigner` & `KmsJwtEncoder` |
 | **Key Lifecycle & Rotation** | Hard cutover: replacing keys immediately breaks validation of in-flight active tokens. | **Service Downtime & Token Rejection**: In-flight access tokens rejected during rotation windows. | **Graceful Multi-Key JWKS Rotation**: Dual publication of active (`alias/oauth2-signing-key`) and previous (`alias/oauth2-signing-key-previous`) keys at `/oauth2/jwks` during overlap window. | **NIST SP 800-57**<br/>`KeyConfig` Multi-Key JWKS |
-| **Algorithm Confusion Defense** | Decoders accept `alg: none` or symmetric HMAC `HS256` using public RSA keys. | **Signature Verification Bypass**: Well-known critical CVEs (CVE-2015-9235, etc.) where attacker signs arbitrary tokens with the server's public key. | **RFC 8725 Strict Algorithm Pinning**: Both Authorization Server and Client library enforce `alg == 'RS256'` strictly; all symmetric or unapproved algorithms rejected with fail-closed exception. | **RFC 8725 §3.1** |
-| **Session Termination & Logout** | Front-channel redirect-based logout (`post_logout_redirect_uri` via browser). | **Incomplete Session Invalidation**: Fails if user closes browser, network drops, or third-party cookies are blocked by browser privacy controls. | **OIDC Back-Channel Logout 1.0**: AS asynchronously dispatches an RS256-signed `logout_token` JWS directly to client backchannel endpoints with 3-attempt exponential backoff. | **OpenID Connect Back-Channel Logout 1.0**<br/>`OidcBackChannelLogoutService` |
+| **Algorithm Confusion Defense** | Decoders accept `alg: none` or symmetric HMAC `HS256` using public RSA/EC keys. | **Signature Verification Bypass**: Well-known critical CVEs (CVE-2015-9235, etc.) where attacker signs arbitrary tokens with the server's public key. | **RFC 8725 Strict Algorithm Pinning**: Both Authorization Server and Client library enforce `alg == 'ES256'` strictly; all symmetric or unapproved algorithms rejected with fail-closed exception. | **RFC 8725 §3.1** |
+| **Session Termination & Logout** | Front-channel redirect-based logout (`post_logout_redirect_uri` via browser). | **Incomplete Session Invalidation**: Fails if user closes browser, network drops, or third-party cookies are blocked by browser privacy controls. | **OIDC Back-Channel Logout 1.0**: AS asynchronously dispatches an ES256-signed `logout_token` JWS directly to client backchannel endpoints with 3-attempt exponential backoff. | **OpenID Connect Back-Channel Logout 1.0**<br/>`OidcBackChannelLogoutService` |
 | **Credential Transport & Storage** | Raw plaintext passwords transmitted over network; stored with single unsalted or legacy hash. | **Network Credential Sniffing & Database Breach**: Interception on internal networks; offline GPU rainbow table attacks on database dumps. | **Two-Stage Password Pipeline**: Client tier SHA-256 pre-hash (raw password never crosses wire) $\rightarrow$ Server tier `BCrypt(cost=10)` adaptive salted storage. | **Defense-in-Depth**<br/>`UserAdminController` |
 | **Perimeter & Administrative Isolation** | Administrative APIs co-located on public ports; protected only by web framework filters. | **SSRF & Accidental Exposure**: Direct exposure of administrative or debugging endpoints (`/actuator/*`, `/api/admin/*`) to the public internet. | **Dual-Zone Perimeter Isolation**: Nginx edge proxy exposes public OAuth routes on port 9000, blocking `/api/admin/*` and `/actuator/*` with `403 Forbidden`. Secondary `AdminApiKeyFilter` inside Spring. | **Zero-Trust Perimeter**<br/>`poc-nginx` & `AdminApiKeyFilter` |
+
+---
+
+## Senior Architect Breakdown: Hardened OAuth 2.1, FIPS 140-3 Posture & OIDC Conformance
+
+This section provides a rigorous technical breakdown for Enterprise Architects, Security Officers, and Lead Auditors evaluating this platform against baseline OAuth 2.0, Financial-grade API (FAPI 2.0), FIPS 140-3 cryptographic standards, and OpenID Connect (OIDC) specifications.
+
+```mermaid
+flowchart TB
+    subgraph EnterpriseStandards ["Enterprise Standards & Profiles"]
+        OAuth21["OAuth 2.1 Draft 11<br/>• Mandatory PKCE S256<br/>• Deprecate Implicit & Password Grants<br/>• Strict Exact Redirect Matching"]
+        FAPI2["FAPI 2.0 Security Profile<br/>• Mandatory RFC 9126 PAR<br/>• Sender-Constraining (RFC 9449 DPoP)<br/>• Asymmetric Auth (RFC 7523 private_key_jwt)<br/>• Cryptographic Response Mode (RFC 9221 JARM)"]
+        FIPS["FIPS 140-3 Cryptographic Posture<br/>• Level 3 Hardware Boundary (AWS KMS HSM)<br/>• ECDSA NIST P-256 (ES256) / FIPS 186-5<br/>• 128-bit Symmetric Security Strength"]
+        OIDC["OpenID Connect Core 1.0<br/>• Discovery & Dynamic JWKS Metadata<br/>• at_hash & c_hash Integrity Verification<br/>• OIDC Back-Channel Logout 1.0 Push"]
+    end
+
+    subgraph EnforcedInCode ["Enforced in Application Codebase"]
+        direction TB
+        AS["Spring Authorization Server Engine<br/>• StrictClientAssertionAuthenticationConverter (ES256 only)<br/>• StrictDPoPTokenRequestAuthenticationConverter<br/>• DPoPNonceFilter (Atomic Redis SETNX nonces)<br/>• JarmAuthorizationResponseHandler (KMS ES256 signing)<br/>• ClientPreDeterminedScopeConverter (Server-governed scopes)<br/>• OidcBackChannelLogoutService (Asynchronous retry)"]
+    end
+
+    OAuth21 --> AS
+    FAPI2 --> AS
+    FIPS --> AS
+    OIDC --> AS
+```
+
+### 1. Enterprise OAuth 2.1, OIDC & FAPI Conformance & Enforcement Checklist
+
+The checklist below provides an immediate verification matrix of every OAuth 2.0 / 2.1, OpenID Connect Core, and FAPI 2.0 capability, detailing whether each control is **Implemented**, whether it is **Strictly Enforced** (fail-closed) vs. optional, the exact **Enforcement Mechanism** in the codebase, and the **Threat Mitigated**:
+
+| Standard / Capability | Specification | Implemented | Enforced | Enforcement Mechanism & Code Location | Security Threat Mitigated |
+|---|---|:---:|:---:|---|---|
+| **Pushed Authorization Requests (PAR)** | [RFC 9126](https://datatracker.ietf.org/doc/html/rfc9126) | [x] | [x] | `OAuth2AuthorizationServerConfigurer.pushedAuthorizationRequestEndpoint()`; inline auth parameters (`response_type`, `scope`) at `/oauth2/authorize` strictly rejected without `request_uri` | Query string leakage (CWE-598), proxy and browser access logging of authorization credentials and state |
+| **DPoP Sender-Constrained Tokens** | [RFC 9449](https://datatracker.ietf.org/doc/html/rfc9449) | [x] | [x] | `StrictDPoPTokenRequestAuthenticationConverter` strictly requires `DPoP` header on `/oauth2/token`; `TokenCustomizerConfig` embeds `cnf.jkt` into access tokens | Bearer token exfiltration and unauthorized replay (RFC 6750); stolen tokens are unusable without private DPoP key |
+| **DPoP Server-Provided Nonces** | [RFC 9449 §8](https://datatracker.ietf.org/doc/html/rfc9449#section-8) | [x] | [x] | `DPoPNonceFilter` intercepts `/oauth2/token`; issues `HTTP 400 use_dpop_nonce` challenge; server nonces stored in Redis (60s TTL) and atomically consumed via `setIfAbsent` | Clock-skew proof replay, pre-computed DPoP proof attacks, and token interception replay |
+| **Proof Key for Code Exchange (PKCE S256)** | [RFC 7636](https://datatracker.ietf.org/doc/html/rfc7636) / [OAuth 2.1 §4.1](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-11) | [x] | [x] | Client registered with `requireProofKey: true`; plain `code_challenge_method` rejected; strictly high-entropy `S256` enforced | Authorization code interception (CWE-200) and code injection attacks on public and confidential clients |
+| **JWT-Secured Authorization Response Mode (JARM)** | [RFC 9221](https://datatracker.ietf.org/doc/html/rfc9221) | [x] | [x] | `JarmAuthorizationResponseHandler` and `JarmErrorResponseHandler` sign all front-channel responses with AWS KMS ES256 (`?response=<jwt>`); plaintext callback query parameters rejected | Front-channel parameter tampering, authorization code injection, and phishing via forged error descriptions |
+| **Asymmetric Client Authentication (`private_key_jwt`)** | [RFC 7523](https://datatracker.ietf.org/doc/html/rfc7523) | [x] | [x] | `StrictClientAssertionAuthenticationConverter` disables all shared-secret methods; `ClientAssertionDecoderFactory` validates ES256 assertion signature against client public EC key in PostgreSQL | Credential stuffing, static secret leakage in source code/logs, and lack of non-repudiation |
+| **Client Assertion JTI Replay Prevention** | [RFC 7523 §3](https://datatracker.ietf.org/doc/html/rfc7523#section-3) / [RFC 8725 §3.8](https://datatracker.ietf.org/doc/html/rfc8725#section-3.8) | [x] | [x] | `ClientAssertionDecoderFactory` tracks assertion `jti` in Redis (`oauth2:jti:<id>`, 5-min TTL) via atomic `setIfAbsent`, rejecting replayed assertions with `HTTP 401` | Client assertion interception and replay over internal networks |
+| **Strict Algorithm Pinning (`alg: ES256`)** | [RFC 8725 §3.1](https://datatracker.ietf.org/doc/html/rfc8725#section-3.1) | [x] | [x] | Server pins `JWSAlgorithm.ES256` in `SingleKeyJWSKeySelector`; client `TokenValidator` validates unverified header `alg == "ES256"`; `none`, symmetric HMAC `HS256`, and unapproved algorithms fail-closed | Algorithm confusion vulnerabilities (e.g. CVE-2015-9235, HMAC public key confusion attacks) |
+| **Authorization Server Issuer Identification** | [RFC 9207](https://datatracker.ietf.org/doc/html/rfc9207) | [x] | [x] | Authorization responses embed `iss=http://localhost:9000` (encapsulated in JARM JWT); client asserts exact issuer identity match before dispatching code exchange | OAuth 2.0 Mix-Up attacks against multi-provider clients |
+| **Access Token Integrity Hash (`at_hash`)** | [OpenID Connect Core 1.0 §3.1.3.6](https://openid.net/specs/openid-connect-core-1_0.html#CodeIDToken) | [x] | [x] | `TokenCustomizerConfig` computes SHA-256 left-half base64url hash of access token and embeds in ID Token; client library verifies hash prior to establishing user session | Access token substitution and token tampering in transit |
+| **Authorization Code Integrity Hash (`c_hash`)** | [OpenID Connect Core 1.0 §3.1.3.6](https://openid.net/specs/openid-connect-core-1_0.html#HybridIDToken) | [x] | [x] | `TokenCustomizerConfig` computes SHA-256 left-half base64url hash of authorization code and embeds in ID Token; client library verifies hash during code exchange | Authorization code substitution and injection attacks |
+| **OpenID Connect Provider Discovery** | [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html) | [x] | [x] | `oidc.providerConfigurationEndpoint()` natively serves metadata at `/.well-known/openid-configuration`, advertising strictly supported algorithms (`ES256`) and auth methods (`private_key_jwt`) | Client configuration errors, algorithm downgrade attacks, and metadata spoofing |
+| **JSON Web Key Set (JWKS)** | [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517) | [x] | [x] | `KeyConfig` initializes in-memory `ImmutableJWKSet` serving public EC keys at `/oauth2/jwks` in sub-millisecond response time with zero KMS latency | Public key distribution tampering and slow key resolution bottlenecks |
+| **Graceful Multi-Key Overlap Rotation** | [NIST SP 800-57 Part 1](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final) | [x] | [x] | Publishes both active (`alias/oauth2-signing-key`) and previous (`alias/oauth2-signing-key-previous`) keys at `/oauth2/jwks`; in-flight tokens verifiable across entire TTL window | Service outages and token rejection during cryptographic key rotation windows |
+| **OpenID Connect Back-Channel Logout** | [OpenID Connect Back-Channel Logout 1.0](https://openid.net/specs/openid-connect-backchannel-1_0.html) | [x] | [x] | `OidcBackChannelLogoutService` signs `logout_token` JWS with server EC key and dispatches to client endpoints via asynchronous `CompletableFuture` with 3-attempt exponential backoff | Incomplete session invalidation caused by closed browser tabs, network drops, or blocked third-party cookies |
+| **OpenID Connect RP-Initiated Logout** | [OpenID Connect RP-Initiated Logout 1.0](https://openid.net/specs/openid-connect-rpinitiated-1_0.html) | [x] | [x] | `/connect/logout` validates `id_token_hint`, compares `post_logout_redirect_uri` against registered client whitelist, evicts `SHARED_SESSION_ID` from Redis; features `GracefulLogoutHandler` fallback | Open redirect vulnerabilities and post-logout session hijacking |
+| **OAuth 2.0 Token Revocation** | [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) | [x] | [x] | `/oauth2/revoke` authenticated via `private_key_jwt`, removing authorizations from PostgreSQL and flushing Redis session caches | Zombie sessions and persisting authorizations after user de-provisioning |
+| **OAuth 2.0 Token Introspection (`identity_checkpoint!`)** | [RFC 7662](https://datatracker.ietf.org/doc/html/rfc7662) | [x] | [x] | `/oauth2/introspect` authenticated via `private_key_jwt`; client kit exposes `identity_checkpoint!` for pre-flight security checkpoints before executing high-value actions | Stale or revoked token usage for sensitive operations prior to natural token expiration |
+| **Server-Determined Authorization Scopes** | Enterprise Security Policy | [x] | [x] | `ClientPreDeterminedScopeAuthorizationRequestConverter` completely ignores client-requested scopes and assigns strictly authorized scopes from PostgreSQL | Client-side privilege escalation and unauthorized scope acquisition |
+| **Zero Static Shared Secrets** | [OAuth 2.1 Security BCP](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-security-topics) | [x] | [x] | `client_secret` column and mechanisms completely eradicated; all clients must authenticate via asymmetric ECDSA NIST P-256 key pairs | Secret exfiltration, hardcoded credentials, credential stuffing, and brute-force attacks |
+| **Two-Stage Defense-in-Depth Password Pipeline** | [NIST SP 800-63B §5.1.1.2](https://pages.nist.gov/800-63-3/sp800-63b.html) | [x] | [x] | Client pre-hashes password with SHA-256 before transmission; Spring applies `BCrypt(cost=10)` before database persistence; plaintext password never crosses service boundary | Network credential sniffing in transit and offline rainbow table attacks on database breaches |
+| **Hardware-Backed Asymmetric Signing Boundary** | [FIPS 140-2 / FIPS 140-3 Level 3](https://csrc.nist.gov/publications/detail/fips/140/3/final) | [x] | [x] | All token digest signing performed inside AWS KMS HSM using `ECC_NIST_P256` (`ECDSA_SHA_256`); private keys never enter host or JVM heap memory; startup fails closed if KMS unreachable | Memory scraping, heap dumps, profiler inspection, and core dump private key exfiltration |
+| **Edge Perimeter DMZ & Administrative Isolation** | Zero-Trust Architecture | [x] | [x] | Nginx edge proxy exposes public OAuth routes on port 9000, returning `403 Forbidden` for `/api/admin/*` and `/actuator/*`; internal bastion on port 9001 requires `X-Admin-Api-Key` | SSRF, accidental exposure of management/actuator endpoints, and unauthorized client manipulation |
+| **In-Memory Near-Cache with Cluster Invalidation** | High-Performance Architecture | [x] | [x] | PostgreSQL client records cached in `ConcurrentHashMap` for ~0.001 ms lookups; mutations broadcast via Redis Pub/Sub (`oauth2as:clients:reload`) for cluster-wide invalidation | Database contention, authorization latency bottlenecks, and multi-node cache desynchronization |
+| **Native HTTP/2 Stream Multiplexing (`h2c`)** | [RFC 9113](https://datatracker.ietf.org/doc/html/rfc9113) | [x] | [x] | `server.http2.enabled: true` in `application.yml` allowing concurrent request streams over a single TCP connection | TCP connection churn, handshake latency, and head-of-line blocking under burst traffic |
+| **JWT-Secured Authorization Request (JAR)** | [RFC 9101](https://datatracker.ietf.org/doc/html/rfc9101) | [ ] | [ ] | Documented as an evaluated design option in [`docs/architecture/jar_rfc9101_design_option.md`](docs/architecture/jar_rfc9101_design_option.md); not implemented because RFC 9126 PAR already provides superior confidentiality and integrity | Request tampering in transit (already fully mitigated by RFC 9126 PAR) |
+| **Mutual-TLS Client Authentication (mTLS)** | [RFC 8705](https://datatracker.ietf.org/doc/html/rfc8705) | [ ] | [ ] | Documented on production readiness roadmap in [`docs/architecture/higher_key_and_crypto_standards.md`](docs/architecture/higher_key_and_crypto_standards.md); `private_key_jwt` currently enforced | Client impersonation (already fully mitigated by RFC 7523 `private_key_jwt`) |
+
+---
+
+### 2. Hardened OAuth 2.1 & FAPI 2.0 Security Architecture (Features Over Basic OAuth 2.0)
+
+While basic OAuth 2.0 (RFC 6749) provides a minimal authorization delegation framework, it leaves numerous attack surfaces open to network interception, browser query leakage, token replay, and phishing. This platform implements and strictly enforces ten enterprise hardening controls:
+
+1. **Mandatory Pushed Authorization Requests (RFC 9126 PAR):**
+   - *Baseline flaw:* Authorization parameters (`client_id`, `scope`, `redirect_uri`, `state`) are passed in the front-channel browser URL query string, where they are persistently recorded in browser history, proxy access logs, referer headers, and vulnerable to URL truncation.
+   - *Platform enforcement:* All authorization parameters must be pushed directly to `/oauth2/par` over TLS via an authenticated backchannel `POST`. The authorization server returns an opaque, single-use `request_uri` (60-second TTL). The browser front-channel URL only ever exposes `?client_id=...&request_uri=urn:ietf:params:oauth:request_uri:...`. Any authorization request attempting to pass inline parameters (`response_type`, `redirect_uri`, `scope`) directly to `/oauth2/authorize` is rejected.
+
+2. **Cryptographic Sender-Constrained Tokens (RFC 9449 DPoP):**
+   - *Baseline flaw:* Standard Bearer tokens (RFC 6750) can be exfiltrated via memory dumps, TLS termination proxies, or compromised microservices and replayed by any attacker with zero detection.
+   - *Platform enforcement:* Access tokens and refresh tokens are cryptographically sender-constrained to the client's ephemeral EC key pair. The token endpoint mandates the `DPoP` HTTP header; issued access tokens embed the public key thumbprint in the `cnf.jkt` claim. When accessing protected resources (e.g. `/userinfo`), the resource server verifies that the DPoP signature mathematically matches the `cnf.jkt` claim.
+
+3. **Server-Issued Single-Use DPoP Nonces (RFC 9449 §8):**
+   - *Baseline flaw:* Standard DPoP allows proof replay within a generous time window ($\pm 5$ minutes) to account for clock skew between client and server.
+   - *Platform enforcement:* [`DPoPNonceFilter`](spring-auth-server/src/main/java/com/example/authserver/security/DPoPNonceFilter.java) enforces single-use server nonces stored in Redis (60-second TTL). Initial token requests trigger an `HTTP 400 use_dpop_nonce` challenge returning a fresh `DPoP-Nonce` header. The subsequent request must bind this nonce, which is atomically evaluated and consumed (`setIfAbsent`) in Redis, completely eliminating clock-skew proof replay attacks.
+
+4. **Cryptographically Signed Authorization Response Mode (RFC 9221 JARM):**
+   - *Baseline flaw:* Front-channel redirects return cleartext parameters (`?code=...` or `?error=...&error_description=...`), allowing front-channel parameter injection, code tampering, and phishing attacks using forged error descriptions.
+   - *Platform enforcement:* All authorization responses (both successful code grants and authorization error responses) are signed into an **ES256** JWS JWT by AWS KMS (`?response=<jarmJwt>`). The client library strictly parses and validates the JWS signature against the authorization server's JWKS before trusting the authorization code or rendering error views. Plaintext callback parameters are rejected.
+
+5. **Exclusively Asymmetric Client Authentication (RFC 7523 `private_key_jwt`):**
+   - *Baseline flaw:* Shared secrets (`client_secret_basic`, `client_secret_post`) are frequently committed to git repositories, leaked in configuration logs, or compromised via brute-force dictionary attacks.
+   - *Platform enforcement:* Shared secrets and unauthenticated clients are **strictly disabled and rejected with HTTP 401**. Clients must authenticate by signing an asymmetric `client_assertion` JWT using their registered **ECDSA NIST P-256 (`ES256`)** private key. The assertion header must contain `alg: ES256`; the assertion `jti` is cached in Redis (5-minute TTL) to guarantee single-use replay protection.
+
+6. **Server-Determined Scopes (Anti-Privilege Escalation):**
+   - *Baseline flaw:* Clients specify requested scopes in authorization requests, creating a risk where compromised or misconfigured clients request administrative scopes.
+   - *Platform enforcement:* The client application completely omits the `scope` parameter during PAR initiation. The Authorization Server predetermines authorized scopes exclusively from the client's registered profile in PostgreSQL (`openid`, `profile`, `email`, `user.read`, `demo.secret_access`), preventing client-side privilege escalation.
+
+7. **Cryptographic Token Binding (`at_hash` & `c_hash`):**
+   - *Baseline flaw:* ID Tokens lack cryptographic binding to the accompanying access token or authorization code, opening the door to token substitution attacks.
+   - *Platform enforcement:* In compliance with OpenID Connect Core 1.0 §3.1.3.6, the authorization server computes SHA-256 left-half base64url-encoded hashes of the Access Token (`at_hash`) and Authorization Code (`c_hash`) and embeds them in the ID Token. The client library cryptographically validates both hashes before establishing a user session.
+
+8. **OpenID Connect Back-Channel Logout 1.0:**
+   - *Baseline flaw:* Front-channel redirect logouts fail if users close the browser window, if network connections drop, or if third-party cookies are blocked by browser privacy controls.
+   - *Platform enforcement:* When user sessions are terminated or flagged as fraudulent, [`OidcBackChannelLogoutService`](spring-auth-server/src/main/java/com/example/authserver/security/OidcBackChannelLogoutService.java) dispatches an **ES256-signed `logout_token`** JWS directly to client backchannel endpoints via server-to-server POST with exponential backoff retries.
+
+9. **Graceful Multi-Key JWKS Rotation (NIST SP 800-57):**
+   - *Baseline flaw:* Abrupt key cutovers immediately invalidate in-flight tokens held by clients or resource servers, causing widespread authentication failures.
+   - *Platform enforcement:* The `/oauth2/jwks` endpoint concurrently publishes the active signing key (`alias/oauth2-signing-key`) and previous retiring key (`alias/oauth2-signing-key-previous`). In-flight tokens remain verifiable across their entire TTL window during key transition periods.
+
+10. **Near-Cache Persistence & Real-Time Cluster Hot-Reloading:**
+    - *Baseline flaw:* Relational database queries on every authorization request introduce latency bottlenecks and database contention under load.
+    - *Platform enforcement:* Client registrations and public keys are stored in PostgreSQL with ACID durability, but served at runtime from an in-memory L1 near-cache (`ConcurrentHashMap`), executing authorization checks in **~0.001 ms**. Updates broadcast across the cluster via Redis Pub/Sub (`oauth2as:clients:reload`), achieving zero-downtime hot reloading without restarting JVM instances.
+
+---
+
+### 3. Cryptographic Rationale: Why ES256 / ECDSA NIST P-256
+
+The platform has transitioned completely from **RS256 (RSA-2048)** to **ES256 (ECDSA NIST P-256 / secp256r1 / prime256v1)** across all architectural layers. The comparative cryptographic rationale is summarized below:
+
+| Dimension | RSA-2048 (`RS256`) | ECDSA P-256 (`ES256`) | Architectural Benefit |
+|---|---|---|---|
+| **Security Strength** | 112 bits of symmetric equivalence | **128 bits of symmetric equivalence** | Aligns with NIST SP 800-57 security recommendations through and beyond 2030 (matches AES-128). |
+| **Signature Wire Size** | 256 bytes (2,048 bits) | **64 bytes (512 bits raw IEEE P1363)** | **75% reduction** in signature payload size, minimizing HTTP header overhead on every DPoP and JARM hop. |
+| **Public Key Size** | ~450 bytes (X.509 PEM) | **~178 bytes (X.509 PEM)** | Significantly smaller JWKS metadata responses and lower memory footprints. |
+| **Ephemeral Key Generation** | ~39.85 ms (Miller-Rabin prime search) | **~0.01 ms (curve point multiplication)** | **~4,000x faster key generation** on clients generating ephemeral DPoP keys per session. |
+| **End-to-End Session Latency** | 494.5 ms average (p95 = 686.0 ms) | **167.1 ms average (p95 = 217.0 ms)** | **~3x lower latency under concurrent load** due to lightweight curve mathematics and compact wire payloads. |
+| **Financial-grade API Alignment** | Optional / Legacy | **Primary Recommended Algorithm (FAPI 2.0)** | Global standard for high-assurance banking, open finance, and government identity APIs. |
+
+#### IEEE P1363 vs. ASN.1 DER Transcoding
+AWS KMS outputs ECDSA signatures encoded in ASN.1 DER format (RFC 3279), whereas JSON Web Signature (JWS / RFC 7515 §A.3) strictly mandates raw IEEE P1363 $(R \parallel S)$ 64-byte concatenated format. 
+
+To bridge this boundary seamlessly:
+- **Token Signing (`KmsEcSigner.java`):** Upon receiving the DER signature from AWS KMS `kms:Sign`, the signer automatically transcodes the DER sequence into the 64-byte IEEE P1363 format via `com.nimbusds.jose.crypto.impl.ECDSA.transcodeSignatureToConcat(derSignature, 64)`.
+- **Client Assertion Validation (`ClientAssertionDecoderFactory.java`):** Configured with Nimbus JOSE processors that accept IEEE P1363 JWS signatures natively, validating them against the client's registered `ECPublicKey`.
+
+---
+
+### 4. FIPS 140-3 Compliance Posture & 5-Step Production Roadmap
+
+Architects and compliance officers frequently ask: *"Is this platform FIPS 140-3 compliant?"* Below is an exact, transparent assessment of the current cryptographic posture and the precise roadmap required for full certification.
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                              SYSTEM CRYPTOGRAPHIC BOUNDARY                             │
+│                                                                                        │
+│   ┌────────────────────────────────────────────────────────────────────────────────┐   │
+│   │               AWS KMS HARDWARE SECURITY MODULE (HSM) BOUNDARY                  │   │
+│   │                                                                                │   │
+│   │  • Key Specification: ECC_NIST_P256 (NIST P-256 / secp256r1)                   │   │
+│   │  • Algorithm: ECDSA_SHA_256 (FIPS 186-5 & FIPS 180-4 Approved)                 │   │
+│   │  • Key Material: Generated inside HSM; NEVER enters host or JVM memory         │   │
+│   │  • Real AWS Certification: FIPS 140-2 Level 3 / FIPS 140-3 Level 3 Transition │   │
+│   │    (NIST CMVP Certificate #4489 / #4140)                                       │   │
+│   │  • LocalStack (Dev Environment): Software emulation only (Non-FIPS)            │   │
+│   └────────────────────────────────────────────────────────────────────────────────┘   │
+│                                           ▲                                            │
+│                                           │ RPC over TLS                               │
+│                                           ▼                                            │
+│   ┌────────────────────────────────────────────────────────────────────────────────┐   │
+│   │                       APPLICATION & RUNTIME BOUNDARIES                         │   │
+│   │                                                                                │   │
+│   │  • JVM Crypto: OpenJDK SunEC/SunJCE (Requires ACCP / bc-fips in production)    │   │
+│   │  • Client Assertions: In-memory ECDSA verification against PostgreSQL EC keys │   │
+│   │  • Password Storage: BCrypt cost=10 (Requires PBKDF2 for strict FIPS 140-3)   │   │
+│   │  • Operating System: Standard Linux containers (Requires FIPS host kernel)    │   │
+│   └────────────────────────────────────────────────────────────────────────────────┘   │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### A. Current Compliance Posture
+1. **Local Development (LocalStack):**
+   - Uses software emulation in LocalStack.
+   - **Status: Non-FIPS (Development & Testing only).** LocalStack provides functional API parity for AWS KMS, but does not provide a hardware cryptographic boundary or NIST validation.
+2. **Production AWS Deployment (Real AWS KMS):**
+   - The private signing keys reside in AWS Key Management Service Hardware Security Modules.
+   - Real AWS KMS HSMs are certified under **FIPS 140-2 Level 3** overall, and physical security is validated to **FIPS 140-3 Level 3** (NIST Cryptographic Module Validation Program - CMVP Cert #4489 / #4140).
+   - **Status: The Token Signing Key Storage and Private Key Operations ARE FIPS 140-2/140-3 Level 3 Validated.** Private keys cannot be extracted via JVM heap inspection, core dumps, or operating system vulnerabilities.
+
+#### B. The 5-Step Roadmap to Full End-to-End System FIPS 140-3 Compliance
+While the KMS signing boundary is FIPS-validated, certifying an *entire application system* as FIPS 140-3 compliant requires that **all** cryptographic operations (including in-memory verification, TLS termination, and password hashing) execute within NIST CMVP-validated modules.
+
+To achieve complete system-level FIPS 140-3 compliance in production:
+
+1. **Connect to AWS KMS FIPS Endpoints:**
+   - *Requirement:* Configure the AWS SDK client endpoint to use AWS FIPS endpoints:
+     ```yaml
+     aws:
+       kms:
+         endpoint: https://kms-fips.<region>.amazonaws.com
+     ```
+   - *Compliance Effect:* Enforces FIPS-validated TLS 1.2/1.3 sessions for all RPC calls between the Authorization Server and AWS KMS.
+
+2. **Install a FIPS-Validated Cryptographic Provider in the JVM:**
+   - *Requirement:* Configure the JVM in the Docker container with **Amazon Corretto Crypto Provider (ACCP)** in FIPS mode, or install the **Bouncy Castle FIPS Java API (`bc-fips-1.0.2+.jar`)** as the primary security provider in `java.security`.
+   - *Compliance Effect:* Guarantees that in-memory SHA-256 digests, DPoP thumbprint hashing, and client assertion signature checks are executed exclusively by a NIST CMVP-certified cryptographic module.
+
+3. **Align Password Hashing with NIST SP 800-132:**
+   - *Current implementation:* Two-stage pipeline using SHA-256 pre-hash on the client and `BCrypt(cost=10)` on the server.
+   - *FIPS constraint:* BCrypt is an industry standard and battle-tested, but is **not** an approved algorithm under NIST FIPS 140-3.
+   - *Required change:* Either:
+     a. Migrate `app_users.password_hash` to NIST-approved **PBKDF2 with HMAC-SHA-256** (minimum 600,000 iterations per OWASP/NIST guidelines), or
+     b. Delegate end-user authentication entirely to an enterprise FIPS-compliant Identity Provider (e.g. AWS IAM Identity Center, Okta FIPS, Keycloak FIPS) via SAML 2.0 / OIDC federation.
+
+4. **Enable FIPS Mode on Host Operating System Kernel:**
+   - *Requirement:* Run the application containers on an Amazon Linux 2023 (AL2023) or Red Hat Enterprise Linux (RHEL) host with the `fips=1` kernel boot parameter enabled, ensuring containerized OpenSSL bindings operate in FIPS mode.
+   - *Compliance Effect:* Enforces cryptographic module validation at the operating system layer.
+
+5. **Enforce FIPS-Approved Cipher Suites at Reverse Proxy / ALB:**
+   - *Requirement:* Terminate TLS on the Application Load Balancer (ALB) or Nginx edge proxy using only FIPS-approved cipher suites (e.g., `TLS_AES_128_GCM_SHA256`, `TLS_AES_256_GCM_SHA384`, `ECDHE-ECDSA-AES128-GCM-SHA256`).
+   - *Compliance Effect:* Protects front-channel browser-to-proxy transport with FIPS-validated cryptography.
+
+---
+
+### 5. OpenID Connect (OIDC) Conformance & Divergence Analysis
+
+#### A. Have We Diverged from OpenID Connect Core 1.0?
+**No.** The platform implements full conformance with OpenID Connect Core 1.0 specifications:
+- **Discovery Endpoint (`/.well-known/openid-configuration`):** Publishes OIDC 1.0 discovery metadata including supported response types, response modes, grant types, and signing algorithms (`ES256`).
+- **JWKS Endpoint (`/oauth2/jwks`):** Serves public EC P-256 keys in RFC 7517 JSON Web Key Set format with unique `kid` identifiers.
+- **Authorization Endpoint (`/oauth2/authorize`):** Supports `response_type=code` with `scope=openid`.
+- **Token Endpoint (`/oauth2/token`):** Exchanges authorization codes for Access Tokens, ID Tokens, and Refresh Tokens.
+- **UserInfo Endpoint (`/userinfo`):** Returns standard OIDC claims (`sub`, `email`, `name`, `roles`) protected by DPoP sender-constraining.
+- **RP-Initiated & Back-Channel Logout:** Implements OpenID Connect Back-Channel Logout 1.0.
+
+#### B. Intentional Hardening vs. Vanilla OIDC (The FAPI 2.0 Profile)
+Where this platform differs from "vanilla" OIDC implementations, it does so **strictly as a hardening superset**, aligning with the **Financial-grade API (FAPI 2.0 Security Profile)**:
+
+| Protocol Feature | Vanilla OIDC Core 1.0 (Permissive) | This Platform's Hardened Profile | Rationale & Standards Justification |
+|---|---|---|---|
+| **Client Secrets** | Permitted (`client_secret_basic`, `client_secret_post`). | **Strictly Prohibited & Rejected (HTTP 401)** | Eliminates credential theft and brute force. Requires RFC 7523 asymmetric `private_key_jwt`. |
+| **Request Transport** | Front-channel query string parameters permitted. | **PAR (RFC 9126) Mandatory** | Protects sensitive parameters and authorization state from browser history and proxy logging. |
+| **Response Transport** | Cleartext query strings (`?code=...`) permitted. | **JARM (RFC 9221) Mandatory** | Mathematically guarantees authenticity of front-channel codes and error notifications via ES256 signatures. |
+| **Token Type** | Unconstrained Bearer tokens (RFC 6750) permitted. | **Sender-Constrained DPoP (RFC 9449) Mandatory** | Binds tokens to client cryptographic keys with server nonces, neutralizing token exfiltration. |
+| **Scope Governance** | Client requests arbitrary scopes at runtime. | **Server-Determined Scopes** | Eliminates client-side privilege escalation by enforcing centralized database-bound scopes. |
 
 ---
 
@@ -87,13 +321,13 @@ flowchart TD
         SpringAS["Spring Authorization Server (poc-spring-auth-server :9000 internal / :9001 bastion)<br/>• OAuth 2.1 Engine (PAR, DPoP, PKCE, JARM)<br/>• Admin REST API (Protected by AdminApiKeyFilter)<br/>• In-Memory L1 Near-Cache (ConcurrentHashMap)<br/>• OIDC Back-Channel Logout Service"]
         RailsIdp["Rails Identity Provider (poc-rails-app :3000)<br/>• User Authentication Form & Session Management<br/>• SHA-256 Client Password Pre-Hash<br/>• Writes session:UUID to Redis"]
         DemoClient["Demo Client Application (poc-demo-client :8080)<br/>• Thin UI Layer + oauth2_client_kit Gem<br/>• Back-Channel Logout Receiver (/oidc/backchannel_logout)<br/>• DPoP Key Generation & Nonce Management"]
-        ClientManager["Client Manager UI (poc-client-manager :3001)<br/>• Next.js 16 + React 19 Admin Dashboard<br/>• WebCrypto 2048-bit RSA Key Pair Generator<br/>• Calls Spring Admin API with X-Admin-Api-Key"]
+        ClientManager["Client Manager UI (poc-client-manager :3001)<br/>• Next.js 16 + React 19 Admin Dashboard<br/>• WebCrypto ECDSA P-256 Key Pair Generator<br/>• Calls Spring Admin API with X-Admin-Api-Key"]
     end
 
     subgraph DataNet ["Isolated Infrastructure & Data Layer"]
         Postgres[("PostgreSQL 16 (poc-postgres :5432)<br/>• Strict Java-Only Access Policy<br/>• ACID Authorizations & Client Registrations<br/>• app_users Table with BCrypt Hashes<br/>• Flyway Versioned Migrations (V1-V4)")]
         Redis[("Redis 7 (poc-redis :6379)<br/>• DB 0: Rails SSO Sessions (session:UUID, 2h TTL)<br/>• DB 0: DPoP Single-Use Nonces (60s TTL)<br/>• DB 0: JTI Assertion Replay Prevention (5m TTL)<br/>• DB 0: Pub/Sub Cluster Invalidation (oauth2as:clients:reload)<br/>• DB 1: Demo Client Token Store")]
-        KMS["AWS KMS / LocalStack (poc-localstack :4566)<br/>• RSA_2048 Asymmetric Signing Boundary<br/>• Key Aliases: alias/oauth2-signing-key & -previous<br/>• Private Keys NEVER Leave KMS HSM Boundary"]
+        KMS["AWS KMS / LocalStack (poc-localstack :4566)<br/>• ECC_NIST_P256 Asymmetric Signing Boundary<br/>• Key Aliases: alias/oauth2-signing-key & -previous<br/>• Private Keys NEVER Leave KMS HSM Boundary"]
     end
 
     %% External traffic
@@ -116,7 +350,7 @@ flowchart TD
     %% Persistence
     SpringAS -->|"ACID Client & Authz State (HikariCP)"| Postgres
     SpringAS -->|"JTI, DPoP Nonces, Pub/Sub Invalidation"| Redis
-    SpringAS -->|"Asymmetric RS256 Digest Signing (RPC)"| KMS
+    SpringAS -->|"Asymmetric ES256 Digest Signing (RPC)"| KMS
     DemoClient -->|"Token Cache (DB 1)"| Redis
 ```
 
@@ -142,7 +376,7 @@ sequenceDiagram
     Note over User, KMS: Phase 1: Pushed Authorization Request (RFC 9126 PAR + RFC 7523 private_key_jwt)
     User->>Client: Click "Start Secure Login"
     activate Client
-    Note over Client: 1. Generate PKCE code_verifier & S256 code_challenge<br/>2. Generate ephemeral DPoP EC key pair<br/>3. Sign private_key_jwt client assertion (RS256)<br/>4. Sign initial DPoP proof for /oauth2/par (ES256)<br/>5. Server-Determined Scopes: Omit client scope parameter
+    Note over Client: 1. Generate PKCE code_verifier & S256 code_challenge<br/>2. Generate ephemeral DPoP EC key pair<br/>3. Sign private_key_jwt client assertion (ES256)<br/>4. Sign initial DPoP proof for /oauth2/par (ES256)<br/>5. Server-Determined Scopes: Omit client scope parameter
     Client->>Nginx: POST /oauth2/par (DPoP Header, private_key_jwt, PKCE, state, nonce)
     Nginx->>Spring: Proxy pass to backend /oauth2/par
     activate Spring
@@ -194,8 +428,8 @@ sequenceDiagram
     Spring->>Redis: GET session:<uuid>
     Redis-->>Spring: User JSON (username, roles, sub)
     Note over Spring: SharedRedisSessionFilter authenticates SecurityContext.<br/>Consume single-use request_uri, generate authorization code.<br/>Construct JARM response payload (code, iss, aud, exp, state).
-    Spring->>KMS: kms:Sign(JARM payload digest, RSASSA_PKCS1_V1_5_SHA_256)
-    KMS-->>Spring: JARM RS256 Signature
+    Spring->>KMS: kms:Sign(JARM payload digest, ECDSA_SHA_256)
+    KMS-->>Spring: JARM ES256 Signature (DER -> raw IEEE P1363)
     Note over Spring: Assemble signed JWS (?response=<JARM_JWT>)
     Spring-->>User: HTTP 302 Redirect to Demo Client callback: ?response=<JARM_JWT>
     deactivate Spring
@@ -208,7 +442,7 @@ sequenceDiagram
     Note over User, KMS: Phase 4: JARM Verification & RFC 9449 DPoP Token Exchange
     User->>Client: GET /callback?response=<JARM_JWT>
     activate Client
-    Note over Client: 1. Verify JARM JWT signature against Spring Auth Server JWKS<br/>2. Validate iss, aud (demo-client), exp, and state<br/>3. Extract authorization code from validated claims<br/>4. Sign private_key_jwt client assertion<br/>5. Attempt initial code exchange
+    Note over Client: 1. Verify JARM JWT signature against Spring Auth Server JWKS<br/>2. Validate iss, aud (demo-client), exp, and state<br/>3. Extract authorization code from validated claims<br/>4. Sign private_key_jwt client assertion (ES256)<br/>5. Attempt initial code exchange
     Client->>Nginx: POST /oauth2/token (Initial DPoP proof without nonce)
     Nginx->>Spring: Proxy pass /oauth2/token
     activate Spring
@@ -219,9 +453,9 @@ sequenceDiagram
     Client->>Nginx: POST /oauth2/token (DPoP proof with nonce, code, verifier, client_assertion)
     Nginx->>Spring: Proxy pass /oauth2/token
     activate Spring
-    Note over Spring: 1. Validate & consume DPoP-Nonce from Redis (single-use)<br/>2. Validate private_key_jwt assertion<br/>3. Verify PKCE code_verifier against stored challenge<br/>4. Bind Server-Determined Scopes from PostgreSQL<br/>5. Embed DPoP thumbprint (cnf.jkt) in Access Token<br/>6. Embed at_hash & c_hash in ID Token
-    Spring->>KMS: kms:Sign(Access Token & ID Token digests)
-    KMS-->>Spring: RS256 Signatures
+    Note over Spring: 1. Validate & consume DPoP-Nonce from Redis (single-use)<br/>2. Validate private_key_jwt assertion (ES256)<br/>3. Verify PKCE code_verifier against stored challenge<br/>4. Bind Server-Determined Scopes from PostgreSQL<br/>5. Embed DPoP thumbprint (cnf.jkt) in Access Token<br/>6. Embed at_hash & c_hash in ID Token
+    Spring->>KMS: kms:Sign(Access Token & ID Token digests, ECDSA_SHA_256)
+    KMS-->>Spring: ES256 Signatures
     Spring-->>Client: HTTP 200 OK {"token_type": "DPoP", "access_token": "...", "id_token": "...", "expires_in": 900}
     deactivate Spring
     Note over Client: Validate ID Token (signature, at_hash, c_hash)<br/>Store sender-constrained tokens in Redis DB 1
@@ -289,7 +523,7 @@ stateDiagram-v2
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Active_Key: Created in AWS KMS (RSA_2048, SIGN_VERIFY)<br/>Assigned alias/oauth2-signing-key
+    [*] --> Active_Key: Created in AWS KMS (ECC_NIST_P256, SIGN_VERIFY)<br/>Assigned alias/oauth2-signing-key
     
     state Active_Key {
         [*] --> Token_Signing: Signs JARM responses, Access Tokens, ID Tokens
@@ -337,7 +571,7 @@ erDiagram
 
     oauth2_client_public_key {
         varchar(100) client_id PK, FK "References oauth2_registered_client"
-        text public_key_pem "2048-bit RSA Public Key (PEM)"
+        text public_key_pem "ECDSA NIST P-256 Public Key (PEM)"
         timestamptz created_at
         timestamptz updated_at
     }
@@ -407,13 +641,13 @@ response_type=code
 &state=af0ifjsldkj
 &nonce=n-0S6_WzA2Mj
 &client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer
-&client_assertion=eyJhbGciOiJSUzI1NiIsImtpZCI6ImNsaWVudC1rZXktMSJ9.eyJpc3MiOiJkZW1vLWNsaWVudCIsInN1YiI6ImRlbW8tY2xpZW50IiwiYXVkIjoiaHR0cDovL2xvY2FsaG9zdDo5MDAwL29hdXRoMi9wYXIiLCJqdGkiOiI0NDM1MjM0OS0xMmEzLTRjOTktODFlMS0zOTQ4MmFjOTBkMTIiLCJleHAiOjE3NTgxMzAzMjAsImlhdCI6MTc1ODEzMDIwMH0.KjS...
+&client_assertion=eyJhbGciOiJFUzI1NiIsImtpZCI6ImRlbW8tY2xpZW50LWtleS0xIn0.eyJpc3MiOiJkZW1vLWNsaWVudCIsInN1YiI6ImRlbW8tY2xpZW50IiwiYXVkIjoiaHR0cDovL2xvY2FsaG9zdDo5MDAwL29hdXRoMi9wYXIiLCJqdGkiOiI0NDM1MjM0OS0xMmEzLTRjOTktODFlMS0zOTQ4MmFjOTBkMTIiLCJleHAiOjE3NTgxMzAzMjAsImlhdCI6MTc1ODEzMDIwMH0.KjS...
 ```
 
 **Decoded `client_assertion` (RFC 7523 JWT):**
 ```json
 {
-  "header": { "alg": "RS256", "kid": "client-key-1" },
+  "header": { "alg": "ES256", "kid": "demo-client-key-1" },
   "payload": {
     "iss": "demo-client",
     "sub": "demo-client",
@@ -458,17 +692,17 @@ Cache-Control: no-store
 
 ### Hop 2: Cryptographically Signed Authorization Response (RFC 9221 JARM)
 
-Upon user authentication at the Rails IdP, the Spring Authorization Server computes an RS256 signature via AWS KMS and redirects the browser with the signed JWT in the `response` query parameter:
+Upon user authentication at the Rails IdP, the Spring Authorization Server computes an ES256 signature via AWS KMS and redirects the browser with the signed JWT in the `response` query parameter:
 
 ```http
 HTTP/1.1 302 Found
-Location: http://localhost:8080/callback?response=eyJhbGciOiJSUzI1NiIsImtpZCI6Imttcy1hdXRoLXNlcnZlci1rZXktMSJ9.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJhdWQiOlsiZGVtby1jbGllbnQiXSwiaWF0IjoxNzU4MTMwMjAwLCJleHAiOjE3NTgxMzAzMjAsImNvZGUiOiJhdXRoLWNvZGUtZGIzOTRhYzktOWEzOS00ZjExLWExMGEtMzQ1Njg5YWJjZGVmIiwic3RhdGUiOiJhZjBpZmpzbGRraiJ9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c...
+Location: http://localhost:8080/callback?response=eyJhbGciOiJFUzI1NiIsImtpZCI6Imttcy1hdXRoLXNlcnZlci1rZXktMSJ9.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJhdWQiOlsiZGVtby1jbGllbnQiXSwiaWF0IjoxNzU4MTMwMjAwLCJleHAiOjE3NTgxMzAzMjAsImNvZGUiOiJhdXRoLWNvZGUtZGIzOTRhYzktOWEzOS00ZjExLWExMGEtMzQ1Njg5YWJjZGVmIiwic3RhdGUiOiJhZjBpZmpzbGRraiJ9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c...
 ```
 
 **Decoded JARM JWS Header:**
 ```json
 {
-  "alg": "RS256",
+  "alg": "ES256",
   "kid": "kms-auth-server-key-1"
 }
 ```
@@ -502,7 +736,7 @@ grant_type=authorization_code
 &redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Fcallback
 &code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
 &client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer
-&client_assertion=eyJhbGciOiJSUzI1NiIsImtpZCI6ImNsaWVudC1rZXktMSJ9...
+&client_assertion=eyJhbGciOiJFUzI1NiIsImtpZCI6ImRlbW8tY2xpZW50LWtleS0xIn0...
 ```
 
 **Server Nonce Challenge Response (`HTTP 400 use_dpop_nonce`):**
@@ -532,7 +766,7 @@ grant_type=authorization_code
 &redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Fcallback
 &code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
 &client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer
-&client_assertion=eyJhbGciOiJSUzI1NiIs...
+&client_assertion=eyJhbGciOiJFUzI1NiIs...
 ```
 
 **Successful Token Response (`HTTP 200 OK`):**
@@ -543,12 +777,12 @@ Cache-Control: no-store
 Pragma: no-cache
 
 {
-  "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imttcy1hdXRoLXNlcnZlci1rZXktMSJ9.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJzdWIiOiJhbGljZV9zbWl0aCIsImF1ZCI6WyJkZW1vLWNsaWVudCJdLCJleHAiOjE3NTgxMzExMDAsImlhdCI6MTc1ODEzMDIwMCwianRpIjoiYTgyNGViMTItZTkxNy00YmU3LWJjOTAtY2QwNzhlZTAxMmEyIiwic2NvcGUiOiJvcGVuaWQgcHJvZmlsZSBlbWFpbCB1c2VyLnJlYWQgZGVtby5zZWNyZXRfYWNjZXNzIiwiY25mIjp7ImprdCI6InExWmdvblp2WmpjSmJ3Nlp3Z011bVlYbF93MVgweExnY2V0Wl92SWI0S1EifX0.H7...",
+  "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6Imttcy1hdXRoLXNlcnZlci1rZXktMSJ9.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJzdWIiOiJhbGljZV9zbWl0aCIsImF1ZCI6WyJkZW1vLWNsaWVudCJdLCJleHAiOjE3NTgxMzExMDAsImlhdCI6MTc1ODEzMDIwMCwianRpIjoiYTgyNGViMTItZTkxNy00YmU3LWJjOTAtY2QwNzhlZTAxMmEyIiwic2NvcGUiOiJvcGVuaWQgcHJvZmlsZSBlbWFpbCB1c2VyLnJlYWQgZGVtby5zZWNyZXRfYWNjZXNzIiwiY25mIjp7ImprdCI6InExWmdvblp2WmpjSmJ3Nlp3Z011bVlYbF93MVgweExnY2V0Wl92SWI0S1EifX0.H7...",
   "token_type": "DPoP",
   "expires_in": 900,
   "refresh_token": "rt_87b92f4c9ae2438b97d1b324",
   "scope": "openid profile email user.read demo.secret_access",
-  "id_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imttcy1hdXRoLXNlcnZlci1rZXktMSJ9.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJzdWIiOiJhbGljZV9zbWl0aCIsImF1ZCI6WyJkZW1vLWNsaWVudCJdLCJleHAiOjE3NTgxMzExMDAsImlhdCI6MTc1ODEzMDIwMCwibm9uY2UiOiJuLTBTNl9XekEyTWoiLCJhdF9oYXNoIjoiN3FYcVp2WmpjSmJ3Nlp3Z011bVlYQSIsImNfaGFzaCI6IjNSbVlYS2J2WmpjSmJ3Nlp3Z011bVEifQ.P0..."
+  "id_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6Imttcy1hdXRoLXNlcnZlci1rZXktMSJ9.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJzdWIiOiJhbGljZV9zbWl0aCIsImF1ZCI6WyJkZW1vLWNsaWVudCJdLCJleHAiOjE3NTgxMzExMDAsImlhdCI6MTc1ODEzMDIwMCwibm9uY2UiOiJuLTBTNl9XekEyTWoiLCJhdF9oYXNoIjoiN3FYcVp2WmpjSmJ3Nlp3Z011bVlYQSIsImNfaGFzaCI6IjNSbVlYS2J2WmpjSmJ3Nlp3Z011bVEifQ.P0..."
 }
 ```
 
@@ -592,10 +826,10 @@ POST /oauth2/introspect HTTP/1.1
 Host: localhost:9000
 Content-Type: application/x-www-form-urlencoded
 
-token=eyJhbGciOiJSUzI1Ni...<access_token>
+token=eyJhbGciOiJFUzI1Ni...<access_token>
 &token_type_hint=access_token
 &client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer
-&client_assertion=eyJhbGciOiJSUzI1NiIs...
+&client_assertion=eyJhbGciOiJFUzI1NiIs...
 ```
 
 **Active Token Response (`HTTP 200 OK`):**
@@ -625,7 +859,7 @@ Content-Type: application/x-www-form-urlencoded
 token=rt_87b92f4c9ae2438b97d1b324
 &token_type_hint=refresh_token
 &client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer
-&client_assertion=eyJhbGciOiJSUzI1NiIs...
+&client_assertion=eyJhbGciOiJFUzI1NiIs...
 ```
 
 **Revocation Response (`HTTP 200 OK`):**
@@ -645,7 +879,7 @@ POST /oidc/backchannel_logout HTTP/1.1
 Host: demo-client:8080
 Content-Type: application/x-www-form-urlencoded
 
-logout_token=eyJhbGciOiJSUzI1NiIsImtpZCI6Imttcy1hdXRoLXNlcnZlci1rZXktMSJ9.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJzdWIiOiJhbGljZV9zbWl0aCIsImF1ZCI6ImRlbW8tY2xpZW50IiwiaWF0IjoxNzU4MTMwMjUwLCJqdGkiOiJkM2E1ZjAxOC02NTY2LTQ5NWEtOGI3Zi1mZmYxMzk1ZjBlMzQiLCJzaWQiOiI3YTg5YzgxZi1lMzU3LTRjOTQtYjZhMC1hMzg1ZWVlYTRiN2YiLCJldmVudHMiOnsiaHR0cDovL3NjaGVtYXMub3BlbmlkLm5ldC9ldmVudC9iYWNrY2hhbm5lbC1sb2dvdXQiOnt9fX0.Kx...
+logout_token=eyJhbGciOiJFUzI1NiIsImtpZCI6Imttcy1hdXRoLXNlcnZlci1rZXktMSJ9.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJzdWIiOiJhbGljZV9zbWl0aCIsImF1ZCI6ImRlbW8tY2xpZW50IiwiaWF0IjoxNzU4MTMwMjUwLCJqdGkiOiJkM2E1ZjAxOC02NTY2LTQ5NWEtOGI3Zi1mZmYxMzk1ZjBlMzQiLCJzaWQiOiI3YTg5YzgxZi1lMzU3LTRjOTQtYjZhMC1hMzg1ZWVlYTRiN2YiLCJldmVudHMiOnsiaHR0cDovL3NjaGVtYXMub3BlbmlkLm5ldC9ldmVudC9iYWNrY2hhbm5lbC1sb2dvdXQiOnt9fX0.Kx...
 ```
 
 **Decoded `logout_token` Payload:**
@@ -708,12 +942,14 @@ Content-Type: application/json
 
 | Standard / RFC | Specification Name | How It Is Implemented & Enforced in Codebase |
 |---|---|---|
-| **FIPS 140-2 / KMS** | **Hardware-Backed Asymmetric Signing** | Tokens (access, ID, logout, JARM) are signed via the AWS KMS `Sign` API using `RSA_2048`; asymmetric private keys never enter JVM heap memory. When deployed against real AWS KMS, signing occurs in FIPS 140-2 Level 3 validated HSMs. |
-| **RFC 8725** | **Strict Algorithm Pinning (RS256)** | Authorization server and client library strictly enforce `RS256`, rejecting `none`, symmetric HMAC (`HS256`), and unapproved algorithms to eliminate JWT signature confusion attacks. |
+| Standard / RFC | Specification Name | How It Is Implemented & Enforced in Codebase |
+|---|---|---|
+| **FIPS 140-2/3 / KMS**| **Hardware-Backed Asymmetric Signing** | Tokens (access, ID, logout, JARM) are signed via the AWS KMS `Sign` API using `ECC_NIST_P256` (`ECDSA_SHA_256`); asymmetric private keys never enter JVM heap memory. When deployed against real AWS KMS, signing occurs in FIPS 140-2 Level 3 / FIPS 140-3 Level 3 validated HSMs (NIST CMVP Cert #4489 / #4140). |
+| **RFC 8725** | **Strict Algorithm Pinning (ES256)** | Authorization server and client library strictly enforce `ES256`, rejecting `none`, symmetric HMAC (`HS256`), and unapproved algorithms to eliminate JWT signature confusion attacks. |
 | **Graceful Rotation**| **Multi-Key JWKS Rotation** | Serves active and retiring keys concurrently at `/oauth2/jwks`, enabling zero-downtime key rotation while in-flight tokens remain valid through their TTL. |
 | **RFC 9126** | **Pushed Authorization Requests (PAR)** | All authorization parameters are pushed directly to `/oauth2/par` over TLS via an authenticated backchannel POST. The browser only receives an opaque, single-use `request_uri`. Stops query leakage and URL manipulation. |
-| **RFC 9221** | **JWT-Secured Authorization Response Mode (JARM)** | Strictly enforced on all front-channel authorization callbacks. The authorization server signs response payloads (`code`, `iss`, `aud`, `state`, or `error`) into an RS256 JWS JWT signed by AWS KMS. Plaintext query parameters are strictly rejected. |
-| **RFC 7523** | **`private_key_jwt` Client Authentication** | Clients authenticate exclusively using RS256-signed JWT assertions (`urn:ietf:params:oauth:client-assertion-type:jwt-bearer`). Static client secrets (`client_secret_basic`, `client_secret_post`) and insecure `none` authentication are **strictly rejected with HTTP 401**. Includes JTI replay cache in Redis. |
+| **RFC 9221** | **JWT-Secured Authorization Response Mode (JARM)** | Strictly enforced on all front-channel authorization callbacks. The authorization server signs response payloads (`code`, `iss`, `aud`, `state`, or `error`) into an ES256 JWS JWT signed by AWS KMS. Plaintext query parameters are strictly rejected. |
+| **RFC 7523** | **`private_key_jwt` Client Authentication** | Clients authenticate exclusively using ES256-signed JWT assertions (`urn:ietf:params:oauth:client-assertion-type:jwt-bearer`). Static client secrets (`client_secret_basic`, `client_secret_post`) and insecure `none` authentication are **strictly rejected with HTTP 401**. Includes JTI replay cache in Redis. |
 | **RFC 9449** | **Demonstrating Proof-of-Possession (DPoP) & Server Nonces** | The `/oauth2/token` endpoint strictly enforces the `DPoP` HTTP header (requests lacking DPoP are rejected with HTTP 400 `invalid_dpop_proof`). Issued access tokens are sender-constrained by embedding the DPoP key thumbprint in the `cnf.jkt` claim. The server enforces single-use 60s Redis nonces (RFC 9449 Section 8) with `HTTP 400 use_dpop_nonce` challenge-response. |
 | **OIDC Core 1.0** | **ID Token Cryptographic Hashes (`at_hash` & `c_hash`)** | The authorization server computes and embeds SHA-256 left-half base64url hashes in the ID Token matching the access token (`at_hash`) and authorization code (`c_hash`). The client cryptographically validates both hashes upon code exchange, stopping code and token substitution attacks. |
 | **RFC 7636** | **PKCE (`S256`)** | Proof Key for Code Exchange is enforced on all authorization requests (`requireProofKey(true)`). Intercepted authorization codes cannot be exchanged without the client's `code_verifier`. |
@@ -731,9 +967,9 @@ Content-Type: application/json
 This section documents the security controls currently active in the platform, along with an enterprise production readiness roadmap detailing requirements, benefits, trade-offs, and classification.
 
 ### 1. Active Security Inclusions (Implemented in Codebase)
-- **Cryptographic Isolation:** Asymmetric signing keys are managed by AWS KMS and never touch application memory. **When deployed against real AWS KMS** the keys reside in FIPS 140-2 Level 3 validated Hardware Security Modules; **the bundled local stack uses LocalStack, a software KMS emulation with no HSM and no FIPS validation** (dev only).
+- **Cryptographic Isolation:** Asymmetric signing keys are managed by AWS KMS and never touch application memory. **When deployed against real AWS KMS** the keys reside in FIPS 140-2 Level 3 / FIPS 140-3 Level 3 validated Hardware Security Modules; **the bundled local stack uses LocalStack, a software KMS emulation with no HSM and no FIPS validation** (dev only).
 - **Fail-Closed Guarantee:** When KMS signing is enabled (`aws.kms.enabled: true`), the authorization server refuses startup if KMS is unreachable, preventing silent fallback to insecure keys.
-- **Strict Algorithm Pinning:** Rejects `alg: none` and symmetric HMAC `HS256` confusion attacks at both the authorization server and client decoders.
+- **Strict Algorithm Pinning:** Rejects `alg: none` and symmetric HMAC `HS256` confusion attacks at both the authorization server and client decoders (pins `ES256`).
 - **Multi-Key JWKS Rotation:** Concurrent publishing of active and retired keys at `/oauth2/jwks` eliminates downtime during key lifecycle transitions.
 - **Asymmetric Client Identity:** Shared secrets (`client_secret_basic`, `client_secret_post`) are disabled in favor of `private_key_jwt` with Redis JTI replay prevention.
 - **Sender-Constrained Tokens:** RFC 9449 DPoP binds access tokens to ephemeral client keys, mitigating token theft and replay.
@@ -741,7 +977,7 @@ This section documents the security controls currently active in the platform, a
 - **Cryptographic Token Binding (`at_hash` & `c_hash`):** ID token contains SHA-256 left-half hashes cryptographically bound to access tokens and authorization codes (OIDC Core Section 3.1.3.6).
 - **Discovery Metadata Hardening:** Public OIDC discovery restricts `token_endpoint_auth_methods_supported` strictly to `["private_key_jwt"]`, preventing confusion around shared secrets.
 - **Pushed Authorization Requests (PAR):** Eliminates sensitive query parameters in browser history and server access logs.
-- **Strict RFC 9221 JARM Enforcement:** All front-channel authorization responses and error responses are cryptographically signed with RS256 by AWS KMS. Plaintext callback parameters are strictly rejected, preventing authorization code injection, state tampering, and forged phishing error messages.
+- **Strict RFC 9221 JARM Enforcement:** All front-channel authorization responses and error responses are cryptographically signed with ES256 by AWS KMS. Plaintext callback parameters are strictly rejected, preventing authorization code injection, state tampering, and forged phishing error messages.
 - **Issuer Identification:** RFC 9207 prevents OAuth 2.0 Mix-Up attacks.
 - **Server-Determined Scopes:** Prevents client-side privilege escalation.
 - **Hardened Browser Security:** Strict `HttpOnly`, `SameSite: Lax`, and `Secure` cookie attributes; session identifiers are never exposed in URLs (CWE-598).
@@ -864,7 +1100,7 @@ docker compose up --build -d
 
 To onboard a new application or service (e.g. Rails web app or backend microservice) with this authorization service:
 
-1. **Generate RSA Key Pair**: Create a dedicated 2048-bit RSA key pair (`config/keys/client_private_key.pem`).
+1. **Generate EC Key Pair**: Create a dedicated ECDSA NIST P-256 key pair (`config/keys/client_private_key.pem`).
 2. **Register in Client Manager**: Provide your Client ID, Redirect URIs, and Public Key PEM via the [Client Manager UI](http://localhost:3001) or Admin REST API (`POST /api/admin/clients`).
 3. **Install Client Library**: Add `gem "oauth2_client_kit"` to your `Gemfile` and run `bundle install`.
 4. **Configure Initializer**: Set up `config/initializers/oauth2_client_kit.rb` with your `client_id`, private key, and issuer URL.
@@ -906,11 +1142,11 @@ Strict 100% test coverage is enforced by CI across every component:
 
 | Component | Test Framework | Coverage Tool | Target | Execution Command |
 |---|---|---|---|---|
-| **`oauth2_client_kit`** | RSpec + WebMock | SimpleCov | **100.0% Lines** (115/115 specs) | `cd oauth2_client_kit && mise exec -- bundle exec rspec` |
+| **`oauth2_client_kit`** | RSpec + WebMock | SimpleCov | **100.0% Lines** (116/116 specs) | `cd oauth2_client_kit && mise exec -- bundle exec rspec` |
 | **`rails-app`** | RSpec-Rails | SimpleCov | **100.0% Lines** (26/26 specs) | `cd rails-app && mise exec -- bundle exec rspec` |
 | **`demo-client`** | RSpec-Rails | SimpleCov | **100.0% Lines** (8/8 specs) | `cd demo-client && mise exec -- bundle exec rspec` |
 | **`client-manager`** | Vitest + React Testing Library | `@vitest/coverage-v8` | **100% All** (47/47 tests) | `cd client-manager && pnpm test` |
-| **`spring-auth-server`** | JUnit 5 + Mockito | JaCoCo | **100% Branches/Lines** (182/182 tests) | `cd spring-auth-server && mise exec -- mvn test` |
+| **`spring-auth-server`** | JUnit 5 + Mockito | JaCoCo | **100% Branches/Lines** (184/184 tests) | `cd spring-auth-server && mise exec -- mvn test` |
 
 ### 3. Static Analysis & Linting (RuboCop, Checkstyle, Spotless, Oxlint)
 
@@ -958,17 +1194,17 @@ k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 
 | Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS + JARM + Multi-Session Pool) | Evaluation |
 |---|---|---|---|
-| **Cryptographic Boundary** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 KMS HSM in real AWS** (LocalStack software emulation locally) | Hardware protection in production; emulated in dev |
-| **Algorithm Pinning** | Optional | **Strict RS256 enforced (`none` & `HS256` rejected)** | Pinning active |
+| **Cryptographic Boundary** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 / FIPS 140-3 Level 3 KMS HSM in real AWS** (LocalStack software emulation locally) | Hardware protection in production; emulated in dev |
+| **Algorithm Pinning** | Optional | **Strict ES256 enforced (`none` & symmetric `HS256` rejected)** | Pinning active |
 | **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime cutover |
 | **KMS Signatures / Flow** | 0 (Local CPU) | **3 (JARM Auth Code + Access Token + ID Token)** | Full cryptographic auditability |
 | **User & Session Isolation** | Single shared user | **Dynamic Multi-User Pool (`setup`/`teardown`)** | True concurrent sessions across DB & Redis |
-| **Auth Session Success Rate** | `98.79%` | **`100.00%`** (152 / 152 completed) | **Flawless (Zero Failures)** |
-| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~18,240 sessions/hr** | **~3.6x–5x above target** ("few thousand/hr") |
-| **Full Session Latency (median)** | `112 ms` | **`519 ms`** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | Sub-550ms median latency |
-| **Full Session Latency (p95)** | `146 ms` | **`686.0 ms`** | **Passed** (<1,500 ms SLA threshold) |
-| **Total HTTP Error Rate** | `0.04%` | **`0.00%`** (0 / 2,694 requests failed) | **100.00% success rate** |
-| **Public Metadata Check Rate** | `100.00%` | **`100.00%`** (1,448 / 1,448 returned 200 OK) | Zero latency impact on auth sessions |
+| **Auth Session Success Rate** | `98.79%` | **`100.00%`** (225 / 225 completed) | **Flawless (Zero Failures)** |
+| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~27,000 sessions/hr** (~7.5 sessions/sec) | **~5.4x–9x above target** ("few thousand/hr") |
+| **Full Session Latency (median)** | `112 ms` | **`163 ms`** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | Sub-170ms median latency |
+| **Full Session Latency (p95)** | `146 ms` | **`217.0 ms`** | **Passed** (<1,500 ms SLA threshold) |
+| **Total HTTP Error Rate** | `0.04%` | **`0.00%`** (0 / 3,278 requests failed) | **100.00% success rate** |
+| **Public Metadata Check Rate** | `100.00%` | **`100.00%`** (100% returned 200 OK) | Zero latency impact on auth sessions |
 
 ---
 
@@ -995,7 +1231,7 @@ k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 │       ├── developer_cookbook.md            # Dual-mode execution, custom claims, and cache invalidation
 │       └── testing_and_troubleshooting.md   # Security testing and debugging runbooks
 ├── localstack/                     # LocalStack AWS KMS initialization & key provisioning
-│   └── init/02-init-kms.sh         # Provisions RSA_2048 signing keys in KMS with alias
+│   └── init/02-init-kms.sh         # Provisions ECC_NIST_P256 signing keys in KMS with alias
 ├── e2e-tests/                      # End-to-End Cucumber & Capybara/Cuprite test suite
 │   ├── cucumber.yml                # Strict mode Cucumber runner profile
 │   ├── Gemfile                     # Cucumber, Capybara, Cuprite, RSpec expectations
@@ -1036,7 +1272,7 @@ k6 run --vus 15 --duration 60s k6/oauth_load_test.js
 │       └── resources/db/migration/
 │           ├── V1__create_oauth2_authorization_tables.sql  # Core Spring Security OAuth2 authorization tables
 │           ├── V2__create_authorization_expiry_indices.sql # B-tree indices on authorization expiry timestamps
-│           ├── V3__seed_default_demo_client.sql            # Seeds default demo-client & its RSA public key
+│           ├── V3__seed_default_demo_client.sql            # Seeds default demo-client & its EC public key
 │           └── V4__create_users_table.sql                  # app_users store (email, BCrypt hash, fraud flag)
 ├── rails-app/                      # Ruby on Rails 7 Identity Provider
 │   ├── app/controllers/sessions_controller.rb      # Writes session:<uuid> to Redis

@@ -19,14 +19,14 @@ import org.springframework.security.oauth2.jwt.JwtEncodingException;
 
 /**
  * Spring Security JwtEncoder implementation backed by AWS KMS. Encodes Access Tokens and ID Tokens
- * and delegates cryptographic signing to KmsRsaSigner without private keys ever entering host
+ * and delegates cryptographic signing to KmsEcSigner without private keys ever entering host
  * memory.
  */
 @Slf4j
 @RequiredArgsConstructor
 public class KmsJwtEncoder implements JwtEncoder {
 
-  private final KmsRsaSigner kmsRsaSigner;
+  private final KmsEcSigner kmsSigner;
   private final String keyId;
 
   @Override
@@ -35,8 +35,8 @@ public class KmsJwtEncoder implements JwtEncoder {
       JwsHeader jwsHeader = parameters.getJwsHeader();
       JwtClaimsSet claims = parameters.getClaims();
 
-      // Build Nimbus JWSHeader with algorithm RS256, type JWT, and public key ID
-      JWSHeader.Builder headerBuilder = new JWSHeader.Builder(JWSAlgorithm.RS256);
+      // Build Nimbus JWSHeader with algorithm ES256, type JWT, and public key ID
+      JWSHeader.Builder headerBuilder = new JWSHeader.Builder(JWSAlgorithm.ES256);
       headerBuilder.type(JOSEObjectType.JWT);
 
       String activeKeyId =
@@ -74,7 +74,7 @@ public class KmsJwtEncoder implements JwtEncoder {
 
       // Cryptographically sign inside AWS KMS boundary
       SignedJWT signedJWT = new SignedJWT(nimbusHeader, nimbusClaims);
-      signedJWT.sign(kmsRsaSigner);
+      signedJWT.sign(kmsSigner);
 
       String tokenValue = signedJWT.serialize();
 

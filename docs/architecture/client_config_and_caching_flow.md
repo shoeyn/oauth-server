@@ -4,7 +4,7 @@ This document details the configuration management, PostgreSQL relational persis
 
 > [!NOTE]
 > **Implementation Status: Fully Implemented & Production-Active**
-> AWS S3 has been completely deprecated and purged from this flow. Registered client configurations and RSA public keys are persisted with ACID durability in PostgreSQL, accessible only through the Java Spring Admin REST API (`/api/admin/clients`). Runtime authorization reads resolve in ~0.001 ms from the in-memory L1 near-cache with zero database round-trips.
+> AWS S3 has been completely deprecated and purged from this flow. Registered client configurations and EC public keys are persisted with ACID durability in PostgreSQL, accessible only through the Java Spring Admin REST API (`/api/admin/clients`). Runtime authorization reads resolve in ~0.001 ms from the in-memory L1 near-cache with zero database round-trips.
 
 ---
 
@@ -15,12 +15,12 @@ To comply strictly with the organizational policy that **only the Java applicati
 ```mermaid
 flowchart TD
     subgraph ClientManager ["Administrative Frontend Tier (Port 3001)"]
-        NextJS["Next.js Client Manager<br/>• Pure Web UI / React 19<br/>• Web Crypto API (In-browser RSA 2048)<br/>• Zero AWS SDKs / Zero DB Drivers"]
+        NextJS["Next.js Client Manager<br/>• Pure Web UI / React 19<br/>• Web Crypto API (In-browser ECDSA P-256)<br/>• Zero AWS SDKs / Zero DB Drivers"]
     end
 
     subgraph SpringApp ["Java Application Cluster (Port 9000)"]
         AdminAPI["ClientAdminController<br/>(X-Admin-Api-Key Protection)"]
-        L1Maps["L1 In-Memory Near-Cache<br/>• ConcurrentHashMap<String, RegisteredClient><br/>• ConcurrentHashMap<String, RSAPublicKey><br/>• Sub-millisecond reads (< 0.002 ms)"]
+        L1Maps["L1 In-Memory Near-Cache<br/>• ConcurrentHashMap<String, RegisteredClient><br/>• ConcurrentHashMap<String, ECPublicKey><br/>• Sub-millisecond reads (< 0.002 ms)"]
         Repo["PostgresRegisteredClientRepository<br/>HikariCP Connection Pool"]
     end
 
@@ -67,7 +67,7 @@ sequenceDiagram
 
     Note over Spring: Pre-warm L1 in-memory near-cache
     Spring->>PG: SELECT * FROM oauth2_registered_client JOIN oauth2_client_public_key
-    PG-->>Spring: Active clients & X.509 RSA public keys
+    PG-->>Spring: Active clients & X.509 EC public keys
     Note over Spring: Populate ConcurrentHashMaps (clients & keys)
     Note over Spring: READY! All runtime auth reads serve from memory in < 0.002 ms.
 ```
@@ -86,8 +86,8 @@ sequenceDiagram
     participant Redis as Redis Pub/Sub (6379)
     participant Cluster as Spring Auth Server Instances
 
-    Admin->>Manager: Fill Client Form (ID, Redirects, Scopes)<br/>Click "Generate RSA Key Pair" (Web Crypto API)
-    Note over Admin, Manager: Web Crypto generates 2048-bit RS256 key pair in browser.<br/>Private key downloaded as PEM, public key populated into form.
+    Admin->>Manager: Fill Client Form (ID, Redirects, Scopes)<br/>Click "Generate EC Key Pair" (Web Crypto API)
+    Note over Admin, Manager: Web Crypto generates ECDSA NIST P-256 (ES256) key pair in browser.<br/>Private key downloaded as PEM, public key populated into form.
     Admin->>Manager: Click "Save Client"
     activate Manager
 

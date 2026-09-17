@@ -9,11 +9,11 @@ EXISTING_ALIAS=$(awslocal kms list-aliases --query "Aliases[?AliasName=='alias/o
 if [ -n "$EXISTING_ALIAS" ] && [ "$EXISTING_ALIAS" != "None" ]; then
     echo "==> KMS alias/oauth2-signing-key already exists (TargetKeyId: $EXISTING_ALIAS)."
 else
-    echo "==> Creating asymmetric RSA_2048 signing key in LocalStack KMS..."
+    echo "==> Creating asymmetric ECC_NIST_P256 (ES256) signing key in LocalStack KMS..."
     KEY_ID=$(awslocal kms create-key \
-        --key-spec RSA_2048 \
+        --key-spec ECC_NIST_P256 \
         --key-usage SIGN_VERIFY \
-        --description "OAuth 2.1 Server Signing Key" \
+        --description "OAuth 2.1 Server Signing Key (ECC P-256 / ES256)" \
         --query 'KeyMetadata.KeyId' \
         --output text)
 
@@ -28,11 +28,11 @@ PREV_ALIAS=$(awslocal kms list-aliases --query "Aliases[?AliasName=='alias/oauth
 if [ -n "$PREV_ALIAS" ] && [ "$PREV_ALIAS" != "None" ]; then
     echo "==> KMS alias/oauth2-signing-key-previous already exists (TargetKeyId: $PREV_ALIAS)."
 else
-    echo "==> Creating previous asymmetric RSA_2048 signing key in LocalStack KMS..."
+    echo "==> Creating previous asymmetric ECC_NIST_P256 (ES256) signing key in LocalStack KMS..."
     PREV_KEY_ID=$(awslocal kms create-key \
-        --key-spec RSA_2048 \
+        --key-spec ECC_NIST_P256 \
         --key-usage SIGN_VERIFY \
-        --description "Previous Rotated OAuth 2.1 Server Signing Key" \
+        --description "Previous Rotated OAuth 2.1 Server Signing Key (ECC P-256 / ES256)" \
         --query 'KeyMetadata.KeyId' \
         --output text)
 

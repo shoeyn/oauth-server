@@ -5,7 +5,7 @@
 -- 'demo-client' is immediately seeded into PostgreSQL with:
 -- 1. Strict RFC 9126 PAR enforcement (settings.client.require-pushed-authorization-requests = true)
 -- 2. Asymmetric private_key_jwt authentication (RFC 7523)
--- 3. Pre-populated RSA-2048 public key in oauth2_client_public_key
+-- 3. Pre-populated ECDSA P-256 public key in oauth2_client_public_key
 -- ==============================================================================
 
 INSERT INTO oauth2_registered_client (
@@ -35,7 +35,7 @@ INSERT INTO oauth2_registered_client (
     'http://127.0.0.1:8080/,http://localhost:8080/,http://demo-client:8080/',
     'openid,profile,email,user.read,demo.secret_access',
     '{"@class":"java.util.Collections$UnmodifiableMap","settings.client.require-proof-key":true,"settings.client.require-authorization-consent":false,"settings.client.require-pushed-authorization-requests":true}',
-    '{"@class":"java.util.Collections$UnmodifiableMap","settings.token.access-token-format":{"@class":"org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat","value":"self-contained"},"settings.token.access-token-time-to-live":["java.time.Duration",900.000000000],"settings.token.reuse-refresh-tokens":false,"settings.token.refresh-token-time-to-live":["java.time.Duration",2592000.000000000],"settings.token.authorization-code-time-to-live":["java.time.Duration",300.000000000],"settings.token.device-code-time-to-live":["java.time.Duration",300.000000000],"settings.token.id-token-signature-algorithm":["org.springframework.security.oauth2.jose.jws.SignatureAlgorithm","RS256"]}'
+    '{"@class":"java.util.Collections$UnmodifiableMap","settings.token.access-token-format":{"@class":"org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat","value":"self-contained"},"settings.token.access-token-time-to-live":["java.time.Duration",900.000000000],"settings.token.reuse-refresh-tokens":false,"settings.token.refresh-token-time-to-live":["java.time.Duration",2592000.000000000],"settings.token.authorization-code-time-to-live":["java.time.Duration",300.000000000],"settings.token.device-code-time-to-live":["java.time.Duration",300.000000000],"settings.token.id-token-signature-algorithm":["org.springframework.security.oauth2.jose.jws.SignatureAlgorithm","ES256"]}'
 ) ON CONFLICT (id) DO UPDATE SET
     client_settings = EXCLUDED.client_settings,
     redirect_uris = EXCLUDED.redirect_uris,
@@ -49,13 +49,8 @@ INSERT INTO oauth2_client_public_key (
 ) VALUES (
     'demo-client',
     '-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6D1AnI1dNJI8HgPYy97T
-+/20bMtT0/CfzbojjGz2YNItlGHunZ7nBHEVY+OWicTx743TfsH9iJFT6lu49suU
-8fJJjrqqZeghlvwlLqYV95+TyduLdPzzkjATR63nqqCHGN6deu4Dhr8+H7GxD+Nf
-jyx2kUrGrvYypAwrbX9fYK5z/wWOFtrPwuBN+s+nx0PJqhcBbWLl2FOipxjoYCPQ
-Gjgl/SxGMxx0I5FL/fh8xGINCBWYweC6i57EIKac5HImzRwKyB3v/mUWGl3j7/3n
-LW6TzrIbRxEfYBK0MZODWvQKj5t4ifiw52tOcO7CSZo4W/rqGXOVoQ97yb2WWCQE
-1QIDAQAB
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVbc6T3LPPvPMkuP1vSF2EPggtCgv
+COeDpXIGp2l/LjGLujpQYRmZjFGaeab6iM7JWyxXEU0GjlWCshTsfW7frw==
 -----END PUBLIC KEY-----',
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP

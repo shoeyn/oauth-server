@@ -1,10 +1,8 @@
-export async function generateRSAKeyPair(): Promise<{ publicKey: string; privateKey: string }> {
+export async function generateECKeyPair(): Promise<{ publicKey: string; privateKey: string }> {
   const keyPair = await crypto.subtle.generateKey(
     {
-      name: "RSASSA-PKCS1-v1_5",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
+      name: "ECDSA",
+      namedCurve: "P-256",
     },
     true,
     ["sign", "verify"],

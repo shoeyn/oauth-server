@@ -74,7 +74,7 @@ describe("POST /api/clients", () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
-      error: "A valid RSA public key in PEM format is required",
+      error: "A valid public key in PEM format is required",
     });
     expect(mockSaveClient).not.toHaveBeenCalled();
   });
@@ -84,7 +84,7 @@ describe("POST /api/clients", () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
-      error: "A valid RSA public key in PEM format is required",
+      error: "A valid public key in PEM format is required",
     });
     expect(mockSaveClient).not.toHaveBeenCalled();
   });

@@ -99,11 +99,11 @@ public class AuthorizationServerConfig {
                                         registeredClientRepository, authorizationService))
                                 // RFC 9221: JWT-Secured Authorization Response Mode (JARM)
                                 // Cryptographically signs the authorization response (code, iss,
-                                // state) using AWS KMS RS256
+                                // state) using AWS KMS ES256
                                 .authorizationResponseHandler(
                                     new JarmAuthorizationResponseHandler(jwtEncoder, issuerUrl))
                                 // RFC 9221 JARM: Cryptographically signs error responses (error,
-                                // error_description, iss, state) using AWS KMS RS256
+                                // error_description, iss, state) using AWS KMS ES256
                                 .errorResponseHandler(
                                     new JarmErrorResponseHandler(
                                         jwtEncoder,

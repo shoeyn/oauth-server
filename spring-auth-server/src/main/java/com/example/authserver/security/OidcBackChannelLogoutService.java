@@ -76,7 +76,7 @@ public class OidcBackChannelLogoutService {
       // OIDC Back-Channel Logout 1.0 Section 2.4:
       // MUST NOT contain a "nonce" claim to avoid token confusion attacks with ID tokens
       JwtClaimsSet claims = claimsBuilder.build();
-      JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).build();
+      JwsHeader header = JwsHeader.with(SignatureAlgorithm.ES256).build();
 
       String logoutToken =
           jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();

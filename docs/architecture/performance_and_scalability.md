@@ -30,7 +30,7 @@ At 5,000 sessions/hour, the system processes **35,000 to 50,000 discrete HTTP re
 | **1** | **Demo Client / Client Library** | Ephemeral RSA-2048 key generation for DPoP proofs | 35–45 ms of blocking CPU time per session; saturates CPU cores | Switch default to **EC P-256 (`ES256`)** | **~4,000x faster** (0.01 ms vs 39.85 ms) |
 | **2** | **Demo Client / Client Library** | JWKS network fetching & JSON point parsing on every token verification | 10–50 ms latency added to every ID token and logout token validation | **Thread-safe in-memory cache** with 1-hr TTL & automatic key-rotation detection | **0 ms lookup** (in-memory hash hit) |
 | **3** | **Spring Auth Server** | JWKS and OIDC Provider metadata resolution overhead | Remote key lookups or repetitive key conversions on metadata requests | **In-memory `ImmutableJWKSet`** pre-initialized with active and previous KMS public keys in `KeyConfig` | **Sub-millisecond response** with zero remote round-trips |
-| **4** | **Spring Auth Server** | Re-creating `NimbusJwtDecoder` on every client assertion | Re-parses RSA public key, rebuilds validator pipeline on every token / PAR request | **`ConcurrentHashMap<String, JwtDecoder>`** caching keyed by `clientId:keyHash` | **0 ms cache hit**; instant zero-allocation validation |
+| **4** | **Spring Auth Server** | Re-creating `NimbusJwtDecoder` on every client assertion | Re-parses EC public key, rebuilds validator pipeline on every token / PAR request | **`ConcurrentHashMap<String, JwtDecoder>`** caching keyed by `clientId:keyHash` | **0 ms cache hit**; instant zero-allocation validation |
 | **5** | **Spring Auth Server** | `SharedRedisSessionFilter` executing on machine-to-machine endpoints | Issues blocking Redis `GET session:*` on `/oauth2/token`, `/oauth2/par`, `/oauth2/jwks` | Implemented **`shouldNotFilter`** to bypass Redis on M2M & public endpoints | **Eliminated unnecessary Redis round-trips** |
 | **6** | **Rails IdP** | `Redis.new` created on every HTTP request in `SessionsController` | High TCP handshake churn, socket allocation latency, ephemeral port exhaustion | **Memoized persistent thread-safe Redis client** (`self.redis_client`) | **Zero socket reconnection overhead** |
 | **7** | **Spring Auth Server** | Synchronous HTTP dispatch in `OidcBackChannelLogoutService` | Blocks Tomcat worker thread waiting on remote client endpoint | **`CompletableFuture.runAsync`** non-blocking dispatch with 3-attempt exponential retry | **0 ms impact** on user logout response latency |
@@ -67,9 +67,9 @@ By defaulting to `ES256` in `par_oauth2_client.rb`, 100% of the 40ms CPU penalty
 
 ### 3.2 In-Memory Pre-Computed JWKS & Native Metadata Resolution
 To achieve high-throughput discovery without database or remote KMS calls on every request, Spring Authorization Server pre-computes and holds public keys in memory:
-- **`KeyConfig.java`**: Resolves the active AWS KMS RSA public key and any configured previous/rotated keys (`aws.kms.previous-key-aliases`) once during application startup.
-- **In-Memory `ImmutableJWKSet`**: Wraps the pre-resolved public RSA keys in an `ImmutableJWKSet` bean. The `/oauth2/jwks` endpoint serves public keys directly from JVM heap memory in sub-millisecond time with zero remote AWS KMS round-trips.
-- **Native OIDC Provider Metadata Customization**: Configured natively via `oidc.providerConfigurationEndpoint(...)` and `authorizationServerMetadataEndpoint(...)` in `AuthorizationServerConfig.java`, advertising supported auth methods (`private_key_jwt`), JARM response modes (`jwt`, `query.jwt`), and signing algorithms (`RS256`).
+- **`KeyConfig.java`**: Resolves the active AWS KMS EC public key (`ECC_NIST_P256`) and any configured previous/rotated keys (`aws.kms.previous-key-aliases`) once during application startup.
+- **In-Memory `ImmutableJWKSet`**: Wraps the pre-resolved public EC keys in an `ImmutableJWKSet` bean. The `/oauth2/jwks` endpoint serves public keys directly from JVM heap memory in sub-millisecond time with zero remote AWS KMS round-trips.
+- **Native OIDC Provider Metadata Customization**: Configured natively via `oidc.providerConfigurationEndpoint(...)` and `authorizationServerMetadataEndpoint(...)` in `AuthorizationServerConfig.java`, advertising supported auth methods (`private_key_jwt`), JARM response modes (`jwt`, `query.jwt`), and signing algorithms (`ES256`).
 
 ```mermaid
 sequenceDiagram
@@ -174,25 +174,25 @@ The test concurrently executes two demanding scenarios:
   █ THRESHOLDS 
 
     auth_session_success_rate .......: ✓ 'rate>0.95' rate=100.00%
-    auth_session_total_duration_ms ..: ✓ 'p(95)<1500' p(95)=686.0 ms
+    auth_session_total_duration_ms ..: ✓ 'p(95)<1500' p(95)=217.0 ms
     http_req_failed .................: ✓ 'rate<0.05' rate=0.00%
 ```
 
 | Metric | Target / Expectation | Measured Result | Evaluation |
 |---|---|---|---|
-| **Total Checks Succeeded** | 100% correctness | **3,120 out of 3,120 checks passed** (**100.00%**) | **Flawless Verification** |
-| **Total HTTP Requests Processed** | High throughput | **2,694 requests in 31.9 seconds** (**84.6 req/sec sustained**) | **Passed** (~304,000 req/hr capacity) |
-| **Completed Full Auth Sessions** | A few thousand sessions / hr (~1/sec) | **152 completed flows in 30s** (**~5.07 sessions/sec**) | **~18,240 sessions/hr** (~3.6x–5x target) |
-| **Auth Session Success Rate** | > 95% | **100.00%** (152 out of 152 full flows) | **Flawless (Zero Failures)** |
-| **Overall HTTP Error Rate** | < 5% | **0.00%** (0 out of 2,694 requests failed) | **100.00% request success rate** |
-| **Full Session Latency (min)** | N/A | **209 ms** | Fastest complete 6-hop session |
-| **Full Session Latency (p50 / median)** | < 500 ms | **519 ms** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | Sub-550ms median latency |
-| **Full Session Latency (avg)** | < 500 ms | **494.5 ms** | Exceptional consistency |
-| **Full Session Latency (p90)** | < 1,000 ms | **661.8 ms** | Outstanding stability under load |
-| **Full Session Latency (p95)** | < 1,500 ms | **686.0 ms** | Far below 1,500 ms SLA threshold |
-| **Full Session Latency (max)** | < 3,000 ms | **772 ms** | Zero thread starvation under burst concurrency |
-| **Public Metadata Check Rate** | > 95% | **100.00%** (1,448 / 1,448 returned 200 OK) | Zero latency impact on auth sessions |
-| **Individual HTTP Request Duration** | < 50 ms | **avg: 28.88 ms**, **median: 1.32 ms**, **p95: 194.6 ms** | Near-instantaneous response times |
+| **Total Checks Succeeded** | 100% correctness | **3,923 out of 3,923 checks passed** (**100.00%**) | **Flawless Verification** |
+| **Total HTTP Requests Processed** | High throughput | **3,278 requests in 31.4 seconds** (**104.5 req/sec sustained**) | **Passed** (~376,000 req/hr capacity) |
+| **Completed Full Auth Sessions** | A few thousand sessions / hr (~1/sec) | **225 completed flows in 30s** (**~7.5 sessions/sec**) | **~27,000 sessions/hr** (~5.4x–9x target) |
+| **Auth Session Success Rate** | > 95% | **100.00%** (225 out of 225 full flows) | **Flawless (Zero Failures)** |
+| **Overall HTTP Error Rate** | < 5% | **0.00%** (0 out of 3,278 requests failed) | **100.00% request success rate** |
+| **Full Session Latency (min)** | N/A | **122 ms** | Fastest complete 6-hop session |
+| **Full Session Latency (p50 / median)** | < 500 ms | **163 ms** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | Sub-170ms median latency |
+| **Full Session Latency (avg)** | < 500 ms | **167.1 ms** | Exceptional consistency (3x faster than RSA) |
+| **Full Session Latency (p90)** | < 1,000 ms | **205.3 ms** | Outstanding stability under load |
+| **Full Session Latency (p95)** | < 1,500 ms | **217.0 ms** | Far below 1,500 ms SLA threshold |
+| **Full Session Latency (max)** | < 3,000 ms | **382 ms** | Zero thread starvation under burst concurrency |
+| **Public Metadata Check Rate** | > 95% | **100.00%** (100% returned 200 OK) | Zero latency impact on auth sessions |
+| **Individual HTTP Request Duration** | < 50 ms | **avg: 12.14 ms**, **median: 0.95 ms**, **p95: 42.1 ms** | Sub-millisecond median response times |
 
 ---
 
@@ -281,7 +281,7 @@ sequenceDiagram
     participant Spring as Spring Authorization Server
     participant KMS as AWS KMS / LocalStack (:4566)
 
-    Note over KMS: Asymmetric Key Pair (RSA_2048)<br/>Private Key NEVER leaves KMS HSM
+    Note over KMS: Asymmetric Key Pair (ECC_NIST_P256)<br/>Private Key NEVER leaves KMS HSM
     Spring->>KMS: kms:GetPublicKey (alias/oauth2-signing-key)
     KMS-->>Spring: Public Key (X.509 DER)
     Note over Spring: Resolves once & caches in-memory.<br/>Private key material is non-exportable!
@@ -292,19 +292,19 @@ sequenceDiagram
     Client->>Spring: POST /oauth2/token (code + PKCE + DPoP)
     Spring->>KMS: kms:Sign (digest of JWS Header + Claims)
     Note over KMS: Cryptographic sign inside HSM boundary
-    KMS-->>Spring: 256-byte Cryptographic Signature
+    KMS-->>Spring: 64-byte Cryptographic Signature (Transcoded to IEEE P1363)
     Spring-->>Client: Return Signed ID Token & Access Token
 ```
 
 #### Security Level Gained:
-- **Hardware Protection (real AWS KMS):** When deployed against real AWS KMS, private key material never enters host, container, or JVM heap memory and resides in a FIPS 140-2 Level 3 validated HSM. **The bundled LocalStack stack is a software emulation with no HSM/FIPS validation (dev only).**
+- **Hardware Protection (real AWS KMS):** When deployed against real AWS KMS, private key material never enters host, container, or JVM heap memory and resides in a FIPS 140-2 / FIPS 140-3 Level 3 validated HSM. **The bundled LocalStack stack is a software emulation with no HSM/FIPS validation (dev only).**
 - **Memory Scraping & Heap Dump Immunity:** Even if an attacker gains unauthorized root container access or memory dump capability, the private key cannot be extracted because it physically resides inside the KMS cryptographic boundary.
 - **Offline Token Forgery Prevention:** Attackers cannot steal the key to forge arbitrary tokens offline; every single signature requires active authorization and emits an immutable AWS CloudTrail audit event.
 - **Zero-Downtime Key Rotation:** Keys can be rotated in AWS KMS by updating the alias target (`alias/oauth2-signing-key`) without code changes or server redeployments.
 
 #### Resilience & High-Availability Architecture:
 - **Strict Fail-Closed Policy:** When `aws.kms.enabled: true` (production mode), the system strictly refuses to fall back to insecure local software keys if KMS is unavailable, avoiding cryptographic downgrade attacks.
-- **Exponential Backoff with Jitter:** `KmsClientConfig` and `KmsRsaSigner` incorporate 3-attempt automated retry policies with exponential backoff and full jitter to ride through transient network interruptions and AWS throttling.
+- **Exponential Backoff with Jitter:** `KmsClientConfig` and `KmsEcSigner` incorporate 3-attempt automated retry policies with exponential backoff and full jitter to ride through transient network interruptions and AWS throttling.
 - **Public Key In-Memory Caching:** `kms:GetPublicKey` is resolved once at startup and held in memory. Calls to `/oauth2/jwks` require zero network round-trips to KMS, maintaining sub-millisecond response times.
 - **Local Development Fallback:** When `aws.kms.enabled: false`, the server activates the local in-memory key pair strictly for offline unit tests.
 
@@ -317,19 +317,19 @@ With RFC 9221 JARM active, each full login flow executes **three** remote AWS KM
 
 | Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS + JARM + Multi-Session Pool) | Evaluation |
 |---|---|---|---|
-| **Cryptographic Security** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 KMS HSM in real AWS** (LocalStack software emulation locally) | Hardware protection in production; emulated in dev |
-| **Algorithm Pinning** | Optional | **Strict RS256 enforced (`none` & `HS256` rejected)** | Pinning active |
+| **Cryptographic Security** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 / FIPS 140-3 Level 3 KMS HSM in real AWS** (LocalStack software emulation locally) | Hardware protection in production; emulated in dev |
+| **Algorithm Pinning** | Optional | **Strict ES256 enforced (`none` & `HS256` rejected)** | Pinning active |
 | **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime cutover |
 | **KMS Signatures / Flow** | 0 (Local CPU) | **3 (JARM Auth Code + Access Token + ID Token)** | Cryptographic non-repudiation |
 | **User & Session Isolation** | Single shared user | **Dynamic Multi-User Pool (`setup`/`teardown`)** | True concurrent sessions across DB & Redis |
-| **Auth Session Success Rate** | `98.79%` | **`100.00%`** (152 / 152 completed) | **Flawless (Zero Failures)** |
-| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~18,240 sessions/hr** | **~3.6x–5x above target** ("few thousand/hr") |
-| **Full Session Latency (median)** | `112 ms` | **`519 ms`** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | Sub-550ms median latency |
-| **Full Session Latency (avg)** | `120 ms` | **`494.5 ms`** | Outstanding consistency |
-| **Full Session Latency (p90)** | `138.6 ms` | **`661.8 ms`** | Stable under burst concurrency |
-| **Full Session Latency (p95)** | `146 ms` | **`686.0 ms`** | **Passed** (well under 1,500 ms SLA) |
-| **Total HTTP Error Rate** | `0.04%` | **`0.00%`** (0 out of 2,694 requests failed) | **100.00% request success rate** |
-| **Public Metadata Check Rate** | `100.00%` | **`100.00%`** (1,448 / 1,448 returned 200 OK) | Zero latency impact on auth sessions |
+| **Auth Session Success Rate** | `98.79%` | **`100.00%`** (225 / 225 completed) | **Flawless (Zero Failures)** |
+| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~27,000 sessions/hr** (~7.5 sessions/sec) | **~5.4x–9x above target** ("few thousand/hr") |
+| **Full Session Latency (median)** | `112 ms` | **`163 ms`** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | Sub-170ms median latency |
+| **Full Session Latency (avg)** | `120 ms` | **`167.1 ms`** | Outstanding consistency (3x faster than RSA) |
+| **Full Session Latency (p90)** | `138.6 ms` | **`205.3 ms`** | Stable under burst concurrency |
+| **Full Session Latency (p95)** | `146 ms` | **`217.0 ms`** | **Passed** (well under 1,500 ms SLA) |
+| **Total HTTP Error Rate** | `0.04%` | **`0.00%`** (0 out of 3,278 requests failed) | **100.00% request success rate** |
+| **Public Metadata Check Rate** | `100.00%` | **`100.00%`** (100% returned 200 OK) | Zero latency impact on auth sessions |
 
 ### 5. Production Puma Clustered Worker Specification (Finding A)
 > [!IMPORTANT]
@@ -388,7 +388,7 @@ With RFC 9221 JARM active, each full login flow executes **three** remote AWS KM
 1. **Zero-Trust Network Perimeter & Domain Gateway Pattern:**
    - Organizational security policy dictates that no front-end tier (e.g. Next.js Client Manager) may hold direct database credentials or connect to persistent storage.
    - Previously, external clients directly interacted with S3 buckets. In the current architecture, all administrative operations are channeled through Spring's authenticated **Admin REST API** (`/api/admin/clients` secured with `X-Admin-Api-Key`).
-   - The Java application acts as a strict validating domain gateway, verifying cryptographic RSA public keys, redirect URIs, and scope boundaries before committing changes.
+   - The Java application acts as a strict validating domain gateway, verifying cryptographic EC public keys, redirect URIs, and scope boundaries before committing changes.
 2. **ACID Durability vs. Eventual Consistency:**
    - S3 writes were eventually consistent and lacked transactional coordination with runtime authorization codes or user consent.
    - PostgreSQL (`JdbcOAuth2AuthorizationService` and `PostgresRegisteredClientRepository`) provides atomic commits across clients, grants, and consents.

@@ -1,21 +1,26 @@
 package com.example.authserver.config;
 
+import com.example.authserver.security.KmsEcSigner;
 import com.example.authserver.security.KmsJwtEncoder;
-import com.example.authserver.security.KmsRsaSigner;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSSigner;
-import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.crypto.ECDSASigner;
+import com.nimbusds.jose.jwk.Curve;
+import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.JWKSet;
-import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
-import java.security.interfaces.RSAPrivateKey;
-import java.security.interfaces.RSAPublicKey;
+import java.security.interfaces.ECPrivateKey;
+import java.security.interfaces.ECPublicKey;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,7 +29,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.Resource;
 import org.springframework.security.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
-import org.springframework.security.converter.RsaKeyConverters;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
@@ -72,14 +76,14 @@ public class KeyConfig {
   private Resource demoClientPublicKeyResource;
 
   @Bean
-  public RSAPublicKey demoClientPublicKey() throws Exception {
+  public ECPublicKey demoClientPublicKey() throws Exception {
     try (var is = demoClientPublicKeyResource.getInputStream()) {
-      return RsaKeyConverters.x509().convert(is);
+      return parseEcPublicKey(is);
     }
   }
 
   @Bean
-  public RSAKey serverRsaKey(@Autowired(required = false) KmsClient kmsClient) throws Exception {
+  public ECKey serverEcKey(@Autowired(required = false) KmsClient kmsClient) throws Exception {
     if (kmsEnabled) {
       log.info(
           "Initializing active HSM / AWS KMS asymmetric signing key using alias: {}", kmsKeyAlias);
@@ -94,17 +98,17 @@ public class KeyConfig {
         GetPublicKeyResponse response = kmsClient.getPublicKey(request);
         byte[] publicKeyDer = response.publicKey().asByteArray();
 
-        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        RSAPublicKey publicKey =
-            (RSAPublicKey) keyFactory.generatePublic(new X509EncodedKeySpec(publicKeyDer));
+        KeyFactory keyFactory = KeyFactory.getInstance("EC");
+        ECPublicKey publicKey =
+            (ECPublicKey) keyFactory.generatePublic(new X509EncodedKeySpec(publicKeyDer));
 
         log.info(
-            "Successfully fetched and cached active AWS KMS RSA public key (KeyId: {})",
+            "Successfully fetched and cached active AWS KMS EC public key (KeyId: {})",
             response.keyId());
 
-        return new RSAKey.Builder(publicKey)
+        return new ECKey.Builder(Curve.P_256, publicKey)
             .keyID("kms-auth-server-key-1")
-            .algorithm(JWSAlgorithm.RS256)
+            .algorithm(JWSAlgorithm.ES256)
             .build();
       } catch (Exception ex) {
         log.error(
@@ -119,44 +123,44 @@ public class KeyConfig {
       }
     } else {
       log.warn(
-          "aws.kms.enabled=false. Initializing in-memory RSA key pair from local classpath (OFFLINE DEV ONLY).");
-      RSAPrivateKey privateKey;
+          "aws.kms.enabled=false. Initializing in-memory EC key pair from local classpath (OFFLINE DEV ONLY).");
+      ECPrivateKey privateKey;
       try (var is = serverPrivateKeyResource.getInputStream()) {
-        privateKey = RsaKeyConverters.pkcs8().convert(is);
+        privateKey = parseEcPrivateKey(is);
       }
-      RSAPublicKey publicKey;
+      ECPublicKey publicKey;
       try (var is = serverPublicKeyResource.getInputStream()) {
-        publicKey = RsaKeyConverters.x509().convert(is);
+        publicKey = parseEcPublicKey(is);
       }
 
-      return new RSAKey.Builder(publicKey)
+      return new ECKey.Builder(Curve.P_256, publicKey)
           .privateKey(privateKey)
           .keyID("auth-server-key-1")
-          .algorithm(JWSAlgorithm.RS256)
+          .algorithm(JWSAlgorithm.ES256)
           .build();
     }
   }
 
   @Bean
-  public JWSSigner jwsSigner(@Autowired(required = false) KmsClient kmsClient, RSAKey serverRsaKey)
+  public JWSSigner jwsSigner(@Autowired(required = false) KmsClient kmsClient, ECKey serverEcKey)
       throws Exception {
     if (kmsEnabled) {
-      log.info("Registering KmsRsaSigner backed by AWS KMS ({})", kmsKeyAlias);
-      return new KmsRsaSigner(kmsClient, kmsKeyAlias);
+      log.info("Registering KmsEcSigner backed by AWS KMS ({})", kmsKeyAlias);
+      return new KmsEcSigner(kmsClient, kmsKeyAlias);
     } else {
-      log.info("Registering local RSASSASigner with in-memory private key");
-      return new RSASSASigner(serverRsaKey.toRSAPrivateKey());
+      log.info("Registering local ECDSASigner with in-memory private key");
+      return new ECDSASigner(serverEcKey.toECPrivateKey());
     }
   }
 
   @Bean
   public JwtEncoder jwtEncoder(
-      JWKSource<SecurityContext> jwkSource, JWSSigner jwsSigner, RSAKey serverRsaKey) {
-    if (kmsEnabled && jwsSigner instanceof KmsRsaSigner kmsRsaSigner) {
+      JWKSource<SecurityContext> jwkSource, JWSSigner jwsSigner, ECKey serverEcKey) {
+    if (kmsEnabled && jwsSigner instanceof KmsEcSigner kmsEcSigner) {
       log.info(
           "Registering KmsJwtEncoder for OAuth 2.1 access and ID token issuance with keyId: {}",
-          serverRsaKey.getKeyID());
-      return new KmsJwtEncoder(kmsRsaSigner, serverRsaKey.getKeyID());
+          serverEcKey.getKeyID());
+      return new KmsJwtEncoder(kmsEcSigner, serverEcKey.getKeyID());
     } else {
       log.info("Registering standard NimbusJwtEncoder with local in-memory JWKSource");
       return new NimbusJwtEncoder(jwkSource);
@@ -170,9 +174,9 @@ public class KeyConfig {
    */
   @Bean
   public JWKSource<SecurityContext> jwkSource(
-      @Autowired(required = false) KmsClient kmsClient, RSAKey serverRsaKey) {
+      @Autowired(required = false) KmsClient kmsClient, ECKey serverEcKey) {
     List<JWK> jwkList = new ArrayList<>();
-    jwkList.add(serverRsaKey.toPublicJWK());
+    jwkList.add(serverEcKey.toPublicJWK());
 
     if (kmsEnabled && kmsClient != null && StringUtils.hasText(previousKeyAliases)) {
       String[] aliases = previousKeyAliases.split(",");
@@ -187,17 +191,17 @@ public class KeyConfig {
           GetPublicKeyResponse response = kmsClient.getPublicKey(request);
           byte[] prevDer = response.publicKey().asByteArray();
 
-          KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-          RSAPublicKey prevPublicKey =
-              (RSAPublicKey) keyFactory.generatePublic(new X509EncodedKeySpec(prevDer));
+          KeyFactory keyFactory = KeyFactory.getInstance("EC");
+          ECPublicKey prevPublicKey =
+              (ECPublicKey) keyFactory.generatePublic(new X509EncodedKeySpec(prevDer));
 
-          RSAKey prevRsaKey =
-              new RSAKey.Builder(prevPublicKey)
+          ECKey prevEcKey =
+              new ECKey.Builder(Curve.P_256, prevPublicKey)
                   .keyID("kms-auth-server-key-previous")
-                  .algorithm(JWSAlgorithm.RS256)
+                  .algorithm(JWSAlgorithm.ES256)
                   .build();
 
-          jwkList.add(prevRsaKey.toPublicJWK());
+          jwkList.add(prevEcKey.toPublicJWK());
           log.info(
               "Successfully added previous KMS signing key to JWKS for graceful rotation (Alias: {}, KeyId: {})",
               trimmedAlias,
@@ -220,7 +224,7 @@ public class KeyConfig {
 
   /**
    * Strict Algorithm Pinning for Resource Server & Token Introspection: Verifies tokens against
-   * published JWKS and enforces that JWS alg is strictly 'RS256'.
+   * published JWKS and enforces that JWS alg is strictly 'ES256'.
    */
   @Bean
   public JwtDecoder jwtDecoder(JWKSource<SecurityContext> jwkSource) {
@@ -230,11 +234,11 @@ public class KeyConfig {
     OAuth2TokenValidator<Jwt> algorithmValidator =
         (jwt) -> {
           Object alg = jwt.getHeaders().get("alg");
-          if (alg == null || !"RS256".equalsIgnoreCase(alg.toString())) {
+          if (alg == null || !"ES256".equalsIgnoreCase(alg.toString())) {
             return OAuth2TokenValidatorResult.failure(
                 new OAuth2Error(
                     "invalid_token",
-                    "Strict Algorithm Pinning: Only 'RS256' algorithm is permitted. Rejected algorithm: "
+                    "Strict Algorithm Pinning: Only 'ES256' algorithm is permitted. Rejected algorithm: "
                         + alg,
                     null));
           }
@@ -244,5 +248,21 @@ public class KeyConfig {
     jwtDecoder.setJwtValidator(
         new DelegatingOAuth2TokenValidator<>(JwtValidators.createDefault(), algorithmValidator));
     return jwtDecoder;
+  }
+
+  private static ECPublicKey parseEcPublicKey(InputStream is) throws Exception {
+    String pem = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+    String base64 = pem.replaceAll("-----(BEGIN|END) [A-Z ]+-----", "").replaceAll("\\s", "");
+    byte[] decoded = Base64.getDecoder().decode(base64);
+    KeyFactory kf = KeyFactory.getInstance("EC");
+    return (ECPublicKey) kf.generatePublic(new X509EncodedKeySpec(decoded));
+  }
+
+  private static ECPrivateKey parseEcPrivateKey(InputStream is) throws Exception {
+    String pem = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+    String base64 = pem.replaceAll("-----(BEGIN|END) [A-Z ]+-----", "").replaceAll("\\s", "");
+    byte[] decoded = Base64.getDecoder().decode(base64);
+    KeyFactory kf = KeyFactory.getInstance("EC");
+    return (ECPrivateKey) kf.generatePrivate(new PKCS8EncodedKeySpec(decoded));
   }
 }

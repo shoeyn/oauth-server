@@ -11,9 +11,9 @@ A modern, responsive administrative web application and REST API for managing re
 
 ```mermaid
 graph TD
-    ClientManager["Next.js Client Manager (http://localhost:3001)<br/>• Interactive Dashboard & Client Management<br/>• In-Browser 2048-bit RSA Key Pair Generator (Web Crypto API)<br/>• Server-Determined Scopes & Token TTL Settings<br/>• REST API (/api/clients, /api/clients/[id])"]
+    ClientManager["Next.js Client Manager (http://localhost:3001)<br/>• Interactive Dashboard & Client Management<br/>• In-Browser ECDSA P-256 Key Pair Generator (Web Crypto API)<br/>• Server-Determined Scopes & Token TTL Settings<br/>• REST API (/api/clients, /api/clients/[id])"]
 
-    SpringAS["Spring Authorization Server (http://localhost:9000)<br/>• ClientAdminController: Authenticated REST interface<br/>• PostgresRegisteredClientRepository: Persists clients & RSA keys<br/>• L1 In-Memory Near-Cache: Microsecond lookups<br/>• ClientReloadRedisSubscriber: Pub/Sub cache invalidation"]
+    SpringAS["Spring Authorization Server (http://localhost:9000)<br/>• ClientAdminController: Authenticated REST interface<br/>• PostgresRegisteredClientRepository: Persists clients & EC keys<br/>• L1 In-Memory Near-Cache: Microsecond lookups<br/>• ClientReloadRedisSubscriber: Pub/Sub cache invalidation"]
 
     Postgres[("PostgreSQL Database (Port 5432)<br/>• oauth2_registered_client<br/>• oauth2_client_public_key")]
 
@@ -33,7 +33,7 @@ graph TD
    - Zero AWS S3 dependencies, zero S3 IAM policies, and zero relational database drivers in the frontend.
 
 2. **In-Browser Cryptographic Key Pair Generation**:
-   - Generate secure 2048-bit RSA key pairs (`RS256`) directly in the browser via the native Web Crypto API.
+   - Generate secure ECDSA NIST P-256 key pairs (`ES256`) directly in the browser via the native Web Crypto API.
    - Automatically populates the public key in X.509 PEM format into the configuration form.
    - Provides a one-click download for the corresponding private key (`<client_id>_private_key.pem`) for use by the client application.
 

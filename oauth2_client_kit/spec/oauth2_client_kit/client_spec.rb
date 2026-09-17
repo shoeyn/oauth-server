@@ -14,7 +14,7 @@ RSpec.describe OAuth2ClientKit::Client do
     )
   end
 
-  let(:private_key) { OpenSSL::PKey::RSA.generate(2048) }
+  let(:private_key) { OpenSSL::PKey::EC.generate('prime256v1') }
   let(:client_id) { 'test_client' }
   let(:public_issuer_url) { 'http://public.example.com' }
   let(:internal_issuer_url) { 'http://internal.example.com' }
@@ -43,14 +43,20 @@ RSpec.describe OAuth2ClientKit::Client do
       client = described_class.new(client_id, private_key)
       expect(client.internal_issuer_url).to eq('http://env.example.com')
     end
+
+    it 'parses a PEM string key' do
+      client = described_class.new(client_id, private_key.to_pem)
+      expect(client.private_key).to be_a(OpenSSL::PKey::PKey)
+    end
   end
 
   describe '#build_client_assertion' do
     it 'creates a valid signed JWT' do
       jwt = client.build_client_assertion
-      decoded = JWT.decode(jwt, private_key.public_key, true, { algorithm: 'RS256' })
+      decoded = JWT.decode(jwt, private_key.public_key, true, { algorithm: 'ES256' })
       expect(decoded[0]['iss']).to eq(client_id)
       expect(decoded[0]['sub']).to eq(client_id)
+      expect(decoded[1]['alg']).to eq('ES256')
       expect(decoded[1]['kid']).to eq("#{client_id}-key-1")
     end
   end
@@ -353,7 +359,7 @@ RSpec.describe OAuth2ClientKit::Client do
   end
 
   describe 'JWT verifications' do
-    let(:auth_priv_key) { OpenSSL::PKey::RSA.generate(2048) }
+    let(:auth_priv_key) { OpenSSL::PKey::EC.generate('prime256v1') }
     let(:jwks) do
       { keys: [JWT::JWK.new(auth_priv_key).export.merge(kid: 'auth-key-1')] }
     end
@@ -366,7 +372,7 @@ RSpec.describe OAuth2ClientKit::Client do
     end
 
     def sign_jwt(payload, headers = {})
-      JWT.encode(payload, auth_priv_key, 'RS256', { kid: 'auth-key-1' }.merge(headers))
+      JWT.encode(payload, auth_priv_key, 'ES256', { kid: 'auth-key-1' }.merge(headers))
     end
 
     describe '#fetch_jwks' do
@@ -562,7 +568,7 @@ RSpec.describe OAuth2ClientKit::Client do
     describe 'JWT signature verification details' do
       it 'rejects invalid algorithm' do
         token = JWT.encode({ iss: public_issuer_url }, 'secret', 'HS256')
-        expect { client.decode_and_verify_id_token(token, nil) }.to raise_error(/must use 'RS256'/)
+        expect { client.decode_and_verify_id_token(token, nil) }.to raise_error(/must use 'ES256'/)
       end
 
       it 'rejects invalid issuer' do

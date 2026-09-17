@@ -16,7 +16,7 @@ sequenceDiagram
     participant AS as Spring Auth Server
     participant Client as New Rails Client App
 
-    Dev->>Dev: 1. Generate 2048-bit RSA Key Pair
+    Dev->>Dev: 1. Generate ECDSA P-256 Key Pair
     Dev->>CM: 2. Submit Client ID, Redirect URIs & Public Key PEM
     CM->>PG: Store registered client & public key
     CM->>Redis: Publish reload event (oauth2as:clients:reload)
@@ -32,19 +32,19 @@ sequenceDiagram
 
 ## Step 1: Generate Client Cryptographic Key Pair
 
-Our OAuth 2.1 platform enforces **RFC 7523 Asymmetric Client Authentication (`private_key_jwt`)**. Shared client secrets (`client_secret_basic` or `client_secret_post`) are strictly prohibited and rejected by the server.
+Our OAuth 2.1 platform enforces **RFC 7523 Asymmetric Client Authentication (`private_key_jwt`)** using **ECDSA NIST P-256 (`ES256`)**. Shared client secrets (`client_secret_basic` or `client_secret_post`) are strictly prohibited and rejected by the server.
 
-Generate a dedicated 2048-bit RSA key pair in your client project:
+Generate a dedicated ECDSA NIST P-256 key pair in your client project:
 
 ```bash
 # Create directory for local development keys
 mkdir -p config/keys
 
-# 1. Generate RSA 2048-bit Private Key (PKCS#8 or traditional PEM)
-openssl genrsa -out config/keys/client_private_key.pem 2048
+# 1. Generate EC P-256 Private Key (PKCS#8 / SEC1 PEM)
+openssl ecparam -name prime256v1 -genkey -noout -out config/keys/client_private_key.pem
 
-# 2. Extract RSA Public Key in X.509 PEM format
-openssl rsa -in config/keys/client_private_key.pem -pubout -out config/keys/client_public_key.pem
+# 2. Extract EC Public Key in X.509 SubjectPublicKeyInfo PEM format
+openssl ec -in config/keys/client_private_key.pem -pubout -out config/keys/client_public_key.pem
 
 # 3. Restrict permissions on private key
 chmod 600 config/keys/client_private_key.pem
@@ -193,8 +193,8 @@ end
 | Variable | Description | Default / Example |
 |---|---|---|
 | `CLIENT_ID` | Registered OAuth 2.1 Client ID | `accounting-portal` |
-| `CLIENT_PRIVATE_KEY_PATH` | Path to RSA private key file | `config/keys/client_private_key.pem` |
-| `CLIENT_PRIVATE_KEY_PEM` | Inline RSA private key PEM (Production) | *(Optional)* |
+| `CLIENT_PRIVATE_KEY_PATH` | Path to EC private key file | `config/keys/client_private_key.pem` |
+| `CLIENT_PRIVATE_KEY_PEM` | Inline EC private key PEM (Production) | *(Optional)* |
 | `AUTH_SERVER_URL` | Public browser URL of Authorization Server | `http://localhost:9000` |
 | `AUTH_SERVER_URL_INTERNAL`| Internal network URL for backend HTTP calls | `http://localhost:9000` (or `http://auth-server:9001`) |
 | `REDIS_URL` | Redis instance for client token sessions | `redis://localhost:6379/1` |
@@ -309,7 +309,7 @@ Once setup is complete, verify your integration against the following 6-point ch
 
 - [ ] **1. Pushed Authorization Requests (PAR):** Navigating to `/auth/start` performs a backchannel POST to `/oauth2/par` using `private_key_jwt` and receives a single-use `request_uri`.
 - [ ] **2. Single Sign-On Redirect:** The user is redirected to the Rails Login IdP (`http://localhost:3000/login`) with `request_uri`.
-- [ ] **3. RFC 9221 JARM Authorization Response:** After authentication, the browser redirects back to `/callback?response=<jwt>`. The client library verifies the RS256 signature using the published `/oauth2/jwks`.
+- [ ] **3. RFC 9221 JARM Authorization Response:** After authentication, the browser redirects back to `/callback?response=<jwt>`. The client library verifies the ES256 signature using the published `/oauth2/jwks`.
 - [ ] **4. Sender-Constrained DPoP Token:** Code exchange at `/oauth2/token` uses ephemeral EC P-256 keys and server nonces. The issued access token has `token_type: "DPoP"` and contains a `cnf.jkt` claim.
 - [ ] **5. Server-Determined Scopes:** Access token claims contain exactly the scopes registered in the Client Manager, regardless of what query parameters were sent.
 - [ ] **6. RP-Initiated & Backchannel Logout:**

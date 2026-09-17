@@ -1,11 +1,11 @@
 package com.example.authserver.client;
 
 import jakarta.annotation.PostConstruct;
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.security.interfaces.RSAPublicKey;
+import java.security.KeyFactory;
+import java.security.interfaces.ECPublicKey;
+import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -15,7 +15,6 @@ import org.flywaydb.core.Flyway;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.converter.RsaKeyConverters;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
@@ -66,7 +65,7 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
   // spurious invalid_client errors during a clear()+putAll() reload window).
   private volatile Map<String, RegisteredClient> clientsById = new ConcurrentHashMap<>();
   private volatile Map<String, RegisteredClient> clientsByClientId = new ConcurrentHashMap<>();
-  private volatile Map<String, RSAPublicKey> publicKeysByClientId = new ConcurrentHashMap<>();
+  private volatile Map<String, ECPublicKey> publicKeysByClientId = new ConcurrentHashMap<>();
 
   public PostgresRegisteredClientRepository(JdbcTemplate jdbcTemplate, Flyway flyway) {
     this.jdbcTemplate = jdbcTemplate;
@@ -97,7 +96,7 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
           jdbcTemplate.queryForList("SELECT client_id FROM oauth2_registered_client", String.class);
       Map<String, RegisteredClient> newClientsById = new ConcurrentHashMap<>();
       Map<String, RegisteredClient> newClientsByClientId = new ConcurrentHashMap<>();
-      Map<String, RSAPublicKey> newPublicKeysByClientId = new ConcurrentHashMap<>();
+      Map<String, ECPublicKey> newPublicKeysByClientId = new ConcurrentHashMap<>();
 
       for (String clientId : clientIds) {
         RegisteredClient client = jdbcRepository.findByClientId(clientId);
@@ -107,7 +106,7 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
         }
       }
 
-      // Load associated RSA public keys from oauth2_client_public_key table
+      // Load associated EC public keys from oauth2_client_public_key table
       jdbcTemplate.query(
           "SELECT client_id, public_key_pem FROM oauth2_client_public_key",
           (rs) -> {
@@ -115,15 +114,18 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
             String pem = rs.getString("public_key_pem");
             if (pem != null && !pem.isBlank()) {
               try {
-                InputStream keyStream =
-                    new ByteArrayInputStream(pem.trim().getBytes(StandardCharsets.UTF_8));
-                RSAPublicKey key = RsaKeyConverters.x509().convert(keyStream);
+                String cleanPem =
+                    pem.replaceAll("-----(BEGIN|END) [A-Z ]+-----", "").replaceAll("\\s", "");
+                byte[] decoded = Base64.getDecoder().decode(cleanPem);
+                KeyFactory keyFactory = KeyFactory.getInstance("EC");
+                ECPublicKey key =
+                    (ECPublicKey) keyFactory.generatePublic(new X509EncodedKeySpec(decoded));
                 if (key != null) {
                   newPublicKeysByClientId.put(clientId, key);
                 }
               } catch (Exception e) {
                 log.warn(
-                    "Failed parsing RSA public key for client '{}' from PostgreSQL: {}",
+                    "Failed parsing EC public key for client '{}' from PostgreSQL: {}",
                     clientId,
                     e.getMessage());
               }
@@ -187,7 +189,7 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
     reloadNearCacheFromDatabase();
   }
 
-  public RSAPublicKey getClientPublicKey(String clientId) {
+  public ECPublicKey getClientPublicKey(String clientId) {
     return publicKeysByClientId.get(clientId);
   }
 
@@ -297,7 +299,7 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
             .accessTokenTimeToLive(Duration.ofMinutes(accessTtlMinutes))
             .reuseRefreshTokens(false)
             .refreshTokenTimeToLive(Duration.ofDays(refreshTtlDays))
-            .idTokenSignatureAlgorithm(SignatureAlgorithm.RS256)
+            .idTokenSignatureAlgorithm(SignatureAlgorithm.ES256)
             .build());
 
     return builder.build();

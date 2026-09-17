@@ -62,7 +62,7 @@ sequenceDiagram
     Admin->>Spring: Admin session termination / revocation request
     activate Spring
 
-    Note over Spring: OidcBackChannelLogoutService:<br/>1. Find registered client backchannel logout URI<br/>2. Build logout_token JWT payload:<br/>   - iss: http://localhost:9000<br/>   - sub: alice_smith<br/>   - aud: demo-client<br/>   - events: {"http://schemas.openid.net/event/backchannel-logout": {}}<br/>   - sid: session identifier<br/>3. Sign logout_token with AS RSA Private Key (RS256)
+    Note over Spring: OidcBackChannelLogoutService:<br/>1. Find registered client backchannel logout URI<br/>2. Build logout_token JWT payload:<br/>   - iss: http://localhost:9000<br/>   - sub: alice_smith<br/>   - aud: demo-client<br/>   - events: {"http://schemas.openid.net/event/backchannel-logout": {}}<br/>   - sid: session identifier<br/>3. Sign logout_token with AS EC Private Key via AWS KMS (ES256)
 
     Spring->>Client: POST /oidc/backchannel_logout<br/>Body: logout_token=<signed_jwt>
     activate Client

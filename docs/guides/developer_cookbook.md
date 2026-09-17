@@ -60,10 +60,10 @@ mise exec -- mvn spring-boot:run
 
 While the **Next.js Client Manager** (`http://localhost:3001`) provides an interactive interface, you can provision clients directly via `curl` for CI/CD pipelines and automated seeding.
 
-### Step 1: Generate a 2048-bit RSA Key Pair
+### Step 1: Generate an ECDSA NIST P-256 Key Pair
 ```bash
-openssl genrsa -out /tmp/my_client_private.pem 2048
-openssl rsa -in /tmp/my_client_private.pem -pubout -out /tmp/my_client_public.pem
+openssl ecparam -name prime256v1 -genkey -noout -out /tmp/my_client_private.pem
+openssl ec -in /tmp/my_client_private.pem -pubout -out /tmp/my_client_public.pem
 ```
 
 ### Step 2: Register Client via Admin API

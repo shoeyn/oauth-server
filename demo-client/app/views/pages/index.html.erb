@@ -43,7 +43,7 @@
       <div>
         <strong>RFC 9221: JWT-Secured Authorization Response Mode (JARM):</strong>
         <div style="font-size: 0.85rem; color: var(--text-muted);">
-          All front-channel authorization responses (including authorization codes, issuer identity, state, and error responses) are returned as cryptographically signed JWS JWTs (<code>?response=&lt;jwt&gt;</code>) signed using AWS KMS RS256. Plaintext callback parameters are strictly rejected, eliminating response parameter injection, authorization code tampering, and forged phishing error messages.
+          All front-channel authorization responses (including authorization codes, issuer identity, state, and error responses) are returned as cryptographically signed JWS JWTs (<code>?response=&lt;jwt&gt;</code>) signed using AWS KMS ES256. Plaintext callback parameters are strictly rejected, eliminating response parameter injection, authorization code tampering, and forged phishing error messages.
         </div>
       </div>
     </li>
@@ -61,7 +61,7 @@
       <div>
         <strong>RFC 7523: Private Key JWT Client Authentication:</strong>
         <div style="font-size: 0.85rem; color: var(--text-muted);">
-          No static client secrets are used. The client authenticates using a 2048-bit RSA key pair (RS256) signing a short-lived client assertion JWT with unique <code>jti</code> replay protection and strict audience binding. Shared secret methods (<code>client_secret_basic</code>, <code>client_secret_post</code>) are strictly rejected.
+          No static client secrets are used. The client authenticates using an ECDSA P-256 key pair (ES256) signing a short-lived client assertion JWT with unique <code>jti</code> replay protection and strict audience binding. Shared secret methods (<code>client_secret_basic</code>, <code>client_secret_post</code>) are strictly rejected.
         </div>
       </div>
     </li>
@@ -185,7 +185,7 @@
       </tr>
       <tr style="border-bottom: 1px solid var(--border);">
         <td style="padding: 0.5rem 0; color: var(--text-muted);">Authentication Method</td>
-        <td style="padding: 0.5rem 0;"><code>private_key_jwt</code> (RFC 7523 - RS256, strictly enforced)</td>
+        <td style="padding: 0.5rem 0;"><code>private_key_jwt</code> (RFC 7523 - ES256, strictly enforced)</td>
       </tr>
       <tr style="border-bottom: 1px solid var(--border);">
         <td style="padding: 0.5rem 0; color: var(--text-muted);">Token Protection</td>

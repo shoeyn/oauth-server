@@ -8,20 +8,20 @@ This document details the cryptographic architecture, zero-downtime multi-key ro
 
 ```mermaid
 flowchart TD
-    subgraph KMS ["AWS KMS Cryptographic Boundary (FIPS 140-2 Level 3 in real AWS; LocalStack software emulation locally)"]
-        ActiveKey["Active Asymmetric Key (RSA_2048)<br/>Alias: alias/oauth2-signing-key<br/>(KeyUsage: SIGN_VERIFY)<br/>• Signs all newly minted tokens<br/>• Private Key NEVER leaves HSM"]
-        PreviousKey["Previous Asymmetric Key (RSA_2048)<br/>Alias: alias/oauth2-signing-key-previous<br/>(KeyUsage: SIGN_VERIFY)<br/>• Retained during overlap window<br/>• Signs no new tokens"]
+    subgraph KMS ["AWS KMS Cryptographic Boundary (FIPS 140-2 / 140-3 Level 3 in real AWS; LocalStack software emulation locally)"]
+        ActiveKey["Active Asymmetric Key (ECC_NIST_P256)<br/>Alias: alias/oauth2-signing-key<br/>(KeyUsage: SIGN_VERIFY)<br/>• Signs all newly minted tokens (ES256)<br/>• Private Key NEVER leaves HSM"]
+        PreviousKey["Previous Asymmetric Key (ECC_NIST_P256)<br/>Alias: alias/oauth2-signing-key-previous<br/>(KeyUsage: SIGN_VERIFY)<br/>• Retained during overlap window<br/>• Signs no new tokens"]
     end
 
     subgraph SpringServer ["Spring Authorization Server (:9000)"]
         KeyConfig["KeyConfig & JWKSource<br/>• Resolves active public key: kms-auth-server-key-1<br/>• Resolves previous public key: kms-auth-server-key-previous<br/>• Caches public keys in-memory"]
-        KmsSigner["KmsRsaSigner & KmsJwtEncoder<br/>• Delegates sign requests to active KMS key<br/>• Automatic retries (3x) with full jitter<br/>• Strict Fail-Closed (no local fallback)"]
-        AlgValidator["Strict Algorithm Pinning (RFC 8725 §3.1)<br/>• Checks JWS header alg == 'RS256'<br/>• Explicitly rejects 'none', HS256, etc."]
+        KmsSigner["KmsEcSigner & KmsJwtEncoder<br/>• Delegates sign requests to active KMS key<br/>• Transcodes ASN.1 DER to IEEE P1363 (64 bytes)<br/>• Automatic retries (3x) with full jitter<br/>• Strict Fail-Closed (no local fallback)"]
+        AlgValidator["Strict Algorithm Pinning (RFC 8725 §3.1)<br/>• Checks JWS header alg == 'ES256'<br/>• Explicitly rejects 'none', HS256, etc."]
         JwksEndpoint["GET /oauth2/jwks<br/>Publishes [{kid: active}, {kid: previous}]"]
     end
 
     subgraph ClientsAndRS ["OAuth Clients & Resource Servers"]
-        DemoClient["Demo Client (:8080)<br/>• In-Memory JWKS cache (auto-refreshes on unknown kid)<br/>• Strict algorithm pinning ('RS256')"]
+        DemoClient["Demo Client (:8080)<br/>• In-Memory JWKS cache (auto-refreshes on unknown kid)<br/>• Strict algorithm pinning ('ES256')"]
         ResourceServer["Resource Servers / Microservices<br/>• Validates ID tokens & access tokens against JWKS"]
     end
 
@@ -56,7 +56,7 @@ sequenceDiagram
     Spring->>Client: Issue Token T1 (signed with K1)
 
     Note over Admin,KMS: State 2: Rotation Initiated
-    Admin->>KMS: kms:CreateKey (RSA_2048, SIGN_VERIFY) -> K2
+    Admin->>KMS: kms:CreateKey (ECC_NIST_P256, SIGN_VERIFY) -> K2
     Admin->>KMS: Update alias/oauth2-signing-key-previous -> K1
     Admin->>KMS: Update alias/oauth2-signing-key -> K2
 
@@ -111,29 +111,29 @@ stateDiagram-v2
 ### Threat Mitigation: Algorithm Confusion Attacks
 In standard JWT libraries, if an endpoint does not enforce strict algorithm pinning, attackers can exploit **Algorithm Confusion**:
 1. **The "none" Algorithm Attack:** The attacker sets `"alg": "none"` in the JWT header, strips the signature, and submits the token. Insecure verifiers accept the token as valid without verifying any signature.
-2. **Key Confusion / HMAC Attack:** If the authorization server uses RSA and an attacker has access to the server's public key, the attacker signs a forged token using `HS256` (HMAC-SHA256) with the *RSA public key PEM* as the symmetric shared secret. If the verifier dynamically chooses the algorithm from the header, it uses its public key as the HMAC secret and accepts the forged token!
+2. **Key Confusion / HMAC Attack:** If an authorization server's public key (RSA or EC) is used by an attacker to sign a forged token using `HS256` (HMAC-SHA256) with the *public key PEM* as the symmetric shared secret. If the verifier dynamically chooses the algorithm from the header, it uses its public key as the HMAC secret and accepts the forged token!
 
 ### Platform Defense Implementation:
 Across all components, algorithm dynamic switching is completely disabled:
-1. **Spring Authorization Server (`AuthorizationServerConfig.java`):**
+1. **Spring Authorization Server (`ClientAssertionDecoderFactory.java`):**
    - Client Assertion decoder explicitly pins:
      ```java
-     NimbusJwtDecoder.withPublicKey(clientKey)
-         .signatureAlgorithm(SignatureAlgorithm.RS256)
-         .build();
+     JWSKeySelector<SecurityContext> jwsKeySelector =
+         new SingleKeyJWSKeySelector<>(JWSAlgorithm.ES256, clientKey);
+     jwtProcessor.setJWSKeySelector(jwsKeySelector);
      ```
-   - Validates that `jwt.getHeaders().get("alg")` strictly equals `"RS256"`, rejecting any token containing `"none"`, `"HS256"`, or non-approved algorithms with `invalid_client_assertion`.
+   - Validates that `jwt.getHeaders().get("alg")` strictly equals `"ES256"`, rejecting any token containing `"none"`, `"HS256"`, or non-approved algorithms with `invalid_client_assertion`.
 2. **Spring Resource Server & Token Introspection (`KeyConfig.java`):**
-   - Attaches `algorithmValidator` verifying that every token processed by `jwtDecoder` uses strictly `"RS256"`.
-3. **Demo Client (`par_oauth2_client.rb`):**
+   - Attaches `algorithmValidator` verifying that every token processed by `jwtDecoder` uses strictly `"ES256"`.
+3. **Demo Client (`token_validator.rb` / `par_oauth2_client.rb`):**
    - Checks the raw JWS header prior to verification:
      ```ruby
      alg = header["alg"]
-     if alg.blank? || alg.downcase == "none" || alg != "RS256"
-       raise "Security Error: Strict Algorithm Pinning: Only 'RS256' algorithm is permitted."
+     if alg.blank? || alg.downcase == "none" || alg != "ES256"
+       raise "Security Error: Strict Algorithm Pinning: Only 'ES256' algorithm is permitted."
      end
      ```
-   - Passes `algorithms: ["RS256"]` to `JWT.decode`.
+   - Passes `algorithms: ["ES256"]` to `JWT.decode`.
 
 ---
 
@@ -156,7 +156,7 @@ awslocal kms list-aliases --query "Aliases[?AliasName=='alias/oauth2-signing-key
 #### Step 2: Create the New Asymmetric Key in KMS
 ```bash
 NEW_KEY_ID=$(awslocal kms create-key \
-  --key-spec RSA_2048 \
+  --key-spec ECC_NIST_P256 \
   --key-usage SIGN_VERIFY \
   --description "Rotated OAuth 2.1 Signing Key" \
   --query 'KeyMetadata.KeyId' \
@@ -186,16 +186,18 @@ Expected output showing both active and retiring keys:
 {
   "keys": [
     {
-      "kty": "RSA",
+      "kty": "EC",
+      "crv": "P-256",
       "kid": "kms-auth-server-key-1",
-      "n": "...",
-      "e": "AQAB"
+      "x": "...",
+      "y": "..."
     },
     {
-      "kty": "RSA",
+      "kty": "EC",
+      "crv": "P-256",
       "kid": "kms-auth-server-key-previous",
-      "n": "...",
-      "e": "AQAB"
+      "x": "...",
+      "y": "..."
     }
   ]
 }
