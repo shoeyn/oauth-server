@@ -2,7 +2,7 @@
 
 This directory contains automated **k6** load testing scripts designed to evaluate throughput, concurrency limits, latency percentiles, and caching behavior across the OAuth 2.1 & OpenID Connect platform.
 
-> **Scope note:** This suite measures **performance, throughput, and redirect/flow plumbing** under concurrent load. It exercises the full authorization flow to generate realistic traffic, but it does **not** verify the cryptographic security guarantees themselves (e.g. DPoP sender-constraint binding, PAR request integrity, JARM response signing/validation). Those correctness properties are asserted by the functional test suites (`*/functional_tests/`). Treat k6 results as capacity/latency evidence, not as security assurance.
+> **Scope note:** This suite measures **performance, throughput, and redirect/flow plumbing** under concurrent load. It exercises the full authorization flow to generate realistic traffic, but it does **not** verify the cryptographic security guarantees themselves (e.g. DPoP sender-constraint binding, PAR request integrity, JARM response signing/validation). Those correctness properties are asserted by the end-to-end Cucumber test suite (`e2e-tests/`) and unit test suites with 100% enforced coverage across each component. Treat k6 results as capacity/latency evidence, not as security assurance.
 
 ---
 

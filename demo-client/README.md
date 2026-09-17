@@ -90,16 +90,25 @@ docker compose up -d demo-client
 
 ---
 
-## Running the Automated Functional Test Suite
+## Testing & Code Quality
 
+### Unit Tests & Coverage (100% Enforced)
 ```bash
-bash functional_tests/run_functional_tests.sh
+mise exec -- bundle exec rspec
 ```
-Runs all 4 suites:
-1. `test_oauth_security_features.rb` (PAR, DPoP, PKCE, Issuer ID, Revocation, Introspection, Back-Channel Logout)
-2. `test_s3_dynamic_client_reload.rb` (Dynamic PostgreSQL client CRUD via Spring Admin API, Redis hot-reload, dynamic client token exchange, and revocation)
-3. `test_performance_and_resilience.rb` (In-memory 304 caching, EC vs RSA DPoP benchmark, in-memory JWKS cache hit, retries)
-4. `test_kms_signing.rb` (AWS KMS HSM signing, strict algorithm pinning rejection of `none` and `HS256`, multi-key JWKS rotation)
+Enforces 100.0% line coverage via SimpleCov.
+
+### Static Analysis
+```bash
+mise exec -- rubocop
+```
+Enforces clean Ruby 4.0 style with zero offenses.
+
+### End-to-End Integration Tests
+```bash
+cd ../e2e-tests
+mise exec -- bundle exec cucumber
+```
 
 ## Performance & Load Testing (k6)
 ```bash

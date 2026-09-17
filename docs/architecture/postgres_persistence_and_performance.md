@@ -193,14 +193,15 @@ Database evolution is managed via Flyway migrations located in `src/main/resourc
 
 ## 7. Empirical Verification & Benchmark Results
 
-### A. All 4 Automated Functional Test Suites
+### A. End-to-End Functional Test Suite (Cucumber)
 ```bash
-bash spring-auth-server/functional_tests/run_functional_tests.sh
+cd e2e-tests && mise exec -- bundle exec cucumber
 ```
-- **Suite 1:** OAuth 2.1 & OIDC Advanced Security Features (PAR, PKCE, DPoP, back-channel logout) -> **PASSED (100%)**
-- **Suite 2:** Dynamic Client Reload & Hot-Sync (Client creation via Next.js and Spring Admin API, PostgreSQL ACID persistence, near-cache update, dynamic deletion) -> **PASSED (100%)**
-- **Suite 3:** Performance, In-Memory Caching & Resilience (ETag HTTP 304, EC P-256 DPoP speedup) -> **PASSED (100%)**
-- **Suite 4:** AWS KMS Cryptographic Signing & Strict Algorithm Pinning -> **PASSED (100%)**
+- **OAuth Authorization Flow:** PAR, PKCE S256, DPoP, Rails SSO redirect -> **PASSED (100%)**
+- **Token Lifecycle:** Refresh token rotation, introspection guard (RFC 7662), token revocation (RFC 7009) -> **PASSED (100%)**
+- **Error Journeys:** Account locked and account suspended JARM error handling -> **PASSED (100%)**
+- **Invalid Login:** Rails IdP credential failure handling -> **PASSED (100%)**
+- **Fraud Revocation:** Admin fraud flag terminating active user sessions and purging PostgreSQL authorizations -> **PASSED (100%)**
 
 ### B. k6 Benchmark Results with PostgreSQL Backing
 ```bash

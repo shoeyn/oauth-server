@@ -177,7 +177,7 @@
                                             mapping and cache-reload branches require a real database (integration
                                             test), not a unit test, to exercise fully; unit-testing it in isolation
                                             cannot reach the 100% line+branch gate. Covered instead by the functional
-                                            test suite (see functional_tests/).
+                                            test suite (see e2e-tests/).
                                         -->
                                         <exclude>com.example.authserver.client.PostgresRegisteredClientRepository</exclude>
                                         <!--

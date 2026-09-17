@@ -101,18 +101,29 @@ docker compose up -d spring-auth-server
 
 ---
 
-## Running the Automated Functional Test Suite
+## Testing & Code Quality
 
-The test suite executes all 6 suites:
-1. **OAuth 2.1 & OIDC Advanced Security Features** (PAR, DPoP, PKCE, Issuer ID, Revocation, Introspection, Back-Channel Logout)
-2. **Dynamic Client Configuration & Near-Cache Hot-Reload** (Admin REST API, PostgreSQL persistence, real-time reload, dynamic client token exchange, and revocation)
-3. **Performance, In-Memory Caching & Resilience** (ETag 304 validation, EC vs RSA DPoP benchmark, in-memory JWKS cache hit, retries)
-4. **AWS KMS Cryptographic Signing & Security Verification** (KMS HSM signing, strict algorithm pinning, multi-key JWKS rotation)
-5. **Client Error Flow Handling & Per-Error View Overrides** (Spring JARM error signing, custom host template overrides, IdP simulated error flow)
-6. **RFC 9221 (JARM) Enforcement & Cryptographic Security** (Strict JARM enforcement, KMS signature verification, negative attacks defense: plaintext rejection, tampering rejection, forgery rejection, client isolation)
-
+### Unit Tests & Code Coverage (100% Enforced)
+Run the 182 JUnit 5 and Mockito unit tests with JaCoCo coverage verification:
 ```bash
-bash functional_tests/run_functional_tests.sh
+mise exec -- mvn test
+```
+Enforces 100% branch and line coverage across custom security filters, admin controllers, token converters, and session revocation services.
+
+### Code Formatting & Checkstyle
+```bash
+# Check formatting and checkstyle rules
+mise exec -- mvn spotless:check checkstyle:check
+
+# Automatically format Java sources with Spotless (Google Java Format)
+mise exec -- mvn spotless:apply
+```
+
+### End-to-End Integration Tests
+Full OAuth 2.1 protocol integration is asserted via the Cucumber E2E suite:
+```bash
+cd ../e2e-tests
+mise exec -- bundle exec cucumber
 ```
 
 ## Performance & Load Testing (k6)
