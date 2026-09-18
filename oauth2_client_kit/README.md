@@ -271,15 +271,15 @@ The gem is engineered for high-concurrency enterprise scale with sub-millisecond
 In automated multi-session k6 load tests exercising the full 6-hop OAuth 2.1 flow across concurrent virtual users:
 
 | Metric | Measured Result | Production Target / Threshold | Status |
-|---|---|---|---|
-| **Full Auth Sessions** | **225 completed in 30s** (~7.5 sessions/sec) | 3,000–5,000 sessions/hr | **PASSED** (~27,000 sessions/hr) |
-| **Session Success Rate** | **100.00% (225 / 225 sessions)** | > 95.0% | **Flawless (Zero Failures)** |
-| **Total HTTP Requests** | **3,278 requests in 31.4s** (104.5 req/s) | ~50 req/s | **PASSED** (~376,000 req/hr) |
-| **HTTP Error Rate** | **0.00% (0 / 3,278 errors)** | < 1.0% | **100% Success** |
-| **End-to-End Latency (p50)** | **163.0 ms** | < 500 ms | **PASSED** |
-| **End-to-End Latency (p95)** | **217.0 ms** | < 1,500 ms | **PASSED** |
-| **Average Full Session** | **167.1 ms** (min 122 ms, max 382 ms) | < 600 ms | **3x Faster than RSA-2048** |
-| **Public JWKS / Discovery Rate** | **100.00% (200 OK under burst)** | 100.0% | **PASSED** (zero login impact) |
+|---|---|---|:---:|
+| **Full Auth Sessions** | **225 completed in 30s** (~7.5 sessions/sec) | > 3,000 sessions/hr | **PASS** |
+| **Session Success Rate** | **100.00% (225 / 225 sessions)** | > 95.0% | **PASS** |
+| **Total HTTP Requests** | **3,278 requests in 31.4s** (104.5 req/s) | > 50 req/s | **PASS** |
+| **HTTP Error Rate** | **0.00% (0 / 3,278 errors)** | < 1.0% | **PASS** |
+| **End-to-End Latency (p50)** | **163.0 ms** | < 500 ms | **PASS** |
+| **End-to-End Latency (p95)** | **217.0 ms** | < 1,500 ms | **PASS** |
+| **Average Full Session** | **167.1 ms** (min 122 ms, max 382 ms) | < 600 ms | **PASS** |
+| **Public JWKS / Discovery Rate** | **100.00% (200 OK under burst)** | 100.0% | **PASS** |
 
 > For complete benchmarking methodology, dynamic user pool setup, and architectural analysis, see [`k6/README.md`](../k6/README.md) and [`docs/architecture/performance_and_scalability.md`](../docs/architecture/performance_and_scalability.md).
 

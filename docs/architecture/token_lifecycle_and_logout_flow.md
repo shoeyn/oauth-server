@@ -76,5 +76,5 @@ sequenceDiagram
     Spring-->>Admin: HTTP 200 OK (Revocation complete)
     deactivate Spring
 
-    Note over Client: When user next navigates to Demo Client (/profile), session is gone and user is unauthenticated!
+    Note over Client: When user next navigates to Demo Client (/profile), session is invalidated and requires re-authentication.
 ```

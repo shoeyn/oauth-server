@@ -39,12 +39,11 @@ Every controller and configuration in this application is strictly annotated wit
 
 ## Test Accounts
 
-The following demo accounts are available out of the box:
+The following demo account is provisioned out of the box for development:
 
-| Username | Password | Full Name | Roles |
+| Email | Password | Full Name | Roles |
 |---|---|---|---|
-| `alice_smith` | `secret123` | Alice Smith | `ROLE_USER`, `ROLE_ADMIN` |
-| `bob_jones` | `password456` | Bob Jones | `ROLE_USER` |
+| `alice_smith@example.com` | `secret123` | Alice Smith | `ROLE_USER`, `ROLE_ADMIN` |
 
 ---
 

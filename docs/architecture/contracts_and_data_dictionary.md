@@ -171,7 +171,7 @@ Defines registered client metadata, grant types, redirect URIs, and server-deter
 #### 2. `oauth2_client_public_key` (Custom Extension)
 Stores client public keys in X.509 PEM format for asymmetric `private_key_jwt` signature verification.
 - `client_id` (`varchar(100)`): References `oauth2_registered_client.client_id`.
-- `public_key_pem` (`text`): 2048-bit RSA public key (`-----BEGIN PUBLIC KEY-----...`).
+- `public_key_pem` (`text`): ECDSA NIST P-256 public key (`-----BEGIN PUBLIC KEY-----...`).
 
 #### 3. `oauth2_authorization`
 Maintains runtime authorization codes, user consent attributes, and active tokens.

@@ -89,6 +89,9 @@ Click the links below to inspect specific end-to-end communication flows:
 11. [**JWT-Secured Authorization Requests (JAR, RFC 9101) — Design Option**](jar_rfc9101_design_option.md)
     - Evaluation of JAR signed request objects vs the implemented RFC 9126 PAR flow, why it is documented rather than implemented, a recommended PAR + JAR shape, and pros/cons.
 
+12. [**Component Interactions, Data Flows & State Storage Specification**](component_interactions_and_data_flows.md)
+    - Component-by-component architectural perspective detailing what data enters each component, for what person/identity, why and where it is stored (Redis DB 0 & 1, PostgreSQL, KMS, cookies), its lifecycle and TTL, who reads it, and what outbound calls each component makes.
+
 ---
 
 ## Developer & Tester Guides

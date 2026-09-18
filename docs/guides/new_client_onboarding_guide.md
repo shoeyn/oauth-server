@@ -32,7 +32,7 @@ sequenceDiagram
 
 ## Step 1: Generate Client Cryptographic Key Pair
 
-Our OAuth 2.1 platform enforces **RFC 7523 Asymmetric Client Authentication (`private_key_jwt`)** using **ECDSA NIST P-256 (`ES256`)**. Shared client secrets (`client_secret_basic` or `client_secret_post`) are strictly prohibited and rejected by the server.
+The OAuth 2.1 platform enforces **RFC 7523 Asymmetric Client Authentication (`private_key_jwt`)** using **ECDSA NIST P-256 (`ES256`)**. Shared client secrets (`client_secret_basic` or `client_secret_post`) are strictly prohibited and rejected by the server.
 
 Generate a dedicated ECDSA NIST P-256 key pair in your client project:
 
