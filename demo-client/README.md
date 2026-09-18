@@ -121,15 +121,15 @@ k6 run ../k6/oauth_load_test.js
 ### Empirical Client-Side Performance Benchmarks
 
 | Metric | Measured Result | Production Target / Threshold | Status |
-|---|---|---|---|
-| **Full Auth Sessions** | **225 completed in 30s** (~7.5 sessions/sec) | 3,000–5,000 sessions/hr | **PASSED** (~27,000 sessions/hr) |
-| **Session Success Rate** | **100.00% (225 / 225 sessions)** | > 95.0% | **Flawless (Zero Failures)** |
-| **Total HTTP Requests** | **3,278 requests in 31.4s** (104.5 req/s) | ~50 req/s | **PASSED** (~376,000 req/hr) |
-| **HTTP Error Rate** | **0.00% (0 / 3,278 errors)** | < 1.0% | **100% Success** |
-| **End-to-End Latency (p50)** | **163.0 ms** | < 500 ms | **PASSED** |
-| **End-to-End Latency (p95)** | **217.0 ms** | < 1,500 ms | **PASSED** |
-| **Average Full Session** | **167.1 ms** (min 122 ms, max 382 ms) | < 600 ms | **3x Faster than RSA-2048** |
-| **DPoP & JARM Verification** | **Sub-millisecond** (EC P-256 / ES256) | < 5 ms | **PASSED** |
+|---|---|---|:---:|
+| **Full Auth Sessions** | **225 completed in 30s** (~7.5 sessions/sec) | > 3,000 sessions/hr | **PASS** |
+| **Session Success Rate** | **100.00% (225 / 225 sessions)** | > 95.0% | **PASS** |
+| **Total HTTP Requests** | **3,278 requests in 31.4s** (104.5 req/s) | > 50 req/s | **PASS** |
+| **HTTP Error Rate** | **0.00% (0 / 3,278 errors)** | < 1.0% | **PASS** |
+| **End-to-End Latency (p50)** | **163.0 ms** | < 500 ms | **PASS** |
+| **End-to-End Latency (p95)** | **217.0 ms** | < 1,500 ms | **PASS** |
+| **Average Full Session** | **167.1 ms** (min 122 ms, max 382 ms) | < 600 ms | **PASS** |
+| **DPoP & JARM Verification** | **Sub-millisecond** (EC P-256 / ES256) | < 5 ms | **PASS** |
 
 > For comprehensive system-wide benchmark telemetry, see [`k6/README.md`](../k6/README.md) and [`docs/architecture/performance_and_scalability.md`](../docs/architecture/performance_and_scalability.md).
 

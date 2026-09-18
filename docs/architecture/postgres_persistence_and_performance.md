@@ -90,7 +90,7 @@ flowchart LR
 ```
 
 ### 1. In-Memory Near-Cache (`PostgresRegisteredClientRepository`)
-- All registered clients (`RegisteredClient`) and their parsed cryptographic public keys (`RSAPublicKey`) are pre-warmed from PostgreSQL into a thread-safe `ConcurrentHashMap` upon application startup.
+- All registered clients (`RegisteredClient`) and their parsed cryptographic public keys (`ECPublicKey` / `PublicKey`) are pre-warmed from PostgreSQL into a thread-safe `ConcurrentHashMap` upon application startup.
 - **Steady-State Reads:** All runtime calls (`findByClientId`, `findById`, `getClientPublicKey`) resolve directly from memory in **~0.001 ms**.
 - **Zero Database Round-Trips:** Steady-state authentication, PAR validation, and token exchanges execute without issuing a single SQL query against PostgreSQL.
 
@@ -125,7 +125,7 @@ sequenceDiagram
     participant Node2 as Spring Auth Server (Node 2)
 
     Admin->>Java: POST /api/admin/clients (Payload + X-Admin-Api-Key)
-    Java->>Java: Validate Scopes, Redirect URIs & RSA Key PEM
+    Java->>Java: Validate Scopes, Redirect URIs & EC Key PEM
     Java->>PG: INSERT INTO oauth2_registered_client & public_key (ACID Commit)
     Java->>Java: Update Local Near-Cache (Immediate reflection on Node 1)
     Java->>Redis: PUBLISH oauth2as:clients:reload {"action":"save","clientId":"..."}
@@ -179,7 +179,7 @@ Database evolution is managed via Flyway migrations located in `src/main/resourc
   - `oauth2_registered_client`: Stores client metadata with `timestamptz` (UTC) and native `text` columns for JSON settings.
   - `oauth2_authorization`: Stores runtime authorization codes, access tokens, refresh tokens, and OIDC state.
   - `oauth2_authorization_consent`: Stores user consent decisions.
-  - `oauth2_client_public_key`: Stores parsed RSA public keys in plain PEM format for auditing and fast lookup.
+  - `oauth2_client_public_key`: Stores parsed ECDSA NIST P-256 public keys in plain PEM format for auditing and fast lookup.
 - **`V2__create_authorization_expiry_indices.sql`:**
   - Dedicated B-tree indices on `refresh_token_expires_at`, `access_token_expires_at`, and `authorization_code_expires_at`.
   - Accelerates automated database pruning and expiration queries without scanning the entire table.

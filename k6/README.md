@@ -101,7 +101,7 @@ With **AWS KMS HSM asymmetric signing (`ECC_NIST_P256` / `ES256`)**, **graceful 
     • Total HTTP Requests:             3,278 requests in 31.4 seconds (104.5 req/sec sustained)
     • Equivalent Hourly Throughput:    ~376,000 HTTP requests / hour
     • Full OAuth Sessions Completed:   225 full sessions in 30s (~7.5 sessions/sec)
-    • Equivalent Auth Session Rate:    ~27,000 full auth sessions / hour (~5.4x–9x above target)
+    • Equivalent Auth Session Rate:    ~27,000 full auth sessions / hour
     • End-to-End Session Latency:      p(50) = 163 ms | avg = 167.1 ms | p(90) = 205.3 ms | p(95) = 217.0 ms | max = 382 ms
     • Public Discovery / JWKS Checks:  100.00% (100% returned 200 OK)
     • Overall HTTP Failure Rate:       0.00% (0 out of 3,278 requests failed)
@@ -112,19 +112,19 @@ With **AWS KMS HSM asymmetric signing (`ECC_NIST_P256` / `ES256`)**, **graceful 
 
 ### 2. In-Memory Software Signing vs. AWS KMS Hardware Signing (Multi-Session)
 
-| Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS + JARM + Multi-Session Pool) | Evaluation |
-|---|---|---|---|
-| **Cryptographic Boundary** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 / FIPS 140-3 Level 3 KMS HSM in real AWS** (LocalStack software emulation locally) | Hardware protection in production; emulated in dev |
-| **Algorithm Pinning** | Optional | **Strict ES256 enforced (`none` & `HS256` rejected)** | Pinning active |
-| **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime cutover |
-| **KMS Signatures / Flow** | 0 (Local CPU) | **3 (JARM Auth Code + Access Token + ID Token)** | Cryptographic non-repudiation |
-| **User & Session Isolation** | Single shared user | **Dynamic Multi-User Pool (`setup`/`teardown`)** | True concurrent sessions across DB & Redis |
-| **Auth Session Success Rate** | `98.79%` | **`100.00%`** (225 / 225 completed) | **Flawless (Zero Failures)** |
-| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~27,000 sessions/hr** (~7.5 sessions/sec) | **~5.4x–9x above target** ("few thousand/hr") |
-| **Full Session Latency (median)** | `112 ms` | **`163 ms`** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | Sub-170ms median latency |
-| **Full Session Latency (p95)** | `146 ms` | **`217.0 ms`** | **Passed** (<1,500 ms threshold) |
-| **Total HTTP Error Rate** | `0.04%` | **`0.00%`** (0 / 3,278 requests failed) | **100.00% success rate** |
-| **Public Metadata Check Rate** | `100.00%` | **`100.00%`** (100% returned 200 OK) | Zero latency impact on auth sessions |
+| Metric | Target / Threshold | In-Memory Software Signing | AWS KMS Hardware Signing (`ECC_NIST_P256` / `ES256`) | Status |
+|---|---|---|---|:---:|
+| **Cryptographic Boundary** | Hardware HSM | Software JCE (JVM memory) | **FIPS 140-2/3 Level 3 KMS HSM in real AWS** (LocalStack locally) | **PASS** |
+| **Algorithm Pinning** | Strict ES256 | Optional | **Strict ES256 enforced (`none` & `HS256` rejected)** | **PASS** |
+| **Key Rotation Support** | Multi-Key JWKS | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | **PASS** |
+| **KMS Signatures / Flow** | Non-repudiation | 0 (Local CPU) | **3 (JARM Auth Code + Access Token + ID Token)** | **PASS** |
+| **User & Session Isolation** | Isolated sessions | Single shared user | **Dynamic Multi-User Pool (`setup`/`teardown`)** | **PASS** |
+| **Auth Session Completion** | > 95.0% | `98.79%` | **`100.00%`** (225 / 225 completed) | **PASS** |
+| **Hourly Auth Session Rate** | > 3,000 sessions/hr | ~29,400 sessions/hr | **~27,000 sessions/hr** (~7.5 sessions/sec) | **PASS** |
+| **Full Session Latency (median)** | < 500 ms | `112 ms` | **`163.0 ms`** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | **PASS** |
+| **Full Session Latency (p95)** | < 1,500 ms | `146 ms` | **`217.0 ms`** | **PASS** |
+| **Total HTTP Error Rate** | < 1.0% | `0.04%` | **`0.00%`** (0 / 3,278 requests failed) | **PASS** |
+| **Public Metadata Check Rate** | 100.0% | `100.00%` | **`100.00%`** (100% returned 200 OK) | **PASS** |
 
 ---
 

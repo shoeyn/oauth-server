@@ -6,7 +6,7 @@ This document provides a comprehensive analysis of system performance, concurren
 
 ## 1. Executive Summary & Scale Targets
 
-### Workload Profile: "A Few Thousand Auth Sessions / Hour"
+### Workload Profile: Target Production Sizing (3,600–10,000 Sessions/Hour)
 For a production system targeting **3,600 to 10,000 authentication sessions per hour**:
 - **Sustained Flow Rate:** ~1 to 3 new authorization flows per second.
 - **Interactive Burst Headroom:** 50 to 100 requests per second during peak login windows (e.g., 9:00 AM workforce login spikes).
@@ -178,21 +178,21 @@ The test concurrently executes two demanding scenarios:
     http_req_failed .................: ✓ 'rate<0.05' rate=0.00%
 ```
 
-| Metric | Target / Expectation | Measured Result | Evaluation |
-|---|---|---|---|
-| **Total Checks Succeeded** | 100% correctness | **3,923 out of 3,923 checks passed** (**100.00%**) | **Flawless Verification** |
-| **Total HTTP Requests Processed** | High throughput | **3,278 requests in 31.4 seconds** (**104.5 req/sec sustained**) | **Passed** (~376,000 req/hr capacity) |
-| **Completed Full Auth Sessions** | A few thousand sessions / hr (~1/sec) | **225 completed flows in 30s** (**~7.5 sessions/sec**) | **~27,000 sessions/hr** (~5.4x–9x target) |
-| **Auth Session Success Rate** | > 95% | **100.00%** (225 out of 225 full flows) | **Flawless (Zero Failures)** |
-| **Overall HTTP Error Rate** | < 5% | **0.00%** (0 out of 3,278 requests failed) | **100.00% request success rate** |
-| **Full Session Latency (min)** | N/A | **122 ms** | Fastest complete 6-hop session |
-| **Full Session Latency (p50 / median)** | < 500 ms | **163 ms** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | Sub-170ms median latency |
-| **Full Session Latency (avg)** | < 500 ms | **167.1 ms** | Exceptional consistency (3x faster than RSA) |
-| **Full Session Latency (p90)** | < 1,000 ms | **205.3 ms** | Outstanding stability under load |
-| **Full Session Latency (p95)** | < 1,500 ms | **217.0 ms** | Far below 1,500 ms SLA threshold |
-| **Full Session Latency (max)** | < 3,000 ms | **382 ms** | Zero thread starvation under burst concurrency |
-| **Public Metadata Check Rate** | > 95% | **100.00%** (100% returned 200 OK) | Zero latency impact on auth sessions |
-| **Individual HTTP Request Duration** | < 50 ms | **avg: 12.14 ms**, **median: 0.95 ms**, **p95: 42.1 ms** | Sub-millisecond median response times |
+| Metric | Target / Expectation | Measured Result | Status |
+|---|---|---|:---:|
+| **Total Checks Succeeded** | 100% correctness | **3,923 out of 3,923 checks passed** (**100.00%**) | **PASS** |
+| **Total HTTP Requests Processed** | > 50 req/sec | **3,278 requests in 31.4 seconds** (**104.5 req/sec sustained**) | **PASS** (~376,000 req/hr) |
+| **Completed Full Auth Sessions** | > 3,000 sessions/hr | **225 completed flows in 30s** (**~7.5 sessions/sec**) | **PASS** (~27,000 sessions/hr) |
+| **Auth Session Success Rate** | > 95% | **100.00%** (225 out of 225 full flows) | **PASS** |
+| **Overall HTTP Error Rate** | < 1% | **0.00%** (0 out of 3,278 requests failed) | **PASS** |
+| **Full Session Latency (min)** | N/A | **122 ms** | **PASS** |
+| **Full Session Latency (p50 / median)** | < 500 ms | **163 ms** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | **PASS** |
+| **Full Session Latency (avg)** | < 600 ms | **167.1 ms** | **PASS** (3x faster than RSA-2048) |
+| **Full Session Latency (p90)** | < 1,000 ms | **205.3 ms** | **PASS** |
+| **Full Session Latency (p95)** | < 1,500 ms | **217.0 ms** | **PASS** |
+| **Full Session Latency (max)** | < 3,000 ms | **382 ms** | **PASS** |
+| **Public Metadata Check Rate** | 100% | **100.00%** (100% returned 200 OK) | **PASS** |
+| **Individual HTTP Request Duration** | < 50 ms | **avg: 12.14 ms**, **median: 0.95 ms**, **p95: 42.1 ms** | **PASS** |
 
 ---
 
@@ -315,21 +315,21 @@ With RFC 9221 JARM active, each full login flow executes **three** remote AWS KM
 2. `POST /oauth2/token`: Signed sender-constrained Access Token JWT
 3. `POST /oauth2/token`: Signed OpenID Connect ID Token JWT
 
-| Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS + JARM + Multi-Session Pool) | Evaluation |
-|---|---|---|---|
-| **Cryptographic Security** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 / FIPS 140-3 Level 3 KMS HSM in real AWS** (LocalStack software emulation locally) | Hardware protection in production; emulated in dev |
-| **Algorithm Pinning** | Optional | **Strict ES256 enforced (`none` & `HS256` rejected)** | Pinning active |
-| **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | Zero-downtime cutover |
-| **KMS Signatures / Flow** | 0 (Local CPU) | **3 (JARM Auth Code + Access Token + ID Token)** | Cryptographic non-repudiation |
-| **User & Session Isolation** | Single shared user | **Dynamic Multi-User Pool (`setup`/`teardown`)** | True concurrent sessions across DB & Redis |
-| **Auth Session Success Rate** | `98.79%` | **`100.00%`** (225 / 225 completed) | **Flawless (Zero Failures)** |
-| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~27,000 sessions/hr** (~7.5 sessions/sec) | **~5.4x–9x above target** ("few thousand/hr") |
-| **Full Session Latency (median)** | `112 ms` | **`163 ms`** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | Sub-170ms median latency |
-| **Full Session Latency (avg)** | `120 ms` | **`167.1 ms`** | Outstanding consistency (3x faster than RSA) |
-| **Full Session Latency (p90)** | `138.6 ms` | **`205.3 ms`** | Stable under burst concurrency |
-| **Full Session Latency (p95)** | `146 ms` | **`217.0 ms`** | **Passed** (well under 1,500 ms SLA) |
-| **Total HTTP Error Rate** | `0.04%` | **`0.00%`** (0 out of 3,278 requests failed) | **100.00% request success rate** |
-| **Public Metadata Check Rate** | `100.00%` | **`100.00%`** (100% returned 200 OK) | Zero latency impact on auth sessions |
+| Metric | In-Memory Software Signing | AWS KMS Hardware Signing (Multi-Key JWKS + JARM + Multi-Session Pool) | Status |
+|---|---|---|:---:|
+| **Cryptographic Security** | Software JCE (JVM memory) | **FIPS 140-2 Level 3 / FIPS 140-3 Level 3 KMS HSM in real AWS** (LocalStack software emulation locally) | **PASS** (Hardware-backed in production) |
+| **Algorithm Pinning** | Optional | **Strict ES256 enforced (`none` & `HS256` rejected)** | **PASS** |
+| **Key Rotation Support** | Single key | **Graceful Multi-Key JWKS (Active + Previous)** | **PASS** |
+| **KMS Signatures / Flow** | 0 (Local CPU) | **3 (JARM Auth Code + Access Token + ID Token)** | **PASS** |
+| **User & Session Isolation** | Single shared user | **Dynamic Multi-User Pool (`setup`/`teardown`)** | **PASS** |
+| **Auth Session Success Rate** | `98.79%` | **`100.00%`** (225 / 225 completed) | **PASS** |
+| **Hourly Auth Session Rate** | ~29,400 sessions/hr | **~27,000 sessions/hr** (~7.5 sessions/sec) | **PASS** (~9x target) |
+| **Full Session Latency (median)** | `112 ms` | **`163 ms`** (6 hops + 3 KMS calls + DB + Redis + BCrypt) | **PASS** |
+| **Full Session Latency (avg)** | `120 ms` | **`167.1 ms`** | **PASS** (3x faster than RSA-2048) |
+| **Full Session Latency (p90)** | `138.6 ms` | **`205.3 ms`** | **PASS** |
+| **Full Session Latency (p95)** | `146 ms` | **`217.0 ms`** | **PASS** (<1,500 ms SLA) |
+| **Total HTTP Error Rate** | `0.04%` | **`0.00%`** (0 out of 3,278 requests failed) | **PASS** |
+| **Public Metadata Check Rate** | `100.00%` | **`100.00%`** (100% returned 200 OK) | **PASS** |
 
 ### 5. Production Puma Clustered Worker Specification (Finding A)
 > [!IMPORTANT]

@@ -133,16 +133,16 @@ k6 run ../k6/oauth_load_test.js
 ### Empirical Performance Benchmarks (k6 Multi-Session Load Test)
 
 | Metric | Measured Result | Production Target / Threshold | Status |
-|---|---|---|---|
-| **Auth Session Completion** | **225 / 225 (100.00%)** | > 95.0% | **PASSED** |
-| **Hourly Session Capacity** | **~27,000 sessions/hr** (~7.5 sessions/sec) | 3,000–5,000 sessions/hr | **5.4x–9x Above Target** |
-| **Total HTTP Requests** | **3,278 requests in 31.4s** (104.5 req/s) | ~50 req/s | **PASSED** (~376k req/hr) |
-| **HTTP Request Failure Rate** | **0.00% (0 / 3,278 failed)** | < 1.0% | **Flawless (Zero Errors)** |
-| **Median Session Latency (p50)** | **163.0 ms** | < 500 ms | **PASSED** |
-| **95th Percentile Latency (p95)** | **217.0 ms** | < 1,500 ms | **PASSED** |
-| **Average Session Latency** | **167.1 ms** (min 122 ms, max 382 ms) | < 600 ms | **PASSED** (3x faster than RSA-2048) |
-| **Public JWKS / Discovery Rate** | **100.00% (200 OK under burst)** | 100.0% | **PASSED** (zero login impact) |
-| **Cryptographic Boundary** | **AWS KMS HSM (`ES256`)** | FIPS 140-2/3 Level 3 (AWS) | **Zero Private Keys in JVM** |
+|---|---|---|:---:|
+| **Auth Session Completion** | **225 / 225 (100.00%)** | > 95.0% | **PASS** |
+| **Hourly Session Capacity** | **~27,000 sessions/hr** (~7.5 sessions/sec) | > 3,000 sessions/hr | **PASS** |
+| **Total HTTP Requests** | **3,278 requests in 31.4s** (104.5 req/s) | > 50 req/s | **PASS** |
+| **HTTP Request Failure Rate** | **0.00% (0 / 3,278 failed)** | < 1.0% | **PASS** |
+| **Median Session Latency (p50)** | **163.0 ms** | < 500 ms | **PASS** |
+| **95th Percentile Latency (p95)** | **217.0 ms** | < 1,500 ms | **PASS** |
+| **Average Session Latency** | **167.1 ms** (min 122 ms, max 382 ms) | < 600 ms | **PASS** |
+| **Public JWKS / Discovery Rate** | **100.00% (200 OK under burst)** | 100.0% | **PASS** |
+| **Cryptographic Boundary** | **AWS KMS HSM (`ES256`)** | FIPS 140-2/3 Level 3 (AWS) | **PASS** |
 
 > For full comparative analysis and multi-key rotation flows, see [`k6/README.md`](../k6/README.md) and [`docs/architecture/performance_and_scalability.md`](../docs/architecture/performance_and_scalability.md).
 

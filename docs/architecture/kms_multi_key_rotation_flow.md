@@ -39,7 +39,7 @@ flowchart TD
 
 When rotating cryptographic signing keys, terminating the old key immediately causes verification failures for clients or resource servers holding valid, in-flight tokens (which have an active TTL, e.g. 15 minutes).
 
-Our architecture implements **Graceful Multi-Key Overlap Rotation**:
+The platform implements **Graceful Multi-Key Overlap Rotation**:
 
 ```mermaid
 sequenceDiagram
@@ -66,11 +66,11 @@ sequenceDiagram
     Spring-->>Client: JWKS [{kid: K2}, {kid: K1}]
 
     Note over Client,Spring: State 4: Dual Verification
-    Client->>Client: Verify in-flight Token T1 using K1 (SUCCEEDS!)
+    Client->>Client: Verify in-flight Token T1 using K1 (Signature Verified)
     Client->>Spring: Request new token (POST /oauth2/token)
     Spring->>KMS: kms:Sign with K2
     Spring-->>Client: Issue Token T2 (signed with K2)
-    Client->>Client: Verify Token T2 using K2 (SUCCEEDS!)
+    Client->>Client: Verify Token T2 using K2 (Signature Verified)
 
     Note over Admin,KMS: State 5: Retirement & Cleanup (After 24h grace period)
     Admin->>KMS: kms:DisableKey (K1)
@@ -111,7 +111,7 @@ stateDiagram-v2
 ### Threat Mitigation: Algorithm Confusion Attacks
 In standard JWT libraries, if an endpoint does not enforce strict algorithm pinning, attackers can exploit **Algorithm Confusion**:
 1. **The "none" Algorithm Attack:** The attacker sets `"alg": "none"` in the JWT header, strips the signature, and submits the token. Insecure verifiers accept the token as valid without verifying any signature.
-2. **Key Confusion / HMAC Attack:** If an authorization server's public key (RSA or EC) is used by an attacker to sign a forged token using `HS256` (HMAC-SHA256) with the *public key PEM* as the symmetric shared secret. If the verifier dynamically chooses the algorithm from the header, it uses its public key as the HMAC secret and accepts the forged token!
+2. **Key Confusion / HMAC Attack:** If an authorization server's public key (RSA or EC) is used by an attacker to sign a forged token using `HS256` (HMAC-SHA256) with the *public key PEM* as the symmetric shared secret. If the verifier dynamically chooses the algorithm from the header, it uses its public key as the HMAC secret and accepts the forged token.
 
 ### Platform Defense Implementation:
 Across all components, algorithm dynamic switching is completely disabled:

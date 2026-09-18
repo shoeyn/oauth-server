@@ -41,7 +41,7 @@ The platform has standardized on **Option B: ECDSA NIST P-256 (`ES256`)**. The a
 
 ### Option C — EdDSA (Ed25519) [Evaluated, Not Recommended for AWS KMS]
 - **Characteristics:** Edwards-curve Digital Signature Algorithm over Curve25519.
-- **Why Not Adopted:** AWS KMS does **not** support Ed25519 asymmetric signing keys. Adopting Ed25519 would force private keys into application memory or require custom external HSM infrastructure, violating our primary security invariant that private signing keys never reside on the host.
+- **Why Not Adopted:** AWS KMS does **not** support Ed25519 asymmetric signing keys. Adopting Ed25519 would force private keys into application memory or require custom external HSM infrastructure, violating the primary security invariant that private signing keys never reside on the host.
 
 ### Option D — RSASSA-PSS (PS256/PS384) [Evaluated]
 - **Characteristics:** Probabilistic Signature Scheme padding for RSA.
