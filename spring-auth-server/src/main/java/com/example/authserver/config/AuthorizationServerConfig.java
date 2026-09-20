@@ -57,6 +57,12 @@ public class AuthorizationServerConfig {
   @Value("${auth.server.issuer-url}")
   private String issuerUrl;
 
+  @Value("${auth.server.internal-issuer-url:}")
+  private String internalIssuerUrl;
+
+  @Value("${auth.server.accepted-audiences:}")
+  private String acceptedAudiences;
+
   @Bean
   @Order(Ordered.HIGHEST_PRECEDENCE)
   public SecurityFilterChain authorizationServerSecurityFilterChain(
@@ -288,7 +294,11 @@ public class AuthorizationServerConfig {
             instanceof JwtClientAssertionAuthenticationProvider jwtClientAssertionProvider) {
           jwtClientAssertionProvider.setJwtDecoderFactory(
               new ClientAssertionDecoderFactory(
-                  registeredClientRepository, redisTemplate, issuerUrl));
+                  registeredClientRepository,
+                  redisTemplate,
+                  issuerUrl,
+                  internalIssuerUrl,
+                  acceptedAudiences));
         }
       }
     };

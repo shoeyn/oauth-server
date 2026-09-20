@@ -254,4 +254,46 @@ public class SharedRedisSessionFilterTest {
 
     verify(filterChain).doFilter(request, response);
   }
+
+  @Test
+  void doFilterInternal_clearsCookieWithSecureFlag_whenRequestIsSecure() throws Exception {
+    UUID sessionId = UUID.randomUUID();
+    when(request.isSecure()).thenReturn(true);
+    when(request.getCookies())
+        .thenReturn(new Cookie[] {new Cookie("SHARED_SESSION_ID", sessionId.toString())});
+    when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+    when(valueOperations.get(redisPrefix + sessionId)).thenReturn(null);
+    when(request.getSession(false)).thenReturn(null);
+
+    filter.doFilterInternal(request, response, filterChain);
+
+    verify(response)
+        .addCookie(
+            argThat(
+                c ->
+                    c.getName().equals("SHARED_SESSION_ID")
+                        && c.getMaxAge() == 0
+                        && c.getSecure()));
+  }
+
+  @Test
+  void doFilterInternal_clearsCookieWithoutSecureFlag_whenRequestIsInsecure() throws Exception {
+    UUID sessionId = UUID.randomUUID();
+    when(request.isSecure()).thenReturn(false);
+    when(request.getCookies())
+        .thenReturn(new Cookie[] {new Cookie("SHARED_SESSION_ID", sessionId.toString())});
+    when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+    when(valueOperations.get(redisPrefix + sessionId)).thenReturn(null);
+    when(request.getSession(false)).thenReturn(null);
+
+    filter.doFilterInternal(request, response, filterChain);
+
+    verify(response)
+        .addCookie(
+            argThat(
+                c ->
+                    c.getName().equals("SHARED_SESSION_ID")
+                        && c.getMaxAge() == 0
+                        && !c.getSecure()));
+  }
 }

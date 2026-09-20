@@ -2,14 +2,16 @@ package com.example.authserver.security;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -26,7 +28,6 @@ import org.springframework.web.util.UriUtils;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class OidcBackChannelLogoutService {
 
   private final JwtEncoder jwtEncoder;
@@ -37,7 +38,30 @@ public class OidcBackChannelLogoutService {
   @Value("${auth.client.backchannel-logout-url}")
   private String defaultBackchannelLogoutUrl;
 
-  private final RestClient restClient = RestClient.builder().build();
+  private final RestClient restClient;
+
+  @Autowired
+  public OidcBackChannelLogoutService(
+      JwtEncoder jwtEncoder,
+      @Value("${auth.client.connect-timeout-ms:3000}") int connectTimeoutMs,
+      @Value("${auth.client.read-timeout-ms:5000}") int readTimeoutMs) {
+    this.jwtEncoder = jwtEncoder;
+    this.restClient = createDefaultRestClient(connectTimeoutMs, readTimeoutMs);
+  }
+
+  public OidcBackChannelLogoutService(JwtEncoder jwtEncoder) {
+    this(jwtEncoder, 3000, 5000);
+  }
+
+  static RestClient createDefaultRestClient(int connectTimeoutMs, int readTimeoutMs) {
+    java.net.http.HttpClient httpClient =
+        java.net.http.HttpClient.newBuilder()
+            .connectTimeout(Duration.ofMillis(connectTimeoutMs))
+            .build();
+    JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
+    requestFactory.setReadTimeout(Duration.ofMillis(readTimeoutMs));
+    return RestClient.builder().requestFactory(requestFactory).build();
+  }
 
   public void dispatchLogout(String clientLogoutUri, String clientId, String sub, String sid) {
     if (clientId == null || clientId.isBlank()) {

@@ -202,7 +202,7 @@ class ClientAssertionDecoderFactoryTest {
   }
 
   @Test
-  void decoder_AcceptsAssertion_WhenNoJtiPresent() throws Exception {
+  void decoder_RejectsAssertion_WhenNoJtiPresent() throws Exception {
     when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
     JwtDecoder decoder = factory.createDecoder(registeredClient);
 
@@ -215,7 +215,27 @@ class ClientAssertionDecoderFactoryTest {
             .expirationTime(Date.from(Instant.now().plusSeconds(60)))
             .build();
     String token = signedAssertion(claims);
-    assertNotNull(decoder.decode(token));
+    JwtException ex = assertThrows(JwtException.class, () -> decoder.decode(token));
+    assertTrue(ex.getMessage().contains("jti"));
+  }
+
+  @Test
+  void decoder_RejectsAssertion_WhenJtiIsBlank() throws Exception {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    JwtDecoder decoder = factory.createDecoder(registeredClient);
+
+    JWTClaimsSet claims =
+        new JWTClaimsSet.Builder()
+            .subject(CLIENT_ID)
+            .issuer(CLIENT_ID)
+            .audience(ISSUER)
+            .jwtID("   ")
+            .issueTime(Date.from(Instant.now()))
+            .expirationTime(Date.from(Instant.now().plusSeconds(60)))
+            .build();
+    String token = signedAssertion(claims);
+    JwtException ex = assertThrows(JwtException.class, () -> decoder.decode(token));
+    assertTrue(ex.getMessage().contains("jti"));
   }
 
   @Test
@@ -243,13 +263,48 @@ class ClientAssertionDecoderFactoryTest {
   }
 
   @Test
-  void decoder_AcceptsAssertion_WhenAudienceEndsWithPar() throws Exception {
+  void decoder_AcceptsAssertion_WhenAudienceMatchesInternalIssuerEndpoint() throws Exception {
+    ClientAssertionDecoderFactory internalFactory =
+        new ClientAssertionDecoderFactory(
+            repository, redisTemplate, ISSUER, "http://spring-auth-server:9000", null);
     when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
-    JwtDecoder decoder = factory.createDecoder(registeredClient);
+    JwtDecoder decoder = internalFactory.createDecoder(registeredClient);
 
     String token =
         signedAssertion(
             validClaimsBuilder().audience("http://spring-auth-server:9000/oauth2/par").build());
     assertNotNull(decoder.decode(token));
+  }
+
+  @Test
+  void decoder_AcceptsAssertion_WhenAudienceMatchesAcceptedAudiencesList() throws Exception {
+    ClientAssertionDecoderFactory customFactory =
+        new ClientAssertionDecoderFactory(
+            repository, redisTemplate, ISSUER, null, "http://docker-as:9000,http://custom-host:9000");
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    JwtDecoder decoder = customFactory.createDecoder(registeredClient);
+
+    String token =
+        signedAssertion(
+            validClaimsBuilder().audience("http://docker-as:9000/oauth2/token").build());
+    assertNotNull(decoder.decode(token));
+  }
+
+  @Test
+  void decoder_RejectsAssertion_WhenAudienceIsUntrustedDomainEndingInOAuth2Path() throws Exception {
+    when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
+    JwtDecoder decoder = factory.createDecoder(registeredClient);
+
+    String tokenPar =
+        signedAssertion(
+            validClaimsBuilder().audience("https://evil.com/oauth2/par").build());
+    JwtException ex1 = assertThrows(JwtException.class, () -> decoder.decode(tokenPar));
+    assertTrue(ex1.getMessage().contains("Audience"));
+
+    String tokenToken =
+        signedAssertion(
+            validClaimsBuilder().audience("https://evil.com/oauth2/token").build());
+    JwtException ex2 = assertThrows(JwtException.class, () -> decoder.decode(tokenToken));
+    assertTrue(ex2.getMessage().contains("Audience"));
   }
 }

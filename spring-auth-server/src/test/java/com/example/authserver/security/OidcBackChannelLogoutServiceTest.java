@@ -204,4 +204,16 @@ class OidcBackChannelLogoutServiceTest {
     // Only a single attempt should occur: the interrupt breaks out of the retry loop.
     await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertEquals(1, calls.get()));
   }
+
+  @Test
+  void restClient_DefaultInitializationAndCustomTimeouts() {
+    OidcBackChannelLogoutService defaultService = new OidcBackChannelLogoutService(jwtEncoder);
+    Object client = ReflectionTestUtils.getField(defaultService, "restClient");
+    assertNotNull(client);
+
+    OidcBackChannelLogoutService customService =
+        new OidcBackChannelLogoutService(jwtEncoder, 4000, 6000);
+    Object customClient = ReflectionTestUtils.getField(customService, "restClient");
+    assertNotNull(customClient);
+  }
 }

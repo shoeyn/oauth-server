@@ -7,11 +7,13 @@ import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 import java.security.interfaces.ECPublicKey;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
@@ -32,17 +34,72 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
  *
  * <p>Fetches the client's registered EC public key from {@link PostgresRegisteredClientRepository},
  * enforces strict ES256 algorithm pinning, validates subject, issuer, and exact audience against
- * the authorization server's issuer URL, and protects against JTI replay attacks using Redis.
+ * the authorization server's issuer URL and configured canonical audiences, and enforces mandatory
+ * unique JTI replay protection using Redis.
  */
 @Slf4j
-@RequiredArgsConstructor
 public class ClientAssertionDecoderFactory implements JwtDecoderFactory<RegisteredClient> {
 
   private final PostgresRegisteredClientRepository registeredClientRepository;
   private final StringRedisTemplate redisTemplate;
   private final String issuerUrl;
+  private final Set<String> allowedAudiences;
 
   private final Map<String, JwtDecoder> decoderCache = new ConcurrentHashMap<>();
+
+  public ClientAssertionDecoderFactory(
+      PostgresRegisteredClientRepository registeredClientRepository,
+      StringRedisTemplate redisTemplate,
+      String issuerUrl) {
+    this(registeredClientRepository, redisTemplate, issuerUrl, null, null);
+  }
+
+  public ClientAssertionDecoderFactory(
+      PostgresRegisteredClientRepository registeredClientRepository,
+      StringRedisTemplate redisTemplate,
+      String issuerUrl,
+      String internalIssuerUrl,
+      String acceptedAudiences) {
+    this.registeredClientRepository = registeredClientRepository;
+    this.redisTemplate = redisTemplate;
+    this.issuerUrl = issuerUrl;
+    this.allowedAudiences = buildAllowedAudiences(issuerUrl, internalIssuerUrl, acceptedAudiences);
+  }
+
+  private static Set<String> buildAllowedAudiences(
+      String issuerUrl, String internalIssuerUrl, String acceptedAudiences) {
+    Set<String> set = new HashSet<>();
+    List<String> bases = new ArrayList<>();
+    if (issuerUrl != null && !issuerUrl.isBlank()) {
+      bases.add(issuerUrl.trim());
+    }
+    if (internalIssuerUrl != null && !internalIssuerUrl.isBlank()) {
+      bases.add(internalIssuerUrl.trim());
+    }
+    if (acceptedAudiences != null && !acceptedAudiences.isBlank()) {
+      for (String aud : acceptedAudiences.split(",")) {
+        String trimmed = aud.trim();
+        if (!trimmed.isEmpty()) {
+          bases.add(trimmed);
+        }
+      }
+    }
+
+    for (String base : bases) {
+      set.add(base);
+      String normalized = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+      set.add(normalized);
+      set.add(normalized + "/");
+      set.add(normalized + "/oauth2/token");
+      set.add(normalized + "/oauth2/par");
+      set.add(normalized + "/oauth2/introspect");
+      set.add(normalized + "/oauth2/revoke");
+      set.add(normalized + "/oauth2/jwks");
+      set.add(normalized + "/userinfo");
+      set.add(normalized + "/connect/register");
+    }
+    return Collections.unmodifiableSet(set);
+  }
 
   @Override
   public JwtDecoder createDecoder(RegisteredClient registeredClient) {
@@ -124,10 +181,10 @@ public class ClientAssertionDecoderFactory implements JwtDecoderFactory<Register
                             .anyMatch(
                                 aud ->
                                     aud != null
-                                        && (aud.equals(issuerUrl)
-                                            || aud.startsWith(issuerUrl + "/")
-                                            || aud.endsWith("/oauth2/token")
-                                            || aud.endsWith("/oauth2/par")));
+                                        && (allowedAudiences.contains(aud)
+                                            || (issuerUrl != null
+                                                && (aud.equals(issuerUrl)
+                                                    || aud.startsWith(issuerUrl + "/")))));
                 if (!validAudience) {
                   return OAuth2TokenValidatorResult.failure(
                       new OAuth2Error(
@@ -136,20 +193,27 @@ public class ClientAssertionDecoderFactory implements JwtDecoderFactory<Register
                           null));
                 }
 
-                // JTI Replay Protection
+                // RFC 7523 Section 3: The JWT MUST contain a 'jti' (JWT ID) claim.
+                // Mandatory JTI Replay Protection: reject assertions without a unique jti.
                 String jti = jwt.getId();
-                if (jti != null && !jti.isBlank()) {
-                  Boolean isNew =
-                      redisTemplate
-                          .opsForValue()
-                          .setIfAbsent("oauth2as:jti:" + jti, "1", Duration.ofMinutes(5));
-                  if (Boolean.FALSE.equals(isNew)) {
-                    return OAuth2TokenValidatorResult.failure(
-                        new OAuth2Error(
-                            "invalid_client_assertion",
-                            "JWT Assertion replay detected: jti has already been used",
-                            null));
-                  }
+                if (jti == null || jti.isBlank()) {
+                  return OAuth2TokenValidatorResult.failure(
+                      new OAuth2Error(
+                          "invalid_client_assertion",
+                          "JWT Client Assertion MUST contain a unique 'jti' (JWT ID) claim",
+                          "https://datatracker.ietf.org/doc/html/rfc7523#section-3"));
+                }
+
+                Boolean isNew =
+                    redisTemplate
+                        .opsForValue()
+                        .setIfAbsent("oauth2as:jti:" + jti, "1", Duration.ofMinutes(5));
+                if (Boolean.FALSE.equals(isNew)) {
+                  return OAuth2TokenValidatorResult.failure(
+                      new OAuth2Error(
+                          "invalid_client_assertion",
+                          "JWT Assertion replay detected: jti has already been used",
+                          null));
                 }
 
                 return OAuth2TokenValidatorResult.success();

@@ -133,6 +133,9 @@ public class GracefulLogoutHandler {
     clearedCookie.setPath("/");
     clearedCookie.setMaxAge(0);
     clearedCookie.setHttpOnly(true);
+    if (request.isSecure()) {
+      clearedCookie.setSecure(true);
+    }
     response.addCookie(clearedCookie);
   }
 

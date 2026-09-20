@@ -150,6 +150,9 @@ public class SharedRedisSessionFilter extends OncePerRequestFilter {
         clearedCookie.setPath("/");
         clearedCookie.setMaxAge(0);
         clearedCookie.setHttpOnly(true);
+        if (request.isSecure()) {
+          clearedCookie.setSecure(true);
+        }
         response.addCookie(clearedCookie);
       }
     }

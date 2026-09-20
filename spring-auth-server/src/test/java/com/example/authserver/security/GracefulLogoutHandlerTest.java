@@ -395,4 +395,36 @@ public class GracefulLogoutHandlerTest {
     assertFalse(handled);
     verify(response, never()).sendRedirect(anyString());
   }
+
+  @Test
+  void evictSharedSession_clearsCookieWithSecureFlag_whenRequestIsSecure() {
+    when(request.isSecure()).thenReturn(true);
+    when(request.getCookies()).thenReturn(new Cookie[] {new Cookie("SHARED_SESSION_ID", "sess-1")});
+
+    handler.evictSharedSession(request, response);
+
+    verify(response)
+        .addCookie(
+            argThat(
+                c ->
+                    "SHARED_SESSION_ID".equals(c.getName())
+                        && c.getMaxAge() == 0
+                        && c.getSecure()));
+  }
+
+  @Test
+  void evictSharedSession_clearsCookieWithoutSecureFlag_whenRequestIsInsecure() {
+    when(request.isSecure()).thenReturn(false);
+    when(request.getCookies()).thenReturn(new Cookie[] {new Cookie("SHARED_SESSION_ID", "sess-1")});
+
+    handler.evictSharedSession(request, response);
+
+    verify(response)
+        .addCookie(
+            argThat(
+                c ->
+                    "SHARED_SESSION_ID".equals(c.getName())
+                        && c.getMaxAge() == 0
+                        && !c.getSecure()));
+  }
 }

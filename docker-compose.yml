@@ -91,6 +91,7 @@ services:
       - SPRING_DATASOURCE_PASSWORD=postgres
       - RAILS_LOGIN_URL=http://localhost:3000/login
       - AUTH_SERVER_ISSUER=http://localhost:9000
+      - AUTH_SERVER_URL_INTERNAL=http://spring-auth-server:9000
       - AWS_KMS_ENABLED=true
       - AWS_KMS_ENDPOINT=http://localstack:4566
       - AWS_KMS_KEY_ALIAS=alias/oauth2-signing-key
