@@ -92,6 +92,9 @@ Click the links below to inspect specific end-to-end communication flows:
 12. [**Component Interactions, Data Flows & State Storage Specification**](component_interactions_and_data_flows.md)
     - Component-by-component architectural perspective detailing what data enters each component, for what person/identity, why and where it is stored (Redis DB 0 & 1, PostgreSQL, KMS, cookies), its lifecycle and TTL, who reads it, and what outbound calls each component makes.
 
+13. [**Spring Security 7 & Authorization Server: Usage, Divergences & Architectural Innovations**](spring_security_usage_and_divergences.md)
+    - Comprehensive technical audit of Spring Security 7 features utilized, deliberate divergences from standard practices (external Rails IdP, Redis JSON session, server-determined scopes, strict `private_key_jwt`), improvements upon defaults (AWS KMS HSM signing, DER-to-P1363 transcoding, DPoP nonces, JARM, graceful logout), and custom implementations.
+
 ---
 
 ## Developer & Tester Guides

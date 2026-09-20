@@ -1035,7 +1035,8 @@ cd client-manager && pnpm lint && pnpm format:check
 │   │   ├── user_management_and_authentication.md # app_users store, Admin API, and fraud revocation
 │   │   ├── higher_key_and_crypto_standards.md # Cryptographic baseline, curves, and FIPS assessment
 │   │   ├── jar_rfc9101_design_option.md     # RFC 9101 JAR design option evaluation
-│   │   └── component_interactions_and_data_flows.md # Component-by-component data ingress, storage & state matrix
+│   │   ├── component_interactions_and_data_flows.md # Component-by-component data ingress, storage & state matrix
+│   │   └── spring_security_usage_and_divergences.md # Spring Security 7 features, divergences, and improvements
 │   └── guides/
 │       ├── new_client_onboarding_guide.md   # Step-by-step onboarding for new client applications
 │       ├── developer_cookbook.md            # Dual-mode execution, custom claims, and cache invalidation
