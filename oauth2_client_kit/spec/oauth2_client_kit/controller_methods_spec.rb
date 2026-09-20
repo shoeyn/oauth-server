@@ -10,6 +10,7 @@ class DummyController
   attr_accessor :session, :flash, :request
 
   def self.helper_method(*args); end
+  def self.before_action(*args); end
 
   include OAuth2ClientKit::ControllerMethods
 
@@ -39,6 +40,7 @@ RSpec.describe OAuth2ClientKit::ControllerMethods do
   before do
     allow(OAuth2ClientKit).to receive_messages(token_store: token_store, client: client, logger: logger)
     allow(token_store).to receive(:read).with(nil).and_return(nil)
+    allow(token_store).to receive(:delete)
     allow(token_store).to receive(:read).with('tk123').and_return({
                                                                     raw_access_token: 'acc1',
                                                                     raw_refresh_token: 'ref1',
@@ -229,6 +231,114 @@ RSpec.describe OAuth2ClientKit::ControllerMethods do
       checkpoint_method = controller.method(:identity_checkpoint!)
       expect(controller.method(:validate_user!)).to eq(checkpoint_method)
       expect(controller.method(:verify_active_token_for_sensitive_action!)).to eq(checkpoint_method)
+    end
+  end
+
+  describe '#validate_session_and_refresh_tokens!' do
+    it 'does nothing when unauthenticated' do
+      allow(controller).to receive(:force_sign_out_session!)
+      controller.validate_session_and_refresh_tokens!
+      expect(controller).not_to have_received(:force_sign_out_session!)
+    end
+
+    it 'forces sign out when token data is missing' do
+      controller.session[:user] = 'u1'
+      controller.session[:token_key] = 'tk_missing'
+      allow(token_store).to receive(:read).with('tk_missing').and_return(nil)
+      allow(controller).to receive(:force_sign_out_session!)
+
+      controller.validate_session_and_refresh_tokens!
+      expect(controller).to have_received(:force_sign_out_session!)
+        .with(reason: 'Session token data missing or evicted')
+    end
+
+    it 'forces sign out when raw access token is blank' do
+      controller.session[:user] = 'u1'
+      controller.session[:token_key] = 'tk_blank'
+      allow(token_store).to receive(:read).with('tk_blank').and_return({ raw_access_token: '' })
+      allow(controller).to receive(:force_sign_out_session!)
+
+      controller.validate_session_and_refresh_tokens!
+      expect(controller).to have_received(:force_sign_out_session!)
+        .with(reason: 'Session token data missing or evicted')
+    end
+
+    it 'does nothing when access token is fresh' do
+      controller.session[:user] = 'u1'
+      controller.session[:token_key] = 'tk123'
+      allow(controller).to receive(:execute_token_refresh)
+
+      controller.validate_session_and_refresh_tokens!
+      expect(controller).not_to have_received(:execute_token_refresh)
+    end
+
+    it 'forces sign out when expiring and no refresh token is present' do
+      controller.session[:user] = 'u1'
+      controller.session[:token_key] = 'tk_no_ref'
+      allow(token_store).to receive(:read).with('tk_no_ref').and_return({
+                                                                          raw_access_token: 'acc1',
+                                                                          raw_refresh_token: nil,
+                                                                          expires_at: Time.now.to_i + 30
+                                                                        })
+      allow(controller).to receive(:force_sign_out_session!)
+
+      controller.validate_session_and_refresh_tokens!
+      expect(controller).to have_received(:force_sign_out_session!)
+        .with(reason: 'Access token expired with no refresh token')
+    end
+
+    it 'refreshes token successfully when expiring' do
+      controller.session[:user] = 'u1'
+      controller.session[:token_key] = 'tk_expiring'
+      token_data = {
+        raw_access_token: 'acc1',
+        raw_refresh_token: 'ref1',
+        expires_at: Time.now.to_i + 30
+      }
+      allow(token_store).to receive(:read).with('tk_expiring').and_return(token_data)
+      allow(controller).to receive(:execute_token_refresh).and_return(true)
+
+      controller.validate_session_and_refresh_tokens!
+      expect(controller).to have_received(:execute_token_refresh).with('tk_expiring', token_data)
+    end
+
+    it 'forces sign out when refresh execution fails' do
+      controller.session[:user] = 'u1'
+      controller.session[:token_key] = 'tk_fail'
+      token_data = {
+        raw_access_token: 'acc1',
+        raw_refresh_token: 'ref1',
+        expires_at: Time.now.to_i + 30
+      }
+      allow(token_store).to receive(:read).with('tk_fail').and_return(token_data)
+      allow(controller).to receive(:execute_token_refresh).and_return(false)
+      allow(controller).to receive(:force_sign_out_session!)
+
+      controller.validate_session_and_refresh_tokens!
+      expect(controller).to have_received(:force_sign_out_session!).with(reason: 'Automatic token refresh failed')
+    end
+  end
+
+  describe '#force_sign_out_session!' do
+    it 'deletes token store entry and clears session' do
+      controller.session[:user] = 'u1'
+      controller.session[:token_key] = 'tk123'
+      controller.session[:raw_id_token] = 'id1'
+
+      controller.force_sign_out_session!(reason: 'test sign out')
+
+      expect(token_store).to have_received(:delete).with('tk123')
+      expect(controller.session).to be_empty
+    end
+
+    it 'rescues token store delete errors and still clears session' do
+      controller.session[:user] = 'u1'
+      controller.session[:token_key] = 'tk123'
+      allow(token_store).to receive(:delete).with('tk123').and_raise(StandardError, 'redis down')
+
+      controller.force_sign_out_session!(reason: 'test error')
+
+      expect(controller.session).to be_empty
     end
   end
 end

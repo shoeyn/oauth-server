@@ -27,6 +27,7 @@ Metrics/ClassLength:
 RSpec/SpecFilePathFormat:
   CustomTransform:
     OAuth2: oauth2
+    OAuth2ClientKit: oauth2_client_kit
     ParOAuth2Client: par_oauth2_client
 
 

@@ -78,6 +78,7 @@ if defined?(Rails)
   end
   require_relative 'oauth2_client_kit/rails/path_helpers'
   require_relative 'oauth2_client_kit/rails/session_readers'
+  require_relative 'oauth2_client_kit/rails/session_lifecycle'
   require_relative 'oauth2_client_kit/rails/auth_flow_helper'
   require_relative 'oauth2_client_kit/rails/auth_error_renderer'
   require_relative 'oauth2_client_kit/rails/controller_methods'

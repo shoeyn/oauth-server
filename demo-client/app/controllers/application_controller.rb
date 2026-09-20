@@ -4,4 +4,7 @@
 class ApplicationController < ActionController::Base
   # Security Improvement: Enforce CSRF protection on state-changing requests
   protect_from_forgery with: :exception
+
+  # Library Enforcement: Centralized OAuth 2.1 session validation and auto-refresh
+  include OAuth2ClientKit::ControllerMethods
 end

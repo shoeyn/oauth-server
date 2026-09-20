@@ -154,7 +154,7 @@
       <span class="badge">Ruby on Rails</span>
     </a>
     <div style="display: flex; gap: 0.5rem; align-items: center;">
-      <% if session[:user].present? %>
+      <% if authenticated? %>
         <a href="/profile" class="btn btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.875rem;">My Profile</a>
         <%= button_to "Log Out", logout_path, method: :post, class: "btn btn-outline", style: "padding: 0.4rem 0.8rem; font-size: 0.875rem; display: inline-block;" %>
       <% else %>

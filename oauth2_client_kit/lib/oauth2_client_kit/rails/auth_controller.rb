@@ -14,6 +14,8 @@ module OAuth2ClientKit
     include OAuth2ClientKit::AuthErrorRenderer
 
     skip_before_action :verify_authenticity_token, only: [:backchannel_logout], raise: false
+    skip_before_action :validate_session_and_refresh_tokens!,
+                       only: %i[start callback backchannel_logout], raise: false
 
     rescue_from ActionController::InvalidAuthenticityToken do |exception|
       raise exception unless action_name == 'start'
@@ -43,17 +45,27 @@ module OAuth2ClientKit
     end
 
     def refresh
-      unless authenticated?
-        flash[:error] = 'No active session to refresh.'
-        return redirect_to '/'
-      end
+      return redirect_unauthenticated unless authenticated?
 
       if refresh_token_session!
-        flash[:notice] = 'Access Token successfully refreshed using Refresh Token (Rotation verified)!'
+        handle_successful_refresh
       else
-        flash[:error] = 'Token refresh failed. Refresh token may be expired or revoked.'
+        handle_failed_refresh
       end
+    end
+
+    def redirect_unauthenticated
+      redirect_with_error('No active session to refresh.')
+    end
+
+    def handle_successful_refresh
+      flash[:notice] = 'Access Token successfully refreshed using Refresh Token (Rotation verified)!'
       redirect_to OAuth2ClientKit.config.after_login_path
+    end
+
+    def handle_failed_refresh
+      force_sign_out_session!(reason: 'Manual token refresh failed')
+      redirect_with_error('Token refresh failed. Your session has expired, please log in again.')
     end
 
     def revoke
@@ -200,11 +212,9 @@ module OAuth2ClientKit
     end
 
     def execute_token_revocation(data)
-      client = OAuth2ClientKit.client
-      client.revoke_token(data[:raw_access_token], 'access_token')
-      client.revoke_token(data[:raw_refresh_token], 'refresh_token') if data[:raw_refresh_token].present?
-      OAuth2ClientKit.token_store.delete(session[:token_key]) if session[:token_key].present?
-      reset_session
+      OAuth2ClientKit.client.revoke_token(data[:raw_access_token], 'access_token')
+      safely_revoke_refresh_token(OAuth2ClientKit.client, data[:raw_refresh_token])
+      clear_local_session
     end
 
     def process_backchannel_eviction(sub, sid)
@@ -216,13 +226,14 @@ module OAuth2ClientKit
     end
 
     def revoke_active_tokens_on_logout(data)
-      client = OAuth2ClientKit.client
-      begin
-        client.revoke_token(data[:raw_access_token], 'access_token') if data[:raw_access_token].present?
-      rescue StandardError => e
-        OAuth2ClientKit.logger.warn("Access token revocation ignored during logout: #{e.message}")
-      end
-      safely_revoke_refresh_token(client, data[:raw_refresh_token])
+      safely_revoke_access_token(data[:raw_access_token])
+      safely_revoke_refresh_token(OAuth2ClientKit.client, data[:raw_refresh_token])
+    end
+
+    def safely_revoke_access_token(access_token)
+      OAuth2ClientKit.client.revoke_token(access_token, 'access_token') if access_token.present?
+    rescue StandardError => e
+      OAuth2ClientKit.logger.warn("Access token revocation ignored during logout: #{e.message}")
     end
 
     def safely_revoke_refresh_token(client, refresh_token)
@@ -231,15 +242,10 @@ module OAuth2ClientKit
       OAuth2ClientKit.logger.warn("Refresh token revocation ignored during logout: #{e.message}")
     end
 
-    def clear_local_session
-      OAuth2ClientKit.token_store.delete(session[:token_key]) if session[:token_key].present?
-      reset_session
-    end
-
     def dispatch_post_logout_redirect(id_token_hint)
       if id_token_hint.present?
-        post_logout_redirect = "#{request.protocol}#{request.host_with_port}#{OAuth2ClientKit.config.after_logout_path}"
-        url = OAuth2ClientKit.client.end_session_url(id_token_hint, post_logout_redirect)
+        post_logout = "#{request.protocol}#{request.host_with_port}#{OAuth2ClientKit.config.after_logout_path}"
+        url = OAuth2ClientKit.client.end_session_url(id_token_hint, post_logout)
         redirect_to url, allow_other_host: true, status: :see_other
       else
         flash[:notice] = 'You have been logged out.'

@@ -19,14 +19,6 @@ class PagesController < ApplicationController
   def profile
     require_authentication! or return
 
-    token_data = current_token_data
-    if token_data.blank? || token_data[:raw_access_token].blank?
-      reset_session
-      flash[:error] = I18n.t('pages.profile.tokens_unavailable')
-      return redirect_to '/'
-    end
-
-    ensure_fresh_access_token!
     assign_profile_variables
   end
 

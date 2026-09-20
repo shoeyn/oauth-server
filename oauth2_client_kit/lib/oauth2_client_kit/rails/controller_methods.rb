@@ -2,6 +2,7 @@
 
 require_relative 'path_helpers'
 require_relative 'session_readers'
+require_relative 'session_lifecycle'
 
 module OAuth2ClientKit
   # Controller methods mixed into Rails controllers for accessing authenticated session
@@ -10,8 +11,11 @@ module OAuth2ClientKit
     extend ActiveSupport::Concern if defined?(ActiveSupport::Concern)
     include PathHelpers
     include SessionReaders
+    include SessionLifecycle
 
     included do
+      before_action :validate_session_and_refresh_tokens! if respond_to?(:before_action)
+
       if respond_to?(:helper_method)
         helper_method :current_user, :authenticated?, :current_access_token,
                       :current_raw_id_token, :current_raw_refresh_token, :current_token_data,
@@ -36,7 +40,7 @@ module OAuth2ClientKit
       token_data = current_token_data
       expires_at = token_data[:expires_at].to_i
 
-      return unless expires_at.positive? && (expires_at - Time.now.to_i) <= 60
+      return true unless expires_at.positive? && (expires_at - Time.now.to_i) <= 60
 
       refresh_token_session!
     end
@@ -44,19 +48,26 @@ module OAuth2ClientKit
     def refresh_token_session!
       token_key = session[:token_key]
       token_data = OAuth2ClientKit.token_store.read(token_key) || {}
-      return false if token_data[:raw_refresh_token].blank?
+      if token_data[:raw_refresh_token].blank?
+        force_sign_out_session!(reason: 'No refresh token available for session refresh')
+        return false
+      end
 
-      execute_token_refresh(token_key, token_data)
+      refreshed = execute_token_refresh(token_key, token_data)
+      force_sign_out_session!(reason: 'Token refresh execution failed') unless refreshed
+      refreshed
     end
 
     def identity_checkpoint!
-      return { active: false, reason: 'unauthenticated' } unless authenticated?
+      return { active: false, reason: 'unauthenticated' } unless session_has_auth_markers?
 
       raw_token = current_token_data[:raw_access_token]
       if raw_token.blank?
-        reset_session
+        force_sign_out_session!(reason: 'Missing access token during identity checkpoint')
         return { active: false, reason: 'missing_access_token' }
       end
+
+      return { active: false, reason: 'unauthenticated' } unless authenticated?
 
       evaluate_identity_checkpoint(raw_token)
     end
@@ -99,8 +110,7 @@ module OAuth2ClientKit
       result = OAuth2ClientKit.client.verify_active!(raw_token)
       return result if result[:active]
 
-      OAuth2ClientKit.token_store.delete(session[:token_key]) if session[:token_key].present?
-      reset_session
+      force_sign_out_session!(reason: 'Token revoked or inactive during identity checkpoint')
       result
     end
   end

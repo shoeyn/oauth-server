@@ -6,7 +6,7 @@
 
   <% if @authenticated %>
     <div class="alert alert-notice" style="margin-top: 1rem;">
-      <strong>You are currently authenticated!</strong> Sub: <code><%= session[:user]["sub"] %></code>
+      <strong>You are currently authenticated!</strong> Sub: <code><%= current_user&.dig("sub") || session.dig(:user, "sub") %></code>
       <div style="margin-top: 0.75rem;">
         <a href="/profile" class="btn btn-secondary">View Profile & Token Details &rarr;</a>
       </div>

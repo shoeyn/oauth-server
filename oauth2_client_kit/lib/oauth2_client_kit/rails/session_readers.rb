@@ -8,7 +8,15 @@ module OAuth2ClientKit
     end
 
     def authenticated?
-      session[:user].present? && session[:token_key].present?
+      return false unless session[:user].present? && session[:token_key].present?
+
+      token_data = current_token_data
+      return false if token_data.blank? || token_data[:raw_access_token].blank?
+
+      expires_at = token_data[:expires_at].to_i
+      return false if expires_at.positive? && Time.now.to_i >= expires_at
+
+      true
     end
 
     def current_token_data

@@ -31,9 +31,7 @@ RSpec.describe PagesController, type: :controller do
   describe 'GET #profile' do
     context 'when authenticated' do
       before do
-        allow(controller).to receive_messages(require_authentication!: true,
-                                              current_token_data: { raw_access_token: '123' })
-        allow(controller).to receive(:ensure_fresh_access_token!)
+        allow(controller).to receive(:require_authentication!).and_return(true)
       end
 
       it 'renders the profile successfully' do
@@ -57,18 +55,6 @@ RSpec.describe PagesController, type: :controller do
         get :profile
         expect(response).to redirect_to('/')
         expect(response).not_to have_http_status(:success)
-        expect(flash[:error]).to be_present
-      end
-    end
-
-    context 'when token data is blank' do
-      before do
-        allow(controller).to receive_messages(require_authentication!: true, current_token_data: {})
-      end
-
-      it 'redirects to root' do
-        get :profile
-        expect(response).to redirect_to('/')
         expect(flash[:error]).to be_present
       end
     end

@@ -331,7 +331,7 @@ export default function Home() {
       {/* Sync Status Banner */}
       {syncStatus && (
         <div className="mb-6 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 flex items-center gap-3 text-sm animate-fade-in">
-          <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-400" />
+          <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
           <span>{syncStatus}</span>
         </div>
       )}
@@ -535,8 +535,9 @@ export default function Home() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
           <dialog
             open
+            aria-modal="true"
             aria-labelledby="client-form-dialog-title"
-            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl text-left block"
+            className="relative m-auto bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl text-left block"
           >
             <div className="flex items-center justify-between pb-4 mb-6 border-b border-slate-800">
               <h2
@@ -893,8 +894,9 @@ export default function Home() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <dialog
             open
+            aria-modal="true"
             aria-labelledby="client-json-dialog-title"
-            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl p-6 shadow-2xl text-left block"
+            className="relative m-auto bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl p-6 shadow-2xl text-left block"
           >
             <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
               <h2
