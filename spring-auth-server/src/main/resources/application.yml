@@ -43,6 +43,7 @@ server:
     session:
       cookie:
         secure: ${REQUIRE_SECURE_COOKIES:false}
+        same-site: lax
 
 auth:
   rails:

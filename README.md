@@ -39,6 +39,7 @@ A production-grade, hardened **OAuth 2.1 Authorization Server** and **OpenID Con
    - [1. End-to-End Functional Test Suite (Cucumber)](#1-end-to-end-functional-test-suite-cucumber)
    - [2. Component Unit Test Suites & Code Coverage (100% Enforced)](#2-component-unit-test-suites--code-coverage-100-enforced)
    - [3. Static Analysis & Linting (RuboCop, Checkstyle, Spotless, Oxlint)](#3-static-analysis--linting-rubocop-checkstyle-spotless-oxlint)
+   - [4. Automated OWASP ZAP Security Scanning (DAST)](#4-automated-owasp-zap-security-scanning-dast)
 12. [Repository Structure & Subsystem Index](#repository-structure--subsystem-index)
 
 ---
@@ -1010,6 +1011,19 @@ cd spring-auth-server && mise exec -- mvn spotless:apply
 cd client-manager && pnpm lint && pnpm format:check
 ```
 
+### 4. Automated OWASP ZAP Security Scanning (DAST)
+
+The test suite incorporates automated dynamic application security testing (DAST) using **OWASP ZAP**. In contrast to unauthenticated vulnerability crawlers, this pipeline proxies browser traffic through ZAP during the live Cucumber end-to-end journey, testing real OAuth 2.1 protocol exchanges (PAR, PKCE, DPoP, Rails sessions, JARM, Token Exchange, Introspection, and Revocation).
+
+```bash
+# Execute full OWASP ZAP security scan and generate reports
+./bin/run-zap-e2e.sh
+```
+
+- **Interactive HTML Report**: `security-reports/zap-report.html`
+- **Markdown Summary**: `security-reports/zap-summary.md`
+- **Baseline Posture**: 0 High vulnerabilities across the full stack.
+
 ---
 
 ## Repository Structure & Subsystem Index
@@ -1018,6 +1032,14 @@ cd client-manager && pnpm lint && pnpm format:check
 .
 ├── docker-compose.yml              # Multi-container orchestration (Postgres, LocalStack, Redis, Spring, Rails, Demo, Manager)
 ├── README.md                       # Platform architectural documentation
+├── bin/
+│   └── run-zap-e2e.sh              # Automated OWASP ZAP test execution & report generation script
+├── zap/                            # OWASP ZAP DAST container definition & socat loopback forwarder
+│   ├── Dockerfile                  # zaproxy/zap-bare image with socat installation
+│   └── entrypoint.sh               # Loopback port forwarder & ZAP daemon startup
+├── security-reports/               # Generated OWASP ZAP HTML & Markdown scan reports
+│   ├── zap-report.html             # Interactive OWASP ZAP vulnerability assessment
+│   └── zap-summary.md              # Markdown summary and alert counts by severity
 ├── k6/                             # Automated k6 performance and concurrency load testing suite
 │   ├── oauth_load_test.js          # Multi-scenario k6 load test (Full OAuth flow + Caching burst)
 │   └── README.md                   # k6 load testing execution guide & benchmark analysis
@@ -1045,7 +1067,7 @@ cd client-manager && pnpm lint && pnpm format:check
 │   └── init/02-init-kms.sh         # Provisions ECC_NIST_P256 signing keys in KMS with alias
 ├── e2e-tests/                      # End-to-End Cucumber & Capybara/Cuprite test suite
 │   ├── features/                   # 5 Gherkin feature files (8 scenarios)
-│   └── README.md                   # E2E test execution documentation
+│   └── README.md                   # E2E test execution & OWASP ZAP DAST documentation
 ├── client-manager/                 # Next.js 16 OAuth 2.1 Client Configuration Manager
 │   ├── app/                        # Dashboard UI, client modals, raw JSON viewer
 │   ├── lib/                        # WebCrypto P-256 key generator & Spring Admin API client

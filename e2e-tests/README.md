@@ -63,3 +63,61 @@ mise exec -- bundle exec cucumber --dry-run
 # Run RuboCop static analysis
 mise exec -- rubocop
 ```
+
+---
+
+## Automated OWASP ZAP Security Scanning (DAST)
+
+The test harness integrates automated **Dynamic Application Security Testing (DAST)** powered by **OWASP ZAP** (`zaproxy/zap-bare`). Rather than using unauthenticated "spray-and-pray" crawlers that fail against modern OAuth/OIDC flows, the suite runs as a **proxy-driven passive and active inspection pipeline**.
+
+### Architecture & Traffic Flow
+
+```
+┌─────────────────┐       HTTP Proxy (127.0.0.1:8090)       ┌────────────────────────┐
+│ Cuprite Chrome  │ ──────────────────────────────────────> │    OWASP ZAP Daemon    │
+│ (Cucumber E2E)  │                                         │ (Docker: profile=sec)  │
+└─────────────────┘                                         └───────────┬────────────┘
+         │                                                              │
+         │ Transparent loopback port forwarding (socat)                 │ Inspects all traffic,
+         │ preserves Host: localhost:<port> & RFC 6265 cookie domains   │ headers, tokens, cookies
+         ▼                                                              ▼
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│ Target Services: Demo Client (:8080) | Spring AS (:9000) | Rails IdP (:3000)       │
+└────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+1. **Cuprite Chrome Driver**: Configured with `--proxy-server=http://127.0.0.1:8090` and `--proxy-bypass-list=<-loopback>`, routing all local HTTP traffic through ZAP while disabling Chrome background telemetry (`disable-background-networking`, `disable-sync`).
+2. **Transparent Socat Port Forwarding**: The ZAP Docker container (`zap/Dockerfile` & `zap/entrypoint.sh`) runs background `socat` daemons binding `127.0.0.1:<port>` to `host.docker.internal:<port>` for ports `8080`, `9000`, `3000`, `3001`, and `9001`. This preserves `Host: localhost:<port>` and RFC 6265 cookie domain boundaries (`localhost`), preventing authentication redirect bounces.
+3. **Automated Alert Aggregation**: At the conclusion of the test run, Cucumber's `AfterConfiguration` hook queries the ZAP REST API (`/JSON/alert/view/alerts/`), filters out non-application origins, outputs a severity breakdown in the console, and writes comprehensive HTML and Markdown reports to `security-reports/`.
+
+### Running ZAP Security Scans
+
+#### Option 1: Automated All-in-One Runner (Recommended)
+
+The runner script boots the ZAP daemon, awaits API readiness, resets the session, runs all Cucumber E2E scenarios through the proxy, and exports reports:
+
+```bash
+./bin/run-zap-e2e.sh
+```
+
+#### Option 2: Manual Execution
+
+```bash
+# 1. Start OWASP ZAP daemon
+docker compose --profile security up -d zap
+
+# 2. Run Cucumber with ZAP proxy flags
+export ZAP_PROXY=true
+export ZAP_HOST=127.0.0.1
+export ZAP_PORT=8090
+export FAIL_ON_ZAP_ALERTS=false  # Set to true to fail CI on High/Medium alerts
+
+bundle exec cucumber
+```
+
+### Generated Security Reports
+
+Reports are automatically generated and saved to the project root:
+- `security-reports/zap-report.html`: Full interactive OWASP ZAP HTML vulnerability report with request/response evidence, CWE/WASC classifications, and remediation advice.
+- `security-reports/zap-summary.md`: Concise Markdown summary with alert count breakdown by severity (High, Medium, Low, Informational) and targeted endpoints.
+

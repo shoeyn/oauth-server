@@ -22,7 +22,7 @@ services:
       - SECRET_KEY_BASE=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       - SPRING_AUTH_SERVER_URL=http://spring-auth-server:9000
       - ADMIN_API_KEY=secret-admin-key
-      - ALLOWED_RETURN_HOSTS=localhost:9000,127.0.0.1:9000,spring-auth-server:9000,nginx:9000
+      - ALLOWED_RETURN_HOSTS=localhost:9000,127.0.0.1:9000,spring-auth-server:9000,nginx:9000,host.docker.internal:9000
     depends_on:
       redis:
         condition: service_healthy
@@ -137,6 +137,7 @@ services:
       - AUTH_SERVER_URL_INTERNAL=http://spring-auth-server:9000
       - RAILS_URL=http://rails-app:3000
       - CLIENT_PRIVATE_KEY_PATH=/app/keys/client_private_key.pem
+      - HTTP_PROXY=${CLIENT_HTTP_PROXY:-}
     depends_on:
       redis:
         condition: service_healthy
@@ -145,7 +146,21 @@ services:
       rails-app:
         condition: service_started
 
+  zap:
+    build:
+      context: ./zap
+    container_name: poc-zap
+    profiles: ["security"]
+    ports:
+      - "8090:8090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./security-reports:/zap/wrk:rw
+
+
 volumes:
+
   postgres-data:
 
 # Build-time secret for corporate TLS interception (proxies that re-sign HTTPS with an internal

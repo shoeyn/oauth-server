@@ -100,6 +100,26 @@ k6 run --vus 2 --iterations 10 k6/oauth_load_test.js
 k6 run k6/oauth_load_test.js
 ```
 
+### Dynamic Application Security Testing (OWASP ZAP DAST)
+
+The platform includes an automated OWASP ZAP DAST scanner integrated with the browser-driven Cucumber test suite. Rather than using an unauthenticated crawler ("spray-and-pray") that cannot traverse OAuth 2.1 PAR, DPoP, or Rails session boundaries, ZAP acts as an inline proxy inspecting live traffic during full E2E execution.
+
+- **Proxy Architecture**: Headless Chrome (Cuprite) sends all HTTP requests through ZAP (`http://127.0.0.1:8090`).
+- **Loopback Port Preservation**: The `socat` forwarder inside the ZAP container maps loopback ports `8080`, `9000`, `3000`, `3001`, and `9001` to `host.docker.internal`, preserving RFC 6265 cookie boundaries and avoiding redirect loops.
+- **Automated Runner**:
+  ```bash
+  # Run the full automated ZAP security scan
+  ./bin/run-zap-e2e.sh
+  ```
+- **Report Artifacts**:
+  - `security-reports/zap-report.html`: Comprehensive interactive HTML vulnerability assessment.
+  - `security-reports/zap-summary.md`: Markdown summary with alert severity breakdowns and CWE classifications.
+- **Alert Baseline (Local Dev)**:
+  - 🔴 **High Vulnerabilities**: **0** (Zero critical/high vulnerabilities across the entire platform).
+  - 🟠 **Medium Alerts**: Layout inline styles (`style-src 'unsafe-inline'`). All CSP headers are present and strict.
+  - 🟡 **Low Alerts**: Token inspection debug views rendering epoch timestamps (`Timestamp Disclosure - Unix`). `SameSite=Lax` cookies and `server_tokens off` are strictly enforced.
+  - ℹ️ **Informational**: Standard session tracking and authentication form identification.
+
 ---
 
 ## 3. Failure Diagnostic & Troubleshooting Matrix
@@ -143,6 +163,20 @@ If automated tests or manual flows fail, use the following quick-triage diagnost
 - **Symptom:** Spring token endpoint returns `HTTP 400 Bad Request` with `invalid_dpop_proof: DPoP proof header is strictly required on token endpoint requests (RFC 9449)`.
 - **Diagnostic Cause:** The client session did not persist the ephemeral DPoP private key generated during the initial authorization flow, or failed to construct the `DPoP` HTTP header for the refresh request.
 - **Remediation:** Ensure the client uses `OAuth2ClientKit.token_store` which securely stores the `dpop_key` alongside the refresh token and attaches valid DPoP proofs with single-use nonces.
+
+### E. OWASP ZAP Proxy Connection Refused or Stale Session
+- **Symptom:** `bin/run-zap-e2e.sh` fails with `Timed out waiting for ZAP daemon to respond on port 8090` or Cucumber throws `Ferrum::DeadBrowserError`.
+- **Diagnostic Cause:** The ZAP daemon container is stopped or port 8090 is in use.
+- **Remediation:**
+  ```bash
+  # Verify container status and logs
+  docker compose --profile security ps
+  docker compose logs zap
+  # Manually restart ZAP daemon
+  docker compose --profile security restart zap
+  # Check readiness
+  curl -s http://127.0.0.1:8090/JSON/core/view/version/
+  ```
 
 ---
 

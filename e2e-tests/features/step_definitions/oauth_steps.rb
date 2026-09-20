@@ -9,7 +9,7 @@ When('I click {string}') do |button_text|
 end
 
 Then('I should be redirected to the Rails login page') do
-  expect(page).to have_current_path(%r{http://localhost:3000/login}, url: true)
+  expect(page).to have_current_path(%r{http://(localhost|host\.docker\.internal):3000/login}, url: true)
 end
 
 When('I fill in {string} with {string}') do |field, value|
