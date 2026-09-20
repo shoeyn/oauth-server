@@ -73,7 +73,7 @@ module OAuth2ClientKit
       decoded = JWT.decode(
         jwt_string, nil, true,
         { algorithms: ['ES256'], jwks: jwk_set, iss: @public_issuer_url, verify_iss: true,
-          aud: @client_id, verify_aud: true }
+          aud: @client_id, verify_aud: true, exp_leeway: 60, nbf_leeway: 60 }
       )
       decoded[0]
     end

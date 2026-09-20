@@ -35,10 +35,8 @@ module OAuth2ClientKit
       return {} if access_token.blank?
 
       userinfo_url = "#{@internal_issuer_url}/userinfo"
-      response = with_retries(operation_name: 'Fetch UserInfo') do
-        connection.get(userinfo_url) { |req| configure_userinfo_request(req, userinfo_url, access_token, dpop_key) }
-      end
-      return {} unless response.status == 200
+      response = execute_userinfo_request(userinfo_url, access_token, dpop_key)
+      return {} unless response&.status == 200
 
       parse_json_safe(response.body)
     end
@@ -67,9 +65,22 @@ module OAuth2ClientKit
       { 'active' => false }
     end
 
-    def configure_userinfo_request(req, url, access_token, dpop_key)
+    def execute_userinfo_request(url, access_token, dpop_key)
+      response = with_retries(operation_name: 'Fetch UserInfo') do
+        connection.get(url) { |req| configure_userinfo_request(req, url, access_token, dpop_key) }
+      end
+      server_nonce = response.headers['dpop-nonce'] || response.headers['DPoP-Nonce']
+      if response.status == 401 && server_nonce.present? && dpop_key.present?
+        response = with_retries(operation_name: 'Fetch UserInfo Nonce Retry') do
+          connection.get(url) { |req| configure_userinfo_request(req, url, access_token, dpop_key, server_nonce) }
+        end
+      end
+      response
+    end
+
+    def configure_userinfo_request(req, url, access_token, dpop_key, nonce = nil)
       if dpop_key.present?
-        dpop_proof = build_dpop_proof('GET', url, access_token, dpop_key)
+        dpop_proof = build_dpop_proof('GET', url, access_token, dpop_key, nonce)
         req.headers['Authorization'] = "DPoP #{access_token}"
         req.headers['DPoP'] = dpop_proof
       else

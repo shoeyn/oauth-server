@@ -60,6 +60,11 @@ RSpec.describe OAuth2ClientKit::TokenStore do
       allow(redis).to receive(:get).with('token:missing').and_return(nil)
       expect(token_store.read('missing')).to be_nil
     end
+
+    it 'returns nil when the key contains unparseable JSON' do
+      allow(redis).to receive(:get).with('token:corrupt').and_return('not-json')
+      expect(token_store.read('corrupt')).to be_nil
+    end
   end
 
   describe '#delete' do
@@ -83,17 +88,22 @@ RSpec.describe OAuth2ClientKit::TokenStore do
       allow(rails_cache).to receive_messages(write: nil, read: nil, delete: nil)
     end
 
-    it 'writes to the Rails cache instead of Redis' do
+    it 'writes to both Redis and Rails cache' do
       allow(OAuth2ClientKit.config).to receive(:token_cache_ttl).and_return(60)
       token_store.write('abc', { a: 1 })
+      expect(redis).to have_received(:set).with('token:abc', { a: 1 }.to_json, ex: 60)
       expect(rails_cache).to have_received(:write).with('token:abc', { a: 1 }, expires_in: 60)
-      expect(redis).not_to have_received(:set)
     end
 
-    it 'reads from the Rails cache instead of Redis' do
-      allow(rails_cache).to receive(:read).with('token:abc').and_return({ a: 1 })
+    it 'reads from Redis and returns parsed data' do
+      allow(redis).to receive(:get).with('token:abc').and_return({ 'a' => 1 }.to_json)
       expect(token_store.read('abc')).to eq({ a: 1 })
-      expect(redis).not_to have_received(:get)
+    end
+
+    it 'deletes from Rails cache and returns nil when Redis key is missing' do
+      allow(redis).to receive(:get).with('token:abc').and_return(nil)
+      expect(token_store.read('abc')).to be_nil
+      expect(rails_cache).to have_received(:delete).with('token:abc')
     end
 
     it 'deletes from both the Rails cache and Redis' do

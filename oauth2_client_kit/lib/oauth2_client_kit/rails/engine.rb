@@ -21,7 +21,6 @@ module OAuth2ClientKit
       post '/auth/refresh', to: 'auth#refresh'
       post '/auth/revoke', to: 'auth#revoke'
       post '/oidc/backchannel_logout', to: 'auth#backchannel_logout'
-      post '/auth/simulate_fraud_revocation', to: 'auth#simulate_fraud_revocation'
       post '/logout', to: 'auth#logout'
     end
   end

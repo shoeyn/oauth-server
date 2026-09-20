@@ -37,10 +37,9 @@ module OAuth2ClientKit
       jarm = validate_jarm_response(client)
       return if performed?
       return redirect_to '/' unless jarm
+      return redirect_to '/' unless valid_callback_context?(client, jarm)
 
       cached = pop_cached_flow(jarm['state'])
-      return redirect_to '/' unless valid_callback_context?(client, jarm, cached)
-
       complete_code_exchange(client, jarm, cached)
     end
 
@@ -133,14 +132,13 @@ module OAuth2ClientKit
       nil
     end
 
-    def valid_callback_context?(client, jarm, cached)
-      valid_callback_state?(jarm['state'], cached) && valid_callback_issuer?(jarm['iss'], client)
+    def valid_callback_context?(client, jarm)
+      valid_callback_state?(jarm['state']) && valid_callback_issuer?(jarm['iss'], client)
     end
 
-    def valid_callback_state?(state_param, cached_flow)
+    def valid_callback_state?(state_param)
       expected_state = session.delete(:oauth_state)
-      valid = (expected_state.present? && state_param == expected_state) || cached_flow.present?
-      return true if valid
+      return true if expected_state.present? && state_param == expected_state
 
       flash[:error] = 'Security Error: State parameter mismatch or expired. Possible CSRF attack.'
       false
@@ -183,6 +181,7 @@ module OAuth2ClientKit
         scopes: token.params['scope'] || claims[:access_claims]['scope'],
         id_token: token.params['id_token']
       }
+      reset_session if respond_to?(:reset_session)
       assign_auth_session(claims, session_ids, flow[:flow])
     end
 

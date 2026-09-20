@@ -352,6 +352,16 @@ RSpec.describe OAuth2ClientKit::Client do
       expect(client.fetch_userinfo('token123')).to eq({})
     end
 
+    it 'handles DPoP nonce retry on 401 response' do
+      dpop_key = described_class.generate_dpop_key(:ec)
+      stub_request(:get, userinfo_url).to_return(
+        { status: 401, headers: { 'DPoP-Nonce' => 'userinfo-nonce-99' } },
+        { status: 200, headers: { 'Content-Type' => 'application/json' }, body: { sub: 'retried_user' }.to_json }
+      )
+
+      expect(client.fetch_userinfo('token123', dpop_key)).to eq({ 'sub' => 'retried_user' })
+    end
+
     it 'returns empty hash on 200 with invalid JSON' do
       stub_request(:get, userinfo_url).to_return(status: 200, body: 'not json')
       expect(client.fetch_userinfo('token123')).to eq({})
@@ -584,6 +594,11 @@ RSpec.describe OAuth2ClientKit::Client do
       it 'rejects expired token' do
         token = sign_jwt({ iss: public_issuer_url, aud: client_id, exp: Time.now.to_i - 3600 })
         expect { client.decode_and_verify_id_token(token, nil) }.to raise_error(JWT::ExpiredSignature)
+      end
+
+      it 'accepts token that expired within 60 seconds leeway' do
+        token = sign_jwt({ iss: public_issuer_url, aud: client_id, exp: Time.now.to_i - 30 })
+        expect(client.decode_and_verify_id_token(token, nil)).to be_present
       end
 
       it 'rejects future issued token' do

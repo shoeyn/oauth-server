@@ -15,25 +15,24 @@ module OAuth2ClientKit
 
     def write(token_key, data, expires_in: nil)
       ttl = expires_in || OAuth2ClientKit.config.token_cache_ttl
-      # If Rails cache is available, also write there
-      if defined?(Rails) && Rails.respond_to?(:cache) && Rails.cache
-        Rails.cache.write("token:#{token_key}", data, expires_in: ttl)
-      else
-        @redis.set("token:#{token_key}", data.to_json, ex: ttl)
-      end
+      @redis.set("token:#{token_key}", data.to_json, ex: ttl)
+      Rails.cache.write("token:#{token_key}", data, expires_in: ttl) if rails_cache_available?
     end
 
     def read(token_key)
-      if defined?(Rails) && Rails.respond_to?(:cache) && Rails.cache
-        Rails.cache.read("token:#{token_key}")
-      else
-        raw = @redis.get("token:#{token_key}")
-        raw ? JSON.parse(raw, symbolize_names: true) : nil
+      raw = @redis.get("token:#{token_key}")
+      if raw.nil?
+        Rails.cache.delete("token:#{token_key}") if rails_cache_available?
+        return nil
       end
+
+      JSON.parse(raw, symbolize_names: true)
+    rescue JSON::ParserError
+      nil
     end
 
     def delete(token_key)
-      Rails.cache.delete("token:#{token_key}") if defined?(Rails) && Rails.respond_to?(:cache) && Rails.cache
+      Rails.cache.delete("token:#{token_key}") if rails_cache_available?
       @redis.del("token:#{token_key}")
     end
 
@@ -85,6 +84,10 @@ module OAuth2ClientKit
       return false if expected.to_s.empty?
 
       actual.to_s == expected.to_s
+    end
+
+    def rails_cache_available?
+      defined?(Rails) && Rails.respond_to?(:cache) && Rails.cache.present?
     end
   end
 end
