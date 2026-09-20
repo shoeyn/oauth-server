@@ -25,3 +25,5 @@ coverage/
 .local-certs/
 *.crt
 !**/public/**
+
+security-reports/*
