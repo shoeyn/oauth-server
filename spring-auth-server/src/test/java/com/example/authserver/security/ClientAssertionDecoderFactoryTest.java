@@ -280,7 +280,11 @@ class ClientAssertionDecoderFactoryTest {
   void decoder_AcceptsAssertion_WhenAudienceMatchesAcceptedAudiencesList() throws Exception {
     ClientAssertionDecoderFactory customFactory =
         new ClientAssertionDecoderFactory(
-            repository, redisTemplate, ISSUER, null, "http://docker-as:9000,http://custom-host:9000");
+            repository,
+            redisTemplate,
+            ISSUER,
+            null,
+            "http://docker-as:9000,http://custom-host:9000");
     when(repository.getClientPublicKey(CLIENT_ID)).thenReturn(publicKey);
     JwtDecoder decoder = customFactory.createDecoder(registeredClient);
 
@@ -296,14 +300,12 @@ class ClientAssertionDecoderFactoryTest {
     JwtDecoder decoder = factory.createDecoder(registeredClient);
 
     String tokenPar =
-        signedAssertion(
-            validClaimsBuilder().audience("https://evil.com/oauth2/par").build());
+        signedAssertion(validClaimsBuilder().audience("https://evil.com/oauth2/par").build());
     JwtException ex1 = assertThrows(JwtException.class, () -> decoder.decode(tokenPar));
     assertTrue(ex1.getMessage().contains("Audience"));
 
     String tokenToken =
-        signedAssertion(
-            validClaimsBuilder().audience("https://evil.com/oauth2/token").build());
+        signedAssertion(validClaimsBuilder().audience("https://evil.com/oauth2/token").build());
     JwtException ex2 = assertThrows(JwtException.class, () -> decoder.decode(tokenToken));
     assertTrue(ex2.getMessage().contains("Audience"));
   }

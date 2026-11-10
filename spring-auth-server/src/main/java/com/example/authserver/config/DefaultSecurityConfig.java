@@ -10,6 +10,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.logout.LogoutFilter;
@@ -27,6 +29,11 @@ public class DefaultSecurityConfig {
 
   @Value("${auth.admin.api-key:secret-admin-key}")
   private String adminApiKey;
+
+  @Bean
+  public PasswordEncoder passwordEncoder() {
+    return new BCryptPasswordEncoder(10);
+  }
 
   @Bean
   @Order(2)
@@ -51,8 +58,9 @@ public class DefaultSecurityConfig {
         .authorizeHttpRequests(
             (authorize) ->
                 authorize
-                    .requestMatchers(
-                        "/actuator/**", "/error", "/health", "/.well-known/**", "/api/admin/**")
+                    .requestMatchers("/api/admin/**")
+                    .hasRole("ADMIN")
+                    .requestMatchers("/actuator/**", "/error", "/health", "/.well-known/**")
                     .permitAll()
                     .anyRequest()
                     .authenticated())

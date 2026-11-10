@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.flywaydb.core.Flyway;
-import org.springframework.context.annotation.DependsOn;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
@@ -49,7 +49,6 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @Primary
-@DependsOn("flyway")
 public class PostgresRegisteredClientRepository implements RegisteredClientRepository {
 
   public static final String REDIS_CLIENTS_HASH_KEY = "oauth2as:clients:configs";
@@ -67,7 +66,8 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
   private volatile Map<String, RegisteredClient> clientsByClientId = new ConcurrentHashMap<>();
   private volatile Map<String, ECPublicKey> publicKeysByClientId = new ConcurrentHashMap<>();
 
-  public PostgresRegisteredClientRepository(JdbcTemplate jdbcTemplate, Flyway flyway) {
+  public PostgresRegisteredClientRepository(
+      JdbcTemplate jdbcTemplate, @Autowired(required = false) Flyway flyway) {
     this.jdbcTemplate = jdbcTemplate;
     this.jdbcRepository = new JdbcRegisteredClientRepository(jdbcTemplate);
     this.flyway = flyway;
@@ -75,9 +75,6 @@ public class PostgresRegisteredClientRepository implements RegisteredClientRepos
 
   @PostConstruct
   public void init() {
-    log.info("Executing Flyway migration to guarantee schema existence...");
-    flyway.migrate();
-
     // Client seeding is owned exclusively by Flyway migrations (e.g. V3 seed for local/dev
     // environments). No client definitions are hardcoded or seeded from application code,
     // preventing accidental provisioning of fixture clients in production deployments.

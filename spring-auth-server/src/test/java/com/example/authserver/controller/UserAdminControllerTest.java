@@ -1,5 +1,6 @@
 package com.example.authserver.controller;
 
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -11,7 +12,6 @@ import java.util.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
@@ -29,14 +29,21 @@ public class UserAdminControllerTest {
 
   @Mock private UserSessionRevocationService revocationService;
 
-  @InjectMocks private UserAdminController controller;
+  private UserAdminController controller;
 
   private final ObjectMapper objectMapper = new ObjectMapper();
   private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder(10);
 
   @BeforeEach
   void setUp() {
+    controller = new UserAdminController(passwordEncoder, jdbcTemplate, revocationService);
     mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+  }
+
+  @Test
+  void testTwoArgConstructor() {
+    UserAdminController c = new UserAdminController(jdbcTemplate, revocationService);
+    assertNotNull(c);
   }
 
   @Test

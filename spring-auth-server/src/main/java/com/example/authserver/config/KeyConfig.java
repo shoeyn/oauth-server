@@ -72,16 +72,6 @@ public class KeyConfig {
   @Value("classpath:keys/server_public_key.pem")
   private Resource serverPublicKeyResource;
 
-  @Value("classpath:keys/demo_client_public_key.pem")
-  private Resource demoClientPublicKeyResource;
-
-  @Bean
-  public ECPublicKey demoClientPublicKey() throws Exception {
-    try (var is = demoClientPublicKeyResource.getInputStream()) {
-      return parseEcPublicKey(is);
-    }
-  }
-
   @Bean
   public ECKey serverEcKey(@Autowired(required = false) KmsClient kmsClient) throws Exception {
     if (kmsEnabled) {

@@ -134,6 +134,14 @@ public class AuthorizationServerConfig {
                                               builder.claim(
                                                   "response_modes_supported",
                                                   List.of("jwt", "query.jwt"));
+                                              builder.claim(
+                                                  "dpop_signing_alg_values_supported",
+                                                  List.of("ES256"));
+                                              builder.claim(
+                                                  "authorization_signing_alg_values_supported",
+                                                  List.of("ES256"));
+                                              builder.claim(
+                                                  "require_pushed_authorization_requests", true);
                                             }))
                                 .userInfoEndpoint(
                                     userInfo ->
@@ -233,6 +241,12 @@ public class AuthorizationServerConfig {
                                       List.of("private_key_jwt"));
                                   builder.claim(
                                       "response_modes_supported", List.of("jwt", "query.jwt"));
+                                  builder.claim(
+                                      "dpop_signing_alg_values_supported", List.of("ES256"));
+                                  builder.claim(
+                                      "authorization_signing_alg_values_supported",
+                                      List.of("ES256"));
+                                  builder.claim("require_pushed_authorization_requests", true);
                                 }))
                     // Enforce RFC 7523 private_key_jwt client authentication exclusively.
                     // Shared-secret mechanisms (client_secret_basic, client_secret_post) are

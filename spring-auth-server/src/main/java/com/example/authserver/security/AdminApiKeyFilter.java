@@ -7,9 +7,14 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.authentication.preauth.PreAuthenticatedAuthenticationToken;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -55,6 +60,13 @@ public class AdminApiKeyFilter extends OncePerRequestFilter {
               "{\"error\":\"Unauthorized\",\"message\":\"Invalid or missing administrative API key\"}");
       return;
     }
+
+    SecurityContext context = SecurityContextHolder.createEmptyContext();
+    PreAuthenticatedAuthenticationToken auth =
+        new PreAuthenticatedAuthenticationToken(
+            "admin", apiKeyHeader, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+    context.setAuthentication(auth);
+    SecurityContextHolder.setContext(context);
 
     filterChain.doFilter(request, response);
   }

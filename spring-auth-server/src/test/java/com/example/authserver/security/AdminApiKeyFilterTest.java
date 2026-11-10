@@ -1,6 +1,8 @@
 package com.example.authserver.security;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,12 +15,15 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.Method;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 @ExtendWith(MockitoExtension.class)
 class AdminApiKeyFilterTest {
@@ -28,6 +33,12 @@ class AdminApiKeyFilterTest {
   @Mock private HttpServletResponse response;
 
   @Mock private FilterChain filterChain;
+
+  @BeforeEach
+  @AfterEach
+  void cleanContext() {
+    SecurityContextHolder.clearContext();
+  }
 
   private boolean shouldNotFilter(AdminApiKeyFilter filter, HttpServletRequest req)
       throws Exception {
@@ -63,6 +74,8 @@ class AdminApiKeyFilterTest {
 
     verify(filterChain).doFilter(request, response);
     verify(response, never()).setStatus(HttpStatus.UNAUTHORIZED.value());
+    assertNotNull(SecurityContextHolder.getContext().getAuthentication());
+    assertEquals("admin", SecurityContextHolder.getContext().getAuthentication().getName());
   }
 
   @Test

@@ -46,6 +46,7 @@ public class CorsConfig {
     source.registerCorsConfiguration("/oauth2/**", config);
     source.registerCorsConfiguration("/.well-known/**", config);
     source.registerCorsConfiguration("/userinfo", config);
+    source.registerCorsConfiguration("/connect/logout", config);
     // Exclude /api/admin/** entirely from CORS to mitigate Cross-Origin admin attacks
     return source;
   }
