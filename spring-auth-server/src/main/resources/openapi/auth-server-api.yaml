@@ -1,18 +1,425 @@
 openapi: 3.0.3
 info:
-  title: Spring Auth Server Management API
-  description: Contract-first administrative and session management API for OAuth 2.1 Authorization Server.
+  title: Spring Auth Server API
+  description: Complete API contract for OAuth 2.1 / OIDC Authorization Server, including protocol and administration endpoints.
   version: 1.0.0
 
 tags:
+  - name: OAuth2Protocol
+    description: RFC 6749 / OAuth 2.1 authorization, token, PAR, JWKS, and lifecycle endpoints
+  - name: OpenIDConnect
+    description: OpenID Connect Core 1.0 UserInfo, RP-Initiated Logout, and discovery metadata
   - name: ClientAdmin
-    description: Registered client administration
+    description: Registered OAuth 2.1 client administration
   - name: UserAdmin
-    description: User and credential administration
+    description: User credential and account administration
   - name: SessionInfo
-    description: User profile and administrative session revocation
+    description: Authenticated user profile and global session revocation
 
 paths:
+  /oauth2/par:
+    post:
+      tags:
+        - OAuth2Protocol
+      summary: Pushed Authorization Request (RFC 9126)
+      description: Clients securely push authorization parameters directly to the Authorization Server via back-channel with private_key_jwt client authentication.
+      operationId: pushedAuthorizationRequest
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - client_id
+                - client_assertion_type
+                - client_assertion
+                - response_type
+                - redirect_uri
+                - scope
+                - state
+                - code_challenge
+              properties:
+                client_id:
+                  type: string
+                client_assertion_type:
+                  type: string
+                  default: urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+                client_assertion:
+                  type: string
+                  description: RFC 7523 private_key_jwt client assertion signed with ES256
+                response_type:
+                  type: string
+                  default: code
+                redirect_uri:
+                  type: string
+                scope:
+                  type: string
+                state:
+                  type: string
+                code_challenge:
+                  type: string
+                  description: RFC 7636 PKCE S256 code challenge
+                code_challenge_method:
+                  type: string
+                  default: S256
+                response_mode:
+                  type: string
+                  description: RFC 9221 JARM response mode (e.g. jwt)
+                dpop_jkt:
+                  type: string
+                  description: RFC 9449 DPoP public key thumbprint
+      responses:
+        '201':
+          description: Pushed authorization request accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+        '401':
+          description: Client authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+
+  /oauth2/authorize:
+    get:
+      tags:
+        - OAuth2Protocol
+      summary: OAuth 2.1 Authorization Endpoint
+      description: Interactive user-agent authorization flow. Strictly enforces RFC 9126 PAR (request_uri is mandatory).
+      operationId: authorize
+      parameters:
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: request_uri
+          in: query
+          required: true
+          description: Short-lived URN returned by /oauth2/par
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to client redirect_uri with code or JARM JWT response
+        '400':
+          description: Invalid authorization request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+
+  /oauth2/token:
+    post:
+      tags:
+        - OAuth2Protocol
+      summary: OAuth 2.1 Token Endpoint
+      description: Issues access tokens, refresh tokens, and ID tokens using private_key_jwt client authentication and RFC 9449 DPoP proof verification.
+      operationId: issueToken
+      parameters:
+        - name: DPoP
+          in: header
+          required: false
+          description: RFC 9449 DPoP proof JWT
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - grant_type
+                - client_assertion_type
+                - client_assertion
+              properties:
+                grant_type:
+                  type: string
+                  enum: [authorization_code, refresh_token, client_credentials]
+                code:
+                  type: string
+                redirect_uri:
+                  type: string
+                code_verifier:
+                  type: string
+                  description: RFC 7636 PKCE code verifier
+                refresh_token:
+                  type: string
+                scope:
+                  type: string
+                client_assertion_type:
+                  type: string
+                  default: urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+                client_assertion:
+                  type: string
+                  description: RFC 7523 private_key_jwt client assertion signed with ES256
+      responses:
+        '200':
+          description: Token response
+          headers:
+            DPoP-Nonce:
+              description: Next server nonce required for subsequent DPoP proofs
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Invalid grant or request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+        '401':
+          description: Authentication failed or stale DPoP nonce (use returned DPoP-Nonce to retry)
+          headers:
+            DPoP-Nonce:
+              description: Server nonce required for RFC 9449 retry
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+
+  /oauth2/jwks:
+    get:
+      tags:
+        - OAuth2Protocol
+      summary: JSON Web Key Set (RFC 7517)
+      description: Retrieves public EC P-256 keys for verifying JWT access tokens, ID tokens, and JARM responses.
+      operationId: getJwks
+      responses:
+        '200':
+          description: JSON Web Key Set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JwksResponse'
+
+  /oauth2/revoke:
+    post:
+      tags:
+        - OAuth2Protocol
+      summary: Token Revocation Endpoint (RFC 7009)
+      description: Revokes an active OAuth access or refresh token.
+      operationId: revokeToken
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - token
+                - client_assertion_type
+                - client_assertion
+              properties:
+                token:
+                  type: string
+                token_type_hint:
+                  type: string
+                  enum: [access_token, refresh_token]
+                client_assertion_type:
+                  type: string
+                  default: urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+                client_assertion:
+                  type: string
+      responses:
+        '200':
+          description: Token revoked successfully
+        '401':
+          description: Client authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+
+  /oauth2/introspect:
+    post:
+      tags:
+        - OAuth2Protocol
+      summary: Token Introspection Endpoint (RFC 7662)
+      description: Returns active status and metadata about a token.
+      operationId: introspectToken
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - token
+                - client_assertion_type
+                - client_assertion
+              properties:
+                token:
+                  type: string
+                token_type_hint:
+                  type: string
+                  enum: [access_token, refresh_token]
+                client_assertion_type:
+                  type: string
+                  default: urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+                client_assertion:
+                  type: string
+      responses:
+        '200':
+          description: Token introspection result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenIntrospectionResponse'
+        '401':
+          description: Client authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+
+  /userinfo:
+    get:
+      tags:
+        - OpenIDConnect
+      summary: OpenID Connect 1.0 UserInfo Endpoint
+      description: Returns identity claims of the authenticated user. Requires openid scope and DPoP-bound or Bearer token.
+      operationId: getUserInfo
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          description: DPoP or Bearer token
+          schema:
+            type: string
+        - name: DPoP
+          in: header
+          required: false
+          description: RFC 9449 DPoP proof JWT
+          schema:
+            type: string
+      responses:
+        '200':
+          description: UserInfo claims
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+
+  /connect/logout:
+    get:
+      tags:
+        - OpenIDConnect
+      summary: OpenID Connect RP-Initiated Logout (GET)
+      description: Terminates the shared Redis session and redirects to post_logout_redirect_uri.
+      operationId: logoutGet
+      parameters:
+        - name: id_token_hint
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: client_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: post_logout_redirect_uri
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirected to client post_logout_redirect_uri
+        '200':
+          description: Logged out
+    post:
+      tags:
+        - OpenIDConnect
+      summary: OpenID Connect RP-Initiated Logout (POST)
+      description: Terminates the shared Redis session and redirects to post_logout_redirect_uri.
+      operationId: logoutPost
+      parameters:
+        - name: id_token_hint
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: client_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: post_logout_redirect_uri
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirected to client post_logout_redirect_uri
+        '200':
+          description: Logged out
+
+  /.well-known/openid-configuration:
+    get:
+      tags:
+        - OpenIDConnect
+      summary: OpenID Connect Discovery 1.0 Metadata
+      description: Returns configuration and endpoint metadata for OpenID Connect clients.
+      operationId: getOpenIdConfiguration
+      responses:
+        '200':
+          description: OpenID Provider metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /.well-known/oauth-authorization-server:
+    get:
+      tags:
+        - OAuth2Protocol
+      summary: OAuth 2.0 Authorization Server Metadata (RFC 8414)
+      description: Returns OAuth 2.1 authorization server capabilities, including PAR, DPoP, and JARM support.
+      operationId: getOAuthAuthorizationServerMetadata
+      responses:
+        '200':
+          description: Authorization Server metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
   /me:
     get:
       tags:
@@ -398,6 +805,87 @@ components:
         type: string
 
   schemas:
+    ParResponse:
+      type: object
+      properties:
+        request_uri:
+          type: string
+        expires_in:
+          type: integer
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          default: DPoP
+        expires_in:
+          type: integer
+        refresh_token:
+          type: string
+        scope:
+          type: string
+        id_token:
+          type: string
+
+    OAuthErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        error_description:
+          type: string
+        error_uri:
+          type: string
+
+    JwksResponse:
+      type: object
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    TokenIntrospectionResponse:
+      type: object
+      properties:
+        active:
+          type: boolean
+        client_id:
+          type: string
+        sub:
+          type: string
+        scope:
+          type: string
+        exp:
+          type: integer
+        iat:
+          type: integer
+        cnf:
+          type: object
+          properties:
+            jkt:
+              type: string
+
+    UserInfoResponse:
+      type: object
+      properties:
+        sub:
+          type: string
+        email:
+          type: string
+        email_verified:
+          type: boolean
+        name:
+          type: string
+        given_name:
+          type: string
+        family_name:
+          type: string
+
     ClientSummary:
       type: object
       properties:

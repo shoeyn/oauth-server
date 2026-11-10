@@ -254,6 +254,7 @@
                     <generatorName>spring</generatorName>
                     <apiPackage>com.example.authserver.api</apiPackage>
                     <modelPackage>com.example.authserver.model</modelPackage>
+                    <apisToGenerate>ClientAdmin,UserAdmin,SessionInfo</apisToGenerate>
                     <configOptions>
                         <interfaceOnly>true</interfaceOnly>
                         <useSpringBoot3>true</useSpringBoot3>
