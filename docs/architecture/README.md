@@ -95,6 +95,9 @@ Click the links below to inspect specific end-to-end communication flows:
 13. [**Spring Security 7 & Authorization Server: Usage, Divergences & Architectural Innovations**](spring_security_usage_and_divergences.md)
     - Comprehensive technical audit of Spring Security 7 features utilized, deliberate divergences from standard practices (external Rails IdP, Redis JSON session, server-determined scopes, strict `private_key_jwt`), improvements upon defaults (AWS KMS HSM signing, DER-to-P1363 transcoding, DPoP nonces, JARM, graceful logout), and custom implementations.
 
+14. [**Selective OpenAPI Generation & Architecture Decision Record (ADR)**](selective_openapi_generation_and_protocol_isolation.md)
+    - Technical, architectural, and security justification for selective contract-first OpenAPI generation (`<apisToGenerate>`), documenting 100% of routes on the wire for client SDK generation while isolating low-level OAuth 2.1 protocol filter pipelines from Spring MVC dispatching.
+
 ---
 
 ## Developer & Tester Guides
