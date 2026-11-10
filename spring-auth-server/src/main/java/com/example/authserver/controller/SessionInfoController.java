@@ -1,5 +1,7 @@
 package com.example.authserver.controller;
 
+import com.example.authserver.api.SessionInfoApi;
+import com.example.authserver.model.RevocationResponse;
 import com.example.authserver.security.OidcBackChannelLogoutService;
 import com.example.authserver.security.UserSessionRevocationService;
 import java.nio.charset.StandardCharsets;
@@ -12,21 +14,25 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
+/**
+ * Controller providing user session information and administrative revocation.
+ *
+ * <p>Implements contract-first OpenAPI interface {@link SessionInfoApi}.
+ */
 @Slf4j
 @RestController
 @RequiredArgsConstructor
-public class SessionInfoController {
+public class SessionInfoController implements SessionInfoApi {
 
   private final OAuth2AuthorizationService authorizationService;
   private final UserSessionRevocationService revocationService;
@@ -36,15 +42,33 @@ public class SessionInfoController {
   @Value("${auth.admin.api-key:secret-admin-key}")
   private String adminApiKey;
 
-  @GetMapping("/me")
-  public Map<String, Object> me(Principal principal) {
-    if (principal instanceof Authentication auth) {
-      return Map.of(
-          "username", auth.getName(),
-          "authorities", auth.getAuthorities(),
-          "details", auth.getDetails() != null ? auth.getDetails() : Map.of());
+  private Principal resolveCurrentPrincipal() {
+    ServletRequestAttributes attrs =
+        (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+    if (attrs != null
+        && attrs.getRequest() != null
+        && attrs.getRequest().getUserPrincipal() != null) {
+      return attrs.getRequest().getUserPrincipal();
     }
-    return Map.of("principal", principal != null ? principal.getName() : "anonymous");
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    if (auth != null) {
+      return auth;
+    }
+    return null;
+  }
+
+  @Override
+  public ResponseEntity<Map<String, Object>> getMe() {
+    Principal principal = resolveCurrentPrincipal();
+    if (principal instanceof Authentication auth) {
+      return ResponseEntity.ok(
+          Map.of(
+              "username", auth.getName(),
+              "authorities", auth.getAuthorities(),
+              "details", auth.getDetails() != null ? auth.getDetails() : Map.of()));
+    }
+    return ResponseEntity.ok(
+        Map.of("principal", principal != null ? principal.getName() : "anonymous"));
   }
 
   /**
@@ -52,25 +76,28 @@ public class SessionInfoController {
    * authorization server, evicts the shared Redis SSO session, and dispatches an OIDC back-channel
    * logout notification to client applications.
    */
-  @PostMapping("/api/admin/revoke-session")
-  public ResponseEntity<Map<String, Object>> revokeSession(
-      @RequestHeader(value = "X-Admin-Api-Key", required = false) String apiKeyHeader,
-      @RequestParam(required = false) String token,
-      @RequestParam(required = false) String sessionId,
-      @RequestParam(required = false) String username) {
+  @Override
+  @SuppressWarnings("unchecked")
+  public ResponseEntity<RevocationResponse> revokeSession(
+      String token, String sessionId, String username, String xAdminApiKey) {
 
     // Validate administrative API key using constant-time byte comparison to mitigate timing
     // attacks
     byte[] expectedKeyBytes = adminApiKey.getBytes(StandardCharsets.UTF_8);
     byte[] providedKeyBytes =
-        apiKeyHeader != null ? apiKeyHeader.getBytes(StandardCharsets.UTF_8) : new byte[0];
-    if (apiKeyHeader == null || !MessageDigest.isEqual(expectedKeyBytes, providedKeyBytes)) {
+        xAdminApiKey != null ? xAdminApiKey.getBytes(StandardCharsets.UTF_8) : new byte[0];
+    if (xAdminApiKey == null || !MessageDigest.isEqual(expectedKeyBytes, providedKeyBytes)) {
       log.warn(
           "Blocked unauthorized admin session revocation attempt: missing or invalid X-Admin-Api-Key");
-      return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-          .body(
-              Map.of(
-                  "error", "unauthorized", "message", "Invalid or missing administrative API key"));
+      return (ResponseEntity<RevocationResponse>)
+          (ResponseEntity<?>)
+              ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                  .body(
+                      Map.of(
+                          "error",
+                          "unauthorized",
+                          "message",
+                          "Invalid or missing administrative API key"));
     }
 
     log.warn(
@@ -125,24 +152,21 @@ public class SessionInfoController {
           null, resolvedClientId, resolvedUsername, resolvedSessionId);
     } else {
       log.warn(
-          "Skipping back-channel logout dispatch: could not resolve clientId from token/session (token={}, username={})",
+          "Skipping back-channel logout dispatch: could not resolve clientId from token/session"
+              + " (token={}, username={})",
           token != null ? "[PROTECTED]" : "null",
           resolvedUsername);
     }
 
     return ResponseEntity.ok(
-        Map.of(
-            "status",
-            "REVOKED",
-            "username",
-            resolvedUsername != null ? resolvedUsername : "unknown",
-            "authorizations_purged",
-            result.purgedAuthorizations(),
-            "token_revoked",
-            tokenRevoked,
-            "session_evicted",
-            result.sessionEvicted(),
-            "message",
-            "User force signed out everywhere by Authorization Server due to security/fraud policy"));
+        new RevocationResponse()
+            .status("REVOKED")
+            .username(resolvedUsername != null ? resolvedUsername : "unknown")
+            .authorizationsPurged(result.purgedAuthorizations())
+            .tokenRevoked(tokenRevoked)
+            .sessionEvicted(result.sessionEvicted())
+            .message(
+                "User force signed out everywhere by Authorization Server due to security/fraud"
+                    + " policy"));
   }
 }

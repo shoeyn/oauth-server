@@ -502,6 +502,18 @@ public class UserAdminControllerTest {
   }
 
   @Test
+  void listUsers_nullPaginationParams() {
+    when(jdbcTemplate.queryForList(anyString(), eq(10), eq(0))).thenReturn(Collections.emptyList());
+    when(jdbcTemplate.queryForObject(eq("SELECT COUNT(*) FROM app_users"), eq(Integer.class)))
+        .thenReturn(0);
+
+    var response = controller.listUsers(null, null);
+    org.junit.jupiter.api.Assertions.assertNotNull(response.getBody());
+    org.junit.jupiter.api.Assertions.assertEquals(1, response.getBody().getPage());
+    verify(jdbcTemplate).queryForList(anyString(), eq(10), eq(0));
+  }
+
+  @Test
   void createUser_databaseErrorReturns500() throws Exception {
     Map<String, String> payload =
         Map.of(

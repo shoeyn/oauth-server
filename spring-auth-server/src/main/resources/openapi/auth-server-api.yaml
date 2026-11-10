@@ -1,0 +1,566 @@
+openapi: 3.0.3
+info:
+  title: Spring Auth Server Management API
+  description: Contract-first administrative and session management API for OAuth 2.1 Authorization Server.
+  version: 1.0.0
+
+tags:
+  - name: ClientAdmin
+    description: Registered client administration
+  - name: UserAdmin
+    description: User and credential administration
+  - name: SessionInfo
+    description: User profile and administrative session revocation
+
+paths:
+  /me:
+    get:
+      tags:
+        - SessionInfo
+      summary: Retrieve authenticated user profile
+      operationId: getMe
+      responses:
+        '200':
+          description: User profile details
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /api/admin/revoke-session:
+    post:
+      tags:
+        - SessionInfo
+      summary: Revoke session, tokens, and notify clients
+      operationId: revokeSession
+      parameters:
+        - name: token
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sessionId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: username
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/AdminApiKeyHeader'
+      responses:
+        '200':
+          description: Revocation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevocationResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/admin/clients:
+    get:
+      tags:
+        - ClientAdmin
+      summary: List all registered OAuth 2.1 clients
+      operationId: listClients
+      parameters:
+        - $ref: '#/components/parameters/AdminApiKeyHeader'
+      responses:
+        '200':
+          description: List of client summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ClientSummary'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags:
+        - ClientAdmin
+      summary: Register or update an OAuth 2.1 client
+      operationId: saveClient
+      parameters:
+        - $ref: '#/components/parameters/AdminApiKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientConfig'
+      responses:
+        '201':
+          description: Client created or updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientActionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/admin/clients/{clientId}:
+    get:
+      tags:
+        - ClientAdmin
+      summary: Get registered client by ID
+      operationId: getClient
+      parameters:
+        - name: clientId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/AdminApiKeyHeader'
+      responses:
+        '200':
+          description: Client summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientSummary'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Client not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - ClientAdmin
+      summary: Delete registered client
+      operationId: deleteClient
+      parameters:
+        - name: clientId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/AdminApiKeyHeader'
+      responses:
+        '200':
+          description: Client deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientActionResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/admin/users:
+    get:
+      tags:
+        - UserAdmin
+      summary: List users with pagination
+      operationId: listUsers
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Paginated users response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+    post:
+      tags:
+        - UserAdmin
+      summary: Create a new user
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCredentialsRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/admin/users/{email}:
+    put:
+      tags:
+        - UserAdmin
+      summary: Edit existing user
+      operationId: editUser
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditUserRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - UserAdmin
+      summary: Delete user
+      operationId: deleteUser
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/admin/users/{email}/fraud:
+    post:
+      tags:
+        - UserAdmin
+      summary: Flag user as fraud and terminate active sessions
+      operationId: flagFraud
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User flagged as fraud
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/admin/users/{email}/unfraud:
+    post:
+      tags:
+        - UserAdmin
+      summary: Remove fraud flag from user
+      operationId: unflagFraud
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Fraud flag removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/admin/users/authenticate:
+    post:
+      tags:
+        - UserAdmin
+      summary: Authenticate user credentials (for IdP)
+      operationId: authenticateUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCredentialsRequest'
+      responses:
+        '200':
+          description: Successfully authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUserResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Account suspended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  parameters:
+    AdminApiKeyHeader:
+      name: X-Admin-Api-Key
+      in: header
+      required: false
+      schema:
+        type: string
+
+  schemas:
+    ClientSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        clientId:
+          type: string
+        clientName:
+          type: string
+        clientAuthenticationMethods:
+          type: array
+          items:
+            type: string
+        authorizationGrantTypes:
+          type: array
+          items:
+            type: string
+        redirectUris:
+          type: array
+          items:
+            type: string
+        postLogoutRedirectUris:
+          type: array
+          items:
+            type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        requireProofKey:
+          type: boolean
+        requireAuthorizationConsent:
+          type: boolean
+        requirePushedAuthorizationRequests:
+          type: boolean
+        accessTokenTimeToLiveMinutes:
+          type: integer
+          format: int64
+        refreshTokenTimeToLiveDays:
+          type: integer
+          format: int64
+        publicKeyPem:
+          type: string
+
+    ClientConfig:
+      type: object
+      properties:
+        clientId:
+          type: string
+        clientName:
+          type: string
+        clientAuthenticationMethods:
+          type: array
+          items:
+            type: string
+        authorizationGrantTypes:
+          type: array
+          items:
+            type: string
+        redirectUris:
+          type: array
+          items:
+            type: string
+        postLogoutRedirectUris:
+          type: array
+          items:
+            type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        requireProofKey:
+          type: boolean
+        requireAuthorizationConsent:
+          type: boolean
+        requirePushedAuthorizationRequests:
+          type: boolean
+        accessTokenTimeToLiveMinutes:
+          type: integer
+          format: int64
+        refreshTokenTimeToLiveDays:
+          type: integer
+          format: int64
+        publicKeyPem:
+          type: string
+
+    ClientActionResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        clientId:
+          type: string
+
+    UserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        total:
+          type: integer
+        page:
+          type: integer
+        totalPages:
+          type: integer
+
+    UserCredentialsRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    EditUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    AuthenticatedUserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        status:
+          type: string
+
+    RevocationResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        username:
+          type: string
+        authorizations_purged:
+          type: integer
+        token_revoked:
+          type: boolean
+        session_evicted:
+          type: boolean
+        message:
+          type: string
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: string

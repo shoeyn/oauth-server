@@ -213,7 +213,19 @@ public class ClientAdminControllerTest {
   void saveClient_Success() throws Exception {
     ClientConfigDto dto =
         new ClientConfigDto(
-            "new-client", null, null, null, null, null, null, null, null, null, null, null, null);
+            "new-client",
+            "New Client",
+            List.of("client_secret_basic"),
+            List.of("authorization_code"),
+            java.util.Set.of("http://localhost/cb"),
+            java.util.Set.of("http://localhost/logout"),
+            java.util.Set.of("openid"),
+            true,
+            true,
+            true,
+            15L,
+            30L,
+            "pem");
 
     mockMvc
         .perform(
@@ -232,9 +244,11 @@ public class ClientAdminControllerTest {
 
   @Test
   void saveClient_RedisException() throws Exception {
-    ClientConfigDto dto =
-        new ClientConfigDto(
-            "new-client", null, null, null, null, null, null, null, null, null, null, null, null);
+    java.util.Map<String, Object> payload = new java.util.HashMap<>();
+    payload.put("clientId", "new-client");
+    payload.put("redirectUris", null);
+    payload.put("postLogoutRedirectUris", null);
+    payload.put("scopes", null);
 
     when(redisTemplate.convertAndSend(anyString(), anyString()))
         .thenThrow(new RuntimeException("Redis down"));
@@ -244,7 +258,7 @@ public class ClientAdminControllerTest {
             post("/api/admin/clients")
                 .header("X-Admin-Api-Key", "secret-admin-key")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(dto)))
+                .content(objectMapper.writeValueAsString(payload)))
         .andExpect(status().isCreated());
 
     verify(clientRepository).saveDtoToDatabase(any(ClientConfigDto.class));

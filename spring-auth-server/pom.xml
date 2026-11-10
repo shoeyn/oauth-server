@@ -75,6 +75,15 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations</artifactId>
+            <version>2.2.28</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
@@ -141,6 +150,9 @@
                                         -->
                                         <!-- Pure Spring @Configuration bean wiring / infrastructure requiring full context. -->
                                         <exclude>com.example.authserver.config.**</exclude>
+                                        <!-- OpenAPI generated API interfaces and model DTOs -->
+                                        <exclude>com.example.authserver.api.**</exclude>
+                                        <exclude>com.example.authserver.model.**</exclude>
                                         <!-- Spring Boot main() bootstrap entrypoint - no testable logic. -->
                                         <exclude>com.example.authserver.AuthServerApplication</exclude>
                                         <!-- Immutable data record (session principal DTO) - no branching logic worth gating. -->
@@ -234,6 +246,34 @@
                 </configuration>
             </plugin>
             <plugin>
+                <groupId>org.openapitools</groupId>
+                <artifactId>openapi-generator-maven-plugin</artifactId>
+                <version>7.10.0</version>
+                <configuration>
+                    <inputSpec>${project.basedir}/src/main/resources/openapi/auth-server-api.yaml</inputSpec>
+                    <generatorName>spring</generatorName>
+                    <apiPackage>com.example.authserver.api</apiPackage>
+                    <modelPackage>com.example.authserver.model</modelPackage>
+                    <configOptions>
+                        <interfaceOnly>true</interfaceOnly>
+                        <useSpringBoot3>true</useSpringBoot3>
+                        <useTags>true</useTags>
+                        <openApiNullable>false</openApiNullable>
+                        <skipDefaultInterface>true</skipDefaultInterface>
+                        <useBeanValidation>true</useBeanValidation>
+                        <generateSupportingFiles>false</generateSupportingFiles>
+                    </configOptions>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
                 <version>3.6.0</version>
@@ -249,6 +289,9 @@
                     <consoleOutput>true</consoleOutput>
                     <failsOnError>true</failsOnError>
                     <linkXRef>false</linkXRef>
+                    <sourceDirectories>
+                        <sourceDirectory>${project.build.sourceDirectory}</sourceDirectory>
+                    </sourceDirectories>
                 </configuration>
             </plugin>
         </plugins>

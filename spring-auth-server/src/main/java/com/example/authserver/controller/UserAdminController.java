@@ -1,7 +1,12 @@
 package com.example.authserver.controller;
 
+import com.example.authserver.api.UserAdminApi;
+import com.example.authserver.model.AuthenticatedUserResponse;
+import com.example.authserver.model.EditUserRequest;
+import com.example.authserver.model.MessageResponse;
+import com.example.authserver.model.UserCredentialsRequest;
+import com.example.authserver.model.UserListResponse;
 import com.example.authserver.security.UserSessionRevocationService;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,25 +15,18 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Controller for admin operations on users. Note on passwords: The client sends a SHA-256 hex
- * digest of the plaintext password in the "password" field. This controller then uses BCrypt to
- * hash that SHA-256 digest before storing it in the database. For authentication, the expected
- * BCrypt hash is verified against the incoming SHA-256 digest.
+ * Controller for admin operations on users.
+ *
+ * <p>Implements contract-first OpenAPI interface {@link UserAdminApi}. Note on passwords: The
+ * client sends a SHA-256 hex digest of the plaintext password in the "password" field. This
+ * controller then uses BCrypt to hash that SHA-256 digest before storing it in the database. For
+ * authentication, the expected BCrypt hash is verified against the incoming SHA-256 digest.
  */
 @RestController
-@RequestMapping("/api/admin/users")
-public class UserAdminController {
+public class UserAdminController implements UserAdminApi {
 
   private final PasswordEncoder passwordEncoder;
   private final JdbcTemplate jdbcTemplate;
@@ -71,22 +69,16 @@ public class UserAdminController {
     }
   }
 
-  @GetMapping
-  public ResponseEntity<Map<String, Object>> listUsers(
-      @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "10") int limit) {
-
-    if (page < 1) {
-      page = 1;
-    }
-    if (limit < 1) {
-      limit = 10;
-    }
-    int offset = (page - 1) * limit;
+  @Override
+  public ResponseEntity<UserListResponse> listUsers(Integer page, Integer limit) {
+    int p = (page == null || page < 1) ? 1 : page;
+    int l = (limit == null || limit < 1) ? 10 : limit;
+    int offset = (p - 1) * l;
 
     List<Map<String, Object>> users =
         jdbcTemplate.queryForList(
             "SELECT id, email, is_fraud FROM app_users ORDER BY email ASC LIMIT ? OFFSET ?",
-            limit,
+            l,
             offset);
 
     Integer total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM app_users", Integer.class);
@@ -94,24 +86,22 @@ public class UserAdminController {
       total = 0;
     }
 
-    int totalPages = (int) Math.ceil((double) total / limit);
+    int totalPages = (int) Math.ceil((double) total / l);
 
-    Map<String, Object> response = new HashMap<>();
-    response.put("users", users);
-    response.put("total", total);
-    response.put("page", page);
-    response.put("totalPages", totalPages);
-
-    return ResponseEntity.ok(response);
+    return ResponseEntity.ok(
+        new UserListResponse().users(users).total(total).page(p).totalPages(totalPages));
   }
 
-  @PostMapping
-  public ResponseEntity<?> createUser(@RequestBody Map<String, String> payload) {
-    String email = payload.get("email");
-    String password = payload.get("password");
+  @Override
+  @SuppressWarnings("unchecked")
+  public ResponseEntity<MessageResponse> createUser(UserCredentialsRequest userCredentialsRequest) {
+    String email = userCredentialsRequest.getEmail();
+    String password = userCredentialsRequest.getPassword();
 
     if (email == null || email.isBlank() || password == null || password.isBlank()) {
-      return ResponseEntity.badRequest().body(Map.of("error", "Email and password required"));
+      return (ResponseEntity<MessageResponse>)
+          (ResponseEntity<?>)
+              ResponseEntity.badRequest().body(Map.of("error", "Email and password required"));
     }
 
     try {
@@ -119,18 +109,21 @@ public class UserAdminController {
 
       jdbcTemplate.update(
           "INSERT INTO app_users (email, password_hash) VALUES (?, ?)", email, passwordHash);
-      return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("message", "User created"));
+      return ResponseEntity.status(HttpStatus.CREATED)
+          .body(new MessageResponse().message("User created"));
     } catch (Exception e) {
-      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-          .body(Map.of("error", e.getMessage()));
+      return (ResponseEntity<MessageResponse>)
+          (ResponseEntity<?>)
+              ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                  .body(Map.of("error", e.getMessage()));
     }
   }
 
-  @PutMapping("/{email}")
-  public ResponseEntity<?> editUser(
-      @PathVariable String email, @RequestBody Map<String, String> payload) {
-    String newEmail = payload.get("email");
-    String password = payload.get("password");
+  @Override
+  @SuppressWarnings("unchecked")
+  public ResponseEntity<MessageResponse> editUser(String email, EditUserRequest editUserRequest) {
+    String newEmail = editUserRequest.getEmail();
+    String password = editUserRequest.getPassword();
 
     try {
       // Resolve id from the CURRENT email before any update (the email may be changing).
@@ -154,57 +147,73 @@ public class UserAdminController {
         jdbcTemplate.update("UPDATE app_users SET email = ? WHERE email = ?", newEmail, email);
         revocationService.revokeUserGlobally(userId, null, null);
       }
-      return ResponseEntity.ok(Map.of("message", "User updated"));
+      return ResponseEntity.ok(new MessageResponse().message("User updated"));
     } catch (Exception e) {
-      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-          .body(Map.of("error", e.getMessage()));
+      return (ResponseEntity<MessageResponse>)
+          (ResponseEntity<?>)
+              ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                  .body(Map.of("error", e.getMessage()));
     }
   }
 
-  @PostMapping("/{email}/fraud")
-  public ResponseEntity<?> flagFraud(@PathVariable String email) {
+  @Override
+  @SuppressWarnings("unchecked")
+  public ResponseEntity<MessageResponse> flagFraud(String email) {
     String userId = resolveUserId(email);
     int updated =
         jdbcTemplate.update("UPDATE app_users SET is_fraud = true WHERE email = ?", email);
     if (updated == 0) {
-      return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
+      return (ResponseEntity<MessageResponse>)
+          (ResponseEntity<?>)
+              ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
     }
 
     // Revoke by user id: sessions/authorizations are keyed by id, not email.
     revocationService.revokeUserGlobally(userId, null, null);
 
-    return ResponseEntity.ok(Map.of("message", "User flagged as fraud and sessions terminated"));
+    return ResponseEntity.ok(
+        new MessageResponse().message("User flagged as fraud and sessions terminated"));
   }
 
-  @PostMapping("/{email}/unfraud")
-  public ResponseEntity<?> unflagFraud(@PathVariable String email) {
+  @Override
+  @SuppressWarnings("unchecked")
+  public ResponseEntity<MessageResponse> unflagFraud(String email) {
     int updated =
         jdbcTemplate.update("UPDATE app_users SET is_fraud = false WHERE email = ?", email);
     if (updated == 0) {
-      return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
+      return (ResponseEntity<MessageResponse>)
+          (ResponseEntity<?>)
+              ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
     }
-    return ResponseEntity.ok(Map.of("message", "User fraud flag removed"));
+    return ResponseEntity.ok(new MessageResponse().message("User fraud flag removed"));
   }
 
-  @DeleteMapping("/{email}")
-  public ResponseEntity<?> deleteUser(@PathVariable String email) {
+  @Override
+  @SuppressWarnings("unchecked")
+  public ResponseEntity<MessageResponse> deleteUser(String email) {
     // Resolve id before deleting the row, then revoke sessions/authorizations by id.
     String userId = resolveUserId(email);
     revocationService.revokeUserGlobally(userId, null, null);
     int deleted = jdbcTemplate.update("DELETE FROM app_users WHERE email = ?", email);
     if (deleted == 0) {
-      return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
+      return (ResponseEntity<MessageResponse>)
+          (ResponseEntity<?>)
+              ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
     }
-    return ResponseEntity.ok(Map.of("message", "User deleted"));
+    return ResponseEntity.ok(new MessageResponse().message("User deleted"));
   }
 
-  @PostMapping("/authenticate")
-  public ResponseEntity<?> authenticate(@RequestBody Map<String, String> payload) {
-    String email = payload.get("email");
-    String password = payload.get("password");
+  @Override
+  @SuppressWarnings("unchecked")
+  public ResponseEntity<AuthenticatedUserResponse> authenticateUser(
+      UserCredentialsRequest userCredentialsRequest) {
+    String email = userCredentialsRequest.getEmail();
+    String password = userCredentialsRequest.getPassword();
 
     if (email == null || password == null) {
-      return ResponseEntity.badRequest().body(Map.of("error", "Email and password required"));
+      return (ResponseEntity<AuthenticatedUserResponse>)
+          (ResponseEntity<?>)
+              ResponseEntity.badRequest().body(Map.of("error", "Email and password required"));
     }
 
     List<Map<String, Object>> users =
@@ -213,33 +222,42 @@ public class UserAdminController {
             email);
 
     if (users.isEmpty()) {
-      return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-          .body(Map.of("error", "invalid_credentials"));
+      return (ResponseEntity<AuthenticatedUserResponse>)
+          (ResponseEntity<?>)
+              ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                  .body(Map.of("error", "invalid_credentials"));
     }
 
     Map<String, Object> user = users.get(0);
     Boolean isFraud = (Boolean) user.get("is_fraud");
 
     if (Boolean.TRUE.equals(isFraud)) {
-      return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "account_suspended"));
+      return (ResponseEntity<AuthenticatedUserResponse>)
+          (ResponseEntity<?>)
+              ResponseEntity.status(HttpStatus.FORBIDDEN)
+                  .body(Map.of("error", "account_suspended"));
     }
 
     try {
       String expectedHash = (String) user.get("password_hash");
 
       if (!passwordEncoder.matches(password, expectedHash)) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-            .body(Map.of("error", "invalid_credentials"));
+        return (ResponseEntity<AuthenticatedUserResponse>)
+            (ResponseEntity<?>)
+                ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "invalid_credentials"));
       }
 
       return ResponseEntity.ok(
-          Map.of(
-              "id", user.get("id").toString(),
-              "email", user.get("email"),
-              "status", "authenticated"));
+          new AuthenticatedUserResponse()
+              .id(user.get("id").toString())
+              .email((String) user.get("email"))
+              .status("authenticated"));
     } catch (Exception e) {
-      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-          .body(Map.of("error", e.getMessage()));
+      return (ResponseEntity<AuthenticatedUserResponse>)
+          (ResponseEntity<?>)
+              ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                  .body(Map.of("error", e.getMessage()));
     }
   }
 }
